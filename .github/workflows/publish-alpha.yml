@@ -40,19 +40,19 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
           path: action/package/
       - name: Checkout Scripts Repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           path: action/github/
           repository: TigreGotico/gh-automations
       - name: Setup Python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Determine version bump
         id: version_bump
         run: |
@@ -127,7 +127,7 @@ jobs:
       changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
           path: action/package/
@@ -162,7 +162,7 @@ jobs:
     runs-on: ${{inputs.runner}}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
           path: action/package/
