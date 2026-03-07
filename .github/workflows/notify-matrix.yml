@@ -1,0 +1,27 @@
+name: Notify Matrix
+on:
+  workflow_call:
+    inputs:
+      message:
+        type: string
+        required: true
+        description: "Message to send to the Matrix channel"
+      homeserver:
+        type: string
+        default: "matrix.org"
+      channel:
+        type: string
+        default: "!WjxEKjjINpyBRPFgxl:krbel.duckdns.org"
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send message to Matrix
+        uses: fadenb/matrix-chat-message@v0.0.6
+        with:
+          homeserver: ${{ inputs.homeserver }}
+          token: ${{ secrets.MATRIX_TOKEN }}
+          channel: ${{ inputs.channel }}
+          message: ${{ inputs.message }}

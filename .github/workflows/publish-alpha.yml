@@ -11,12 +11,16 @@ on:
       setup_py:
         type: string
         default: "setup.py"
+        description: "Deprecated. Version is now read from version_file directly."
       branch:
         type: string
         default: "dev"
       publish_prerelease:
         type: boolean
-        default: False
+        default: false
+      propose_release:
+        type: boolean
+        default: true
       update_changelog:
         type: boolean
         default: false
@@ -26,6 +30,14 @@ on:
       changelog_max_issues:
         type: number
         default: 50
+      publish_pypi:
+        type: boolean
+        default: false
+        description: "Publish to PyPI after version bump"
+      notify_matrix:
+        type: boolean
+        default: false
+        description: "Send Matrix notification when a PR is merged"
     outputs:
       version:
         description: Updated version
@@ -35,6 +47,7 @@ on:
         value: ${{jobs.update_changelog.outputs.changelog}}
 jobs:
   bump_version:
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: ${{inputs.runner}}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -56,24 +69,13 @@ jobs:
       - name: Determine version bump
         id: version_bump
         run: |
-          # Check if this is a manual run with no pull request
-          if [ -z "${{ github.event.pull_request }}" ]; then
-            echo "This workflow was triggered manually, no pull request available."
+          if [ -z "${{ github.event.pull_request.number }}" ]; then
             LABELS=""
           else
-            # Convert the labels array into text using jq
             LABELS=$(echo '${{ toJson(github.event.pull_request.labels) }}' | jq -r 'map(.name) | join(" ")')
-
-            # Check if jq command was successful
-            if [ $? -ne 0 ]; then
-              echo "Error processing labels with jq."
-              exit 1
-            fi
           fi
 
-          # Handle the case where there are no labels
           if [ -z "$LABELS" ]; then
-            echo "No labels found on the pull request."
             LABELS=""
           fi
 
@@ -83,7 +85,6 @@ jobs:
           MINOR=0
           BUILD=0
 
-          # Loop over the labels and determine the version bump
           for label in $LABELS; do
             echo "Processing label: $label"
             if [ "$label" == "breaking" ]; then
@@ -95,34 +96,33 @@ jobs:
             fi
           done
 
-          # Set the output based on the labels found
           if [ $MAJOR -eq 1 ]; then
-            echo "::set-output name=part::major"
+            echo "part=major" >> $GITHUB_OUTPUT
           elif [ $MINOR -eq 1 ]; then
-            echo "::set-output name=part::minor"
+            echo "part=minor" >> $GITHUB_OUTPUT
           elif [ $BUILD -eq 1 ]; then
-            echo "::set-output name=part::build"
+            echo "part=build" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=part::alpha"
+            echo "part=alpha" >> $GITHUB_OUTPUT
           fi
 
       - name: Increment Version
         id: version
         run: |
           python action/github/scripts/update_version.py ${{ steps.version_bump.outputs.part }} --version-file action/package/${{ inputs.version_file }}
-          echo ::set-output name=version::$(python action/package/${{ inputs.setup_py }} --version)
+          echo "version=$(python action/github/scripts/get_version.py --version-file action/package/${{ inputs.version_file }})" >> $GITHUB_OUTPUT
 
       - name: Push Version Change
-        uses: stefanzweifel/git-auto-commit-action@v4
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Increment Version to ${{ steps.version.outputs.version }}
-          branch: ${{ inputs.branch }}  # Ensure the correct branch is referenced
+          branch: ${{ inputs.branch }}
           repository: action/package/
 
   update_changelog:
     needs: bump_version
     runs-on: ${{inputs.runner}}
-    if: ${{ inputs.update_changelog }}
+    if: ${{ inputs.update_changelog && needs.bump_version.result == 'success' }}
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
@@ -148,17 +148,17 @@ jobs:
           maxIssues: ${{ inputs.changelog_max_issues }}
           sinceTag: ${{ steps.latest_release.outputs.release }}
       - name: Push Changelog
-        uses: stefanzweifel/git-auto-commit-action@v4
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Update Changelog
           repository: action/package/
-          branch: ${{ inputs.branch }}  # Ensure the correct branch is referenced
+          branch: ${{ inputs.branch }}
 
   tag_prerelease:
     needs:
       - update_changelog
       - bump_version
-    if: ${{ always() && inputs.publish_prerelease }}
+    if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_prerelease }}
     runs-on: ${{inputs.runner}}
     steps:
       - name: Checkout Repository
@@ -171,6 +171,73 @@ jobs:
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           tag: ${{needs.bump_version.outputs.version}}
-          commit: ${{ github.ref }}
+          commit: ${{ inputs.branch }}
           prerelease: true
           generateReleaseNotes: true
+
+  propose_release:
+    needs:
+      - update_changelog
+      - bump_version
+    if: ${{ always() && needs.bump_version.result == 'success' && inputs.propose_release }}
+    runs-on: ${{inputs.runner}}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+      - name: Create and push release branch
+        run: |
+          VERSION="${{needs.bump_version.outputs.version}}"
+          git checkout -b release-${VERSION}
+          git push origin release-${VERSION}
+      - name: Open Pull Request from release branch to master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{needs.bump_version.outputs.version}}"
+          curl -s -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -d "{\"title\":\"Release ${VERSION}\",\"body\":\"Human review requested!\",\"head\":\"release-${VERSION}\",\"base\":\"master\"}" \
+            https://api.github.com/repos/${{ github.repository }}/pulls
+
+  publish_pypi:
+    needs:
+      - update_changelog
+      - bump_version
+    if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_pypi }}
+    runs-on: ${{inputs.runner}}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Build Tools
+        run: python -m pip install build
+      - name: Build Distribution Packages
+        run: python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+
+  notify:
+    needs:
+      - bump_version
+    if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix && github.event.pull_request.merged == true }}
+    runs-on: ${{inputs.runner}}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send message to Matrix
+        uses: fadenb/matrix-chat-message@v0.0.6
+        with:
+          homeserver: 'matrix.org'
+          token: ${{ secrets.MATRIX_TOKEN }}
+          channel: '!WjxEKjjINpyBRPFgxl:krbel.duckdns.org'
+          message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"

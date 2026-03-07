@@ -1,0 +1,58 @@
+name: License Check
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      install_extras:
+        type: string
+        default: ""
+        description: "pip extras to install, e.g. '[extras,linux]'"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages beyond python3-dev and libssl-dev"
+      exclude_packages:
+        type: string
+        default: "^(tqdm).*"
+        description: "Regex of package names to exclude from the license check"
+      exclude_licenses:
+        type: string
+        default: "^(Mozilla).*$"
+        description: "Regex of license identifiers to exclude from the check"
+
+jobs:
+  license_tests:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+      - name: Install Build Tools
+        run: python -m pip install build wheel
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
+      - name: Install package
+        run: pip install .${{ inputs.install_extras }}
+      - name: Collect transitive dependencies
+        run: pip freeze > requirements-all.txt
+      - name: Check licenses
+        id: license_check_report
+        uses: pilosus/action-pip-license-checker@v0.5.0
+        with:
+          requirements: 'requirements-all.txt'
+          fail: 'Copyleft,Other,Error'
+          fails-only: true
+          exclude: ${{ inputs.exclude_packages }}
+          exclude-license: ${{ inputs.exclude_licenses }}
+      - name: Print report
+        if: always()
+        run: echo "${{ steps.license_check_report.outputs.report }}"

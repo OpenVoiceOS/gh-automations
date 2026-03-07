@@ -1,0 +1,62 @@
+name: Downstream Dependency Check
+on:
+  workflow_call:
+    inputs:
+      package_name:
+        type: string
+        required: true
+        description: "PyPI package name to track dependents of"
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      constraints_url:
+        type: string
+        default: "https://raw.githubusercontent.com/OpenVoiceOS/ovos-releases/refs/heads/main/constraints-alpha.txt"
+        description: "URL of the ovos-releases constraints file to install against"
+      output_file:
+        type: string
+        default: "downstream_report.txt"
+      commit_branch:
+        type: string
+        default: "dev"
+
+jobs:
+  check_downstream:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_branch }}
+      - name: Checkout Scripts Repo
+        uses: actions/checkout@v4
+        with:
+          path: action/github/
+          repository: TigreGotico/gh-automations
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq python3-dev swig libssl-dev libfann-dev portaudio19-dev libpulse-dev
+      - name: Install constraints and pipdeptree
+        run: |
+          python -m pip install build wheel pipdeptree
+          curl -fsSL -o constraints.txt "${{ inputs.constraints_url }}"
+          pip install -c constraints.txt "${{ inputs.package_name }}" || true
+      - name: Generate downstream report
+        run: |
+          python action/github/scripts/check_downstream.py \
+            --package "${{ inputs.package_name }}" \
+            --output "${{ inputs.output_file }}"
+      - name: Commit report
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update downstream dependency report for ${{ inputs.package_name }}"
+          branch: ${{ inputs.commit_branch }}
+          file_pattern: ${{ inputs.output_file }}
