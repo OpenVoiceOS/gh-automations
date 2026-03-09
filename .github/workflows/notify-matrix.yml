@@ -1,4 +1,6 @@
 name: Notify Matrix
+# Sends a message to the OVOS Matrix channel.
+# No code checkout is required — this workflow sends a message only.
 on:
   workflow_call:
     inputs:
@@ -9,15 +11,19 @@ on:
       homeserver:
         type: string
         default: "matrix.org"
+        description: "Matrix homeserver URL"
       channel:
         type: string
         default: "!WjxEKjjINpyBRPFgxl:krbel.duckdns.org"
+        description: "Matrix room ID"
+      runner:
+        type: string
+        default: "ubuntu-latest"
 
 jobs:
   notify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v4
       - name: Send message to Matrix
         uses: fadenb/matrix-chat-message@v0.0.6
         with:

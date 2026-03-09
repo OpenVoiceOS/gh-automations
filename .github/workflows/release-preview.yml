@@ -1,0 +1,142 @@
+name: Release Preview
+# Reads version.py, predicts the next version from PR labels/title,
+# and posts a '🏷️ Release Preview' section to the shared OVOS PR Checks comment.
+#
+# Follows the same 3-phase pattern as pip-audit.yml:
+#   continue-on-error → format section → post comment → re-raise
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      python_version:
+        type: string
+        default: "3.11"
+        description: "Python version"
+      version_file:
+        type: string
+        default: "version.py"
+        description: "Path to the version.py file (relative to repo root)"
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '🏷️ Release Preview' section in the shared 'OVOS PR Checks' comment on the PR.
+          Only runs when the workflow is triggered by a pull_request event.
+
+jobs:
+  release_preview:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Run release check
+        id: release_check
+        # continue-on-error so the PR comment step always runs.
+        # The job still fails at the end via the outcome check below.
+        continue-on-error: true
+        run: |
+          python3 _gh_automations/scripts/check_release.py \
+            --version-file "${{ inputs.version_file }}" \
+            --output-json /tmp/release-report.json
+        env:
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels) }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+
+      - name: Format release section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          try:
+              with open("/tmp/release-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              with open("/tmp/release-section.md", "w") as f:
+                  f.write("❌ Release check did not produce a report — check the job log.")
+              sys.exit(0)
+
+          status = r.get("status", "ok")
+
+          if status == "file_not_found":
+              with open("/tmp/release-section.md", "w") as f:
+                  f.write("ℹ️ No version.py found — release preview not available.")
+              sys.exit(0)
+
+          if status == "parse_error":
+              error = r.get("validation", {}).get("error", "unknown error")
+              with open("/tmp/release-section.md", "w") as f:
+                  f.write(f"❌ Could not parse version.py: `{error}`")
+              sys.exit(0)
+
+          current = r.get("current_version", "?")
+          nxt = r.get("next_version", "?")
+          bump_part = r.get("bump_part", "alpha")
+          bump_source = r.get("bump_source", "none")
+          pr_title = r.get("pr_title", "")
+          labels = r.get("pr_labels", [])
+          has_prefix = r.get("has_conventional_prefix", False)
+          prefix = r.get("conventional_prefix")
+
+          lines = []
+          lines.append(f"**Current:** `{current}` → **Next:** `{nxt}`")
+          lines.append("")
+
+          # Signal table
+          lines.append("| Signal | Value |")
+          lines.append("|--------|-------|")
+          label_str = ", ".join(f"`{l}`" for l in labels) if labels else "_(none)_"
+          lines.append(f"| Label | {label_str} |")
+          lines.append(f"| PR title | `{pr_title}` |" if pr_title else "| PR title | _(none)_ |")
+          lines.append(f"| Bump | {bump_part} |")
+          lines.append("")
+
+          if has_prefix:
+              lines.append("✅ PR title follows conventional commit format.")
+          else:
+              lines.append("⚠️ No conventional commit prefix — alpha-only bump.")
+              lines.append("Suggested: `fix: update the thing` or `feat: update the thing`")
+
+          with open("/tmp/release-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Post release section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "release" \
+            --title "🏷️ Release Preview" \
+            --content-file /tmp/release-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      # Only fails for truly malformed version.py (parse_error); file_not_found is OK.
+      - name: Fail job if release check failed
+        if: ${{ steps.release_check.outcome == 'failure' }}
+        run: |
+          echo "Release check script exited with an error (malformed version.py?) — see report above."
+          exit 1

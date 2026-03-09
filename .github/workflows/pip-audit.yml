@@ -1,4 +1,10 @@
 name: Pip Audit
+# Scans installed dependencies for known CVEs using pypa/gh-action-pip-audit.
+#
+# The default ignore list:
+#   GHSA-r9hx-vwmv-q579 — setuptools path traversal (low severity, affects dev tooling only,
+#                          not runtime code; present in virtually all Python environments)
+#
 on:
   workflow_call:
     inputs:
@@ -8,6 +14,7 @@ on:
       python_version:
         type: string
         default: "3.11"
+        description: "Python version to use for the audit"
       install_extras:
         type: string
         default: ""
@@ -19,30 +26,145 @@ on:
       ignore_vulns:
         type: string
         default: "GHSA-r9hx-vwmv-q579"
-        description: "Newline-separated list of vulnerability IDs to ignore"
+        description: |
+          Newline-separated list of GHSA vulnerability IDs to ignore.
+          Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal —
+          dev-only, not exploitable in OVOS runtime context).
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a section in the shared 'OVOS PR Checks' comment on the PR.
+          Only runs when the workflow is triggered by a pull_request event.
 
 jobs:
   pip_audit:
-    strategy:
-      max-parallel: 2
-      matrix:
-        python-version: ["3.10", "3.11"]
     runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ inputs.python_version }}
+
       - name: Install Build Tools
-        run: python -m pip install build wheel uv
+        run: python -m pip install build wheel uv pip-audit
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq python3-dev ${{ inputs.system_deps }}
+
       - name: Install package
         run: uv pip install --system .${{ inputs.install_extras }}
-      - name: Run pip-audit
+
+      - name: Run pip-audit (GitHub Checks + annotations)
+        id: pip_audit_check
         uses: pypa/gh-action-pip-audit@v1.0.0
+        # continue-on-error so the PR comment step always runs, even when CVEs are found.
+        # The job still fails at the end via the outcome check below.
+        continue-on-error: true
         with:
           ignore-vulns: ${{ inputs.ignore_vulns }}
+
+      - name: Run pip-audit (JSON output for PR comment)
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        # pip-audit was installed above; packages are already in the environment.
+        # Run a second time with JSON format to get structured data for the PR comment.
+        run: |
+          IGNORE_ARGS=""
+          while IFS= read -r vuln_id; do
+            vuln_id="${vuln_id//[[:space:]]/}"
+            if [ -n "$vuln_id" ]; then
+              IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
+            fi
+          done <<< "${{ inputs.ignore_vulns }}"
+          pip-audit --format=json $IGNORE_ARGS > /tmp/pip-audit-results.json 2>/dev/null || true
+
+      - name: Format security section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          outcome = os.environ["OUTCOME"]
+          results_path = "/tmp/pip-audit-results.json"
+
+          try:
+              with open(results_path) as f:
+                  data = json.load(f)
+              # pip-audit JSON: list of {"name": ..., "version": ..., "vulns": [...]}
+              # or {"dependencies": [...]} depending on version — handle both shapes
+              if isinstance(data, list):
+                  deps = data
+              elif isinstance(data, dict) and "dependencies" in data:
+                  deps = data["dependencies"]
+              else:
+                  deps = []
+              findings = [d for d in deps if d.get("vulns")]
+          except (FileNotFoundError, json.JSONDecodeError):
+              findings = None
+
+          if outcome == "success" or (findings is not None and len(findings) == 0):
+              body = "✅ No known vulnerabilities found."
+          elif findings:
+              lines = [
+                  "❌ Vulnerabilities found — review and update affected packages.\n",
+                  "| Package | Version | ID | Description | Fix |",
+                  "|---------|---------|-----|-------------|-----|",
+              ]
+              for dep in findings:
+                  name = dep.get("name", "?")
+                  version = dep.get("version", "?")
+                  for vuln in dep.get("vulns", []):
+                      vid = vuln.get("id", "?")
+                      desc = vuln.get("description", "")
+                      # Truncate long descriptions
+                      if len(desc) > 100:
+                          desc = desc[:97] + "..."
+                      fixes = ", ".join(vuln.get("fix_versions", [])) or "no fix available"
+                      lines.append(f"| `{name}` | `{version}` | [{vid}](https://osv.dev/vulnerability/{vid}) | {desc} | {fixes} |")
+              body = "\n".join(lines)
+          else:
+              # Could not parse results — fall back to outcome-based message
+              if outcome == "failure":
+                  body = "❌ Vulnerabilities found — check the job log for details."
+              else:
+                  body = "✅ No known vulnerabilities found."
+
+          with open("/tmp/security-section.md", "w") as f:
+              f.write(body)
+          PYEOF
+        env:
+          OUTCOME: ${{ steps.pip_audit_check.outcome }}
+
+      - name: Post security section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "security" \
+            --title "🔒 Security (pip-audit)" \
+            --content-file /tmp/security-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      - name: Fail job if audit found vulnerabilities
+        if: ${{ steps.pip_audit_check.outcome == 'failure' }}
+        run: |
+          echo "pip-audit found vulnerabilities — see report above."
+          exit 1

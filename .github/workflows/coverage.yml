@@ -1,0 +1,239 @@
+name: Coverage Report
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      install_extras:
+        type: string
+        default: ""
+        description: >
+          Extra pip install arguments run before tests. Example: '.[dev]' or
+          '-r requirements/test.txt'. If empty, the package itself is installed
+          via 'pip install -e .[dev]' (falling back to bare install).
+      test_path:
+        type: string
+        default: "test/"
+        description: "Path passed to pytest (file, directory, or glob)"
+      coverage_source:
+        type: string
+        default: "."
+        description: >
+          Value of --cov= passed to pytest. Set to your package directory (e.g.
+          'ovos_core') to measure only your own code rather than the full repo.
+      min_coverage:
+        type: number
+        default: 0
+        description: >
+          Minimum total coverage percentage (0 = disabled). The job fails if
+          coverage falls below this threshold.
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a section in the shared 'OVOS PR Checks' comment on the PR.
+          Only runs when the workflow is triggered by a pull_request event.
+          Shows total coverage, threshold status, and files below 80% coverage.
+      artifact_name:
+        type: string
+        default: "coverage-report"
+        description: "Name of the uploaded coverage artifact"
+      artifact_retention_days:
+        type: number
+        default: 14
+        description: "Days to retain the coverage XML artifact"
+
+jobs:
+  coverage:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov coverage[toml]
+          if python -m pip install -e ".[dev]" 2>/dev/null; then
+            echo "Installed package with [dev] extras"
+          elif python -m pip install -e . 2>/dev/null; then
+            echo "Installed package (no [dev] extras)"
+          else
+            echo "No installable package found at repo root — continuing without install"
+          fi
+          if [ -n "${{ inputs.install_extras }}" ]; then
+            python -m pip install ${{ inputs.install_extras }}
+          fi
+
+      - name: Run Tests with Coverage
+        id: run_tests
+        run: |
+          python -m pytest \
+            ${{ inputs.test_path }} \
+            --cov=${{ inputs.coverage_source }} \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-report=json:coverage.json \
+            -v
+        # Generate the report even if some tests fail so the PR comment is always posted.
+        continue-on-error: true
+
+      - name: Extract Coverage Percentage
+        id: extract
+        run: |
+          if [ -f coverage.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('coverage.json')); print(round(d['totals']['percent_covered'],2))")
+          else
+            TOTAL=0
+          fi
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+
+      - name: Write Job Summary
+        if: always()
+        run: |
+          TOTAL="${{ steps.extract.outputs.total }}"
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Coverage | **${TOTAL}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Version | ${{ inputs.python_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Source | \`${{ inputs.coverage_source }}\` |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.min_coverage }}" != "0" ]; then
+            echo "| Minimum Required | ${{ inputs.min_coverage }}% |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f coverage.xml ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "_Full XML report uploaded as artifact \`${{ inputs.artifact_name }}\`._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Format coverage section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          min_cov = float(os.environ.get("MIN_COVERAGE", "0"))
+          tests_outcome = os.environ.get("TESTS_OUTCOME", "unknown")
+
+          try:
+              with open("coverage.json") as f:
+                  data = json.load(f)
+              total = round(data["totals"]["percent_covered"], 1)
+              files = data.get("files", {})
+          except (FileNotFoundError, KeyError, json.JSONDecodeError):
+              total = None
+              files = {}
+
+          lines = []
+
+          # Header line: total + threshold status
+          if total is None:
+              lines.append("⚠️ Coverage data unavailable — check the job log.")
+          else:
+              if min_cov > 0:
+                  ok = total >= min_cov
+                  icon = "✅" if ok else "❌"
+                  threshold_note = f" (threshold: {min_cov}%)"
+              else:
+                  icon = "✅" if total >= 80 else ("⚠️" if total >= 60 else "❌")
+                  threshold_note = ""
+              lines.append(f"{icon} **{total}%** total coverage{threshold_note}")
+
+          if tests_outcome == "failure":
+              lines.append("")
+              lines.append("⚠️ Some tests failed — coverage figures may be incomplete.")
+
+          # Table of under-covered files (below 80%), or all files if <= 10 total
+          if files:
+              under = {
+                  path: info for path, info in files.items()
+                  if info["summary"]["percent_covered"] < 80
+              }
+              show = under if len(files) > 10 else files
+
+              if show:
+                  label = "Files below 80% coverage" if len(files) > 10 else "Per-file coverage"
+                  lines.append("")
+                  lines.append(f"<details><summary>{label} ({len(show)} file{'s' if len(show) != 1 else ''})</summary>")
+                  lines.append("")
+                  lines.append("| File | Coverage | Missing lines |")
+                  lines.append("|------|----------|---------------|")
+                  for path, info in sorted(show.items(), key=lambda kv: kv[1]["summary"]["percent_covered"]):
+                      pct = round(info["summary"]["percent_covered"], 1)
+                      missing = info["summary"].get("missing_lines", "?")
+                      lines.append(f"| `{path}` | {pct}% | {missing} |")
+                  lines.append("")
+                  lines.append("</details>")
+
+          if total is not None:
+              lines.append("")
+              lines.append(f"_Full report: download the `${{ inputs.artifact_name }}` artifact._")
+
+          with open("/tmp/coverage-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+        env:
+          MIN_COVERAGE: ${{ inputs.min_coverage }}
+          TESTS_OUTCOME: ${{ steps.run_tests.outcome }}
+
+      - name: Post coverage section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "coverage" \
+            --title "📊 Coverage" \
+            --content-file /tmp/coverage-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Coverage XML Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: coverage.xml
+          retention-days: ${{ inputs.artifact_retention_days }}
+          if-no-files-found: warn
+
+      - name: Enforce Minimum Coverage Threshold
+        if: ${{ inputs.min_coverage > 0 }}
+        run: |
+          TOTAL="${{ steps.extract.outputs.total }}"
+          python3 -c "
+          total = float('${TOTAL}')
+          minimum = float('${{ inputs.min_coverage }}')
+          if total < minimum:
+              print(f'Coverage {total}% is below the required minimum of {minimum}%')
+              exit(1)
+          print(f'Coverage {total}% meets the minimum of {minimum}%')
+          "
+
+      # Propagate test failures after the PR comment has been posted.
+      - name: Fail job if tests failed
+        if: ${{ steps.run_tests.outcome == 'failure' }}
+        run: |
+          echo "Tests failed — see output above."
+          exit 1

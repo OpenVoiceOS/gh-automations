@@ -26,6 +26,22 @@ on:
         type: boolean
         default: false
         description: "Push master -> dev to keep branches in sync after stable release"
+      notify_matrix:
+        type: boolean
+        default: false
+        description: "Send Matrix notification when a stable release is published"
+      matrix_channel:
+        type: string
+        default: "!WjxEKjjINpyBRPFgxl:krbel.duckdns.org"
+        description: "Matrix room ID to notify (default: OVOS main channel)"
+      matrix_homeserver:
+        type: string
+        default: "matrix.org"
+        description: "Matrix homeserver URL"
+      matrix_message:
+        type: string
+        default: ""
+        description: "Custom Matrix message. Leave empty to use the default 'stable release' message."
     outputs:
       version:
         description: Updated version
@@ -129,3 +145,14 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: dev
+
+  notify:
+    needs:
+      - bump_version
+    if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix }}
+    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
+    secrets: inherit
+    with:
+      homeserver: ${{ inputs.matrix_homeserver }}
+      channel: ${{ inputs.matrix_channel }}
+      message: ${{ inputs.matrix_message != '' && inputs.matrix_message || format('🎉 {0} stable release published! https://github.com/{1}/releases', github.event.repository.name, github.repository) }}

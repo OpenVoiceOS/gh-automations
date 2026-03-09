@@ -38,6 +38,26 @@ on:
         type: boolean
         default: false
         description: "Send Matrix notification when a PR is merged"
+      matrix_channel:
+        type: string
+        default: "!WjxEKjjINpyBRPFgxl:krbel.duckdns.org"
+        description: "Matrix room ID to notify (default: OVOS main channel)"
+      matrix_homeserver:
+        type: string
+        default: "matrix.org"
+        description: "Matrix homeserver URL"
+      matrix_message:
+        type: string
+        default: ""
+        description: "Custom Matrix message. Leave empty to use the default 'PR merged' message."
+      skip_bot_prs:
+        type: boolean
+        default: true
+        description: |
+          Skip version bumps for PRs opened by known maintenance bots that do not
+          change runtime code (allcontributors[bot], pre-commit-ci[bot]).
+          Dependency-update bots (renovate[bot], dependabot[bot]) are NOT skipped
+          since dep updates should produce a new alpha.
     outputs:
       version:
         description: Updated version
@@ -47,7 +67,22 @@ on:
         value: ${{jobs.update_changelog.outputs.changelog}}
 jobs:
   bump_version:
-    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+    # Run when a PR is merged OR on manual dispatch.
+    # Skip PRs opened by maintenance bots that don't change runtime code (when skip_bot_prs: true).
+    # Dependency-update bots (renovate, dependabot) are intentionally NOT skipped — dep updates
+    # should produce a new alpha release.
+    if: |
+      (
+        github.event.pull_request.merged == true &&
+        (
+          !inputs.skip_bot_prs ||
+          (
+            github.event.pull_request.user.login != 'allcontributors[bot]' &&
+            github.event.pull_request.user.login != 'pre-commit-ci[bot]'
+          )
+        )
+      ) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ${{inputs.runner}}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -243,13 +278,9 @@ jobs:
     needs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix && github.event.pull_request.merged == true }}
-    runs-on: ${{inputs.runner}}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Send message to Matrix
-        uses: fadenb/matrix-chat-message@v0.0.6
-        with:
-          homeserver: 'matrix.org'
-          token: ${{ secrets.MATRIX_TOKEN }}
-          channel: '!WjxEKjjINpyBRPFgxl:krbel.duckdns.org'
-          message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
+    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
+    secrets: inherit
+    with:
+      homeserver: ${{ inputs.matrix_homeserver }}
+      channel: ${{ inputs.matrix_channel }}
+      message: ${{ inputs.matrix_message != '' && inputs.matrix_message || format('new {0} PR merged! https://github.com/{1}/pull/{2}', github.event.repository.name, github.repository, github.event.number) }}

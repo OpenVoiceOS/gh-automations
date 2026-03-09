@@ -40,13 +40,13 @@ def read_version(version_file: str) -> tuple[int, int, int, int]:
             if not in_block:
                 continue
             if stripped.startswith("VERSION_MAJOR"):
-                major = int(stripped.split("=")[-1].strip().split("#")[0].strip())
+                major = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
             elif stripped.startswith("VERSION_MINOR"):
-                minor = int(stripped.split("=")[-1].strip().split("#")[0].strip())
+                minor = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
             elif stripped.startswith("VERSION_BUILD"):
-                build = int(stripped.split("=")[-1].strip().split("#")[0].strip())
+                build = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
             elif stripped.startswith("VERSION_ALPHA"):
-                alpha = int(stripped.split("=")[-1].strip().split("#")[0].strip())
+                alpha = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
 
     return major, minor, build, alpha
 

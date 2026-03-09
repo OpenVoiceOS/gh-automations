@@ -1,4 +1,16 @@
 name: License Check
+# Checks all installed dependencies for licenses incompatible with the OVOS universal donor policy.
+#
+# OVOS packages are Apache 2.0 — a permissive "universal donor" license. To preserve this:
+#   - GPL (StrongCopyleft) MUST be excluded: incompatible with Apache 2.0 distribution.
+#   - AGPL (NetworkCopyleft) MUST be excluded: triggered by network use, not just distribution.
+#   - LGPL / EUPL (WeakCopyleft) SHOULD be excluded (conservative): safe to use-as-library
+#     but risky if LGPL code is modified. Flag for human review.
+#   - EULA / non-standard (Other) MUST be excluded: unknown terms = unknown risk.
+#   - Unknown packages (Error) MUST be excluded: can't audit what you can't see.
+#   - MPL (Mozilla Public License) is allowed: file-level copyleft, safe for Apache 2.0
+#     when used as a library without modifying MPL files. Excluded by exclude_licenses.
+#
 on:
   workflow_call:
     inputs:
@@ -18,41 +30,130 @@ on:
         description: "Extra apt packages beyond python3-dev and libssl-dev"
       exclude_packages:
         type: string
-        default: "^(tqdm).*"
-        description: "Regex of package names to exclude from the license check"
+        default: ""
+        description: "PCRE regex of package names to exclude from the check (e.g. '^(tqdm).*')"
       exclude_licenses:
         type: string
-        default: "^(Mozilla).*$"
-        description: "Regex of license identifiers to exclude from the check"
+        default: "^Mozilla Public License.*"
+        description: "PCRE regex of license identifiers to exclude. Default allows MPL (file-level copyleft, safe as library)."
+      fail_licenses:
+        type: string
+        default: "StrongCopyleft,NetworkCopyleft,WeakCopyleft,Other,Error"
+        description: |
+          Comma-separated license categories that cause the check to fail.
+          Valid values: StrongCopyleft, NetworkCopyleft, WeakCopyleft, Copyleft (all three),
+          Permissive, Other, Error.
+          Default enforces the OVOS universal donor policy (Apache 2.0).
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a section in the shared 'OVOS PR Checks' comment on the PR.
+          Only runs when the workflow is triggered by a pull_request event.
 
 jobs:
   license_tests:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python_version }}
+
       - name: Install Build Tools
         run: python -m pip install build wheel
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
+
       - name: Install package
         run: pip install .${{ inputs.install_extras }}
+
       - name: Collect transitive dependencies
         run: pip freeze > requirements-all.txt
+
       - name: Check licenses
         id: license_check_report
-        uses: pilosus/action-pip-license-checker@v0.5.0
+        uses: pilosus/action-pip-license-checker@v3
+        # continue-on-error so the PR comment step always runs, even when licenses fail.
+        # The job still fails at the end via the outcome check below.
+        continue-on-error: true
         with:
           requirements: 'requirements-all.txt'
-          fail: 'Copyleft,Other,Error'
+          fail: ${{ inputs.fail_licenses }}
           fails-only: true
+          totals: true
+          headers: true
           exclude: ${{ inputs.exclude_packages }}
           exclude-license: ${{ inputs.exclude_licenses }}
+
       - name: Print report
         if: always()
         run: echo "${{ steps.license_check_report.outputs.report }}"
+
+      - name: Format license section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+
+          outcome = os.environ["OUTCOME"]
+          report = os.environ["REPORT"].strip()
+
+          if outcome == "success":
+              status = "✅ No license violations found."
+              body = status
+          else:
+              status = "❌ License violations detected — review required before merging."
+              if report:
+                  body = f"{status}\n\n```\n{report}\n```"
+              else:
+                  body = status
+
+          body += (
+              "\n\n"
+              "_Policy: Apache 2.0 (universal donor). "
+              "StrongCopyleft / NetworkCopyleft / WeakCopyleft / Other / Error categories fail. "
+              "MPL allowed._"
+          )
+
+          with open("/tmp/license-section.md", "w") as f:
+              f.write(body)
+          PYEOF
+        env:
+          OUTCOME: ${{ steps.license_check_report.outcome }}
+          REPORT: ${{ steps.license_check_report.outputs.report }}
+
+      - name: Post license section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "license" \
+            --title "⚖️ License Check" \
+            --content-file /tmp/license-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      - name: Fail job if license check failed
+        if: ${{ steps.license_check_report.outcome == 'failure' }}
+        run: |
+          echo "License check failed — see report above."
+          exit 1

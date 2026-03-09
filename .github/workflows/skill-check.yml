@@ -1,0 +1,226 @@
+name: Skill Check
+# Analyses an OVOS skill repository for locale structure, language coverage,
+# skill.json validity, and gitlocalize readiness.
+#
+# Follows the same 3-phase pattern as pip-audit.yml:
+#   continue-on-error → format section → post comment → re-raise
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      python_version:
+        type: string
+        default: "3.11"
+        description: "Python version"
+      locale_dir:
+        type: string
+        default: ""
+        description: "Locale root path. Empty = auto-detect."
+      skip_if_not_skill:
+        type: boolean
+        default: true
+        description: "Silently pass if no ovos.plugin.skill entry point found"
+      fail_on_missing_en_us:
+        type: boolean
+        default: true
+        description: "Fail if en-us locale directory is absent"
+      fail_on_invalid_skill_json:
+        type: boolean
+        default: false
+        description: "Fail if en-us skill.json is missing or invalid"
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '🎙️ Skill' section in the shared 'OVOS PR Checks' comment on the PR.
+          Only runs when the workflow is triggered by a pull_request event.
+
+jobs:
+  skill_check:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Run skill check
+        id: skill_check
+        # continue-on-error so the PR comment step always runs.
+        # The job still fails at the end via the outcome check below.
+        continue-on-error: true
+        run: |
+          python3 _gh_automations/scripts/check_skill.py \
+            --repo-root . \
+            --locale-dir "${{ inputs.locale_dir }}" \
+            --output-json /tmp/skill-report.json
+
+      - name: Format skill section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          try:
+              with open("/tmp/skill-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              with open("/tmp/skill-section.md", "w") as f:
+                  f.write("❌ Skill check did not produce a report — check the job log.")
+              sys.exit(0)
+
+          if not r.get("is_skill"):
+              with open("/tmp/skill-section.md", "w") as f:
+                  f.write("ℹ️ Not an OVOS skill repo — check skipped.")
+              sys.exit(0)
+
+          lines = []
+
+          # Header
+          skill_id = r.get("skill_id") or "(unknown skill_id)"
+          n_langs = r.get("languages", 0)
+          lines.append(f"🎙️ **{skill_id}** — {n_langs} language{'s' if n_langs != 1 else ''}")
+          lines.append("")
+
+          # en-us summary
+          counts = r.get("en_us_counts", {})
+          sj = r.get("skill_json", {})
+          if r.get("has_en_us"):
+              parts = []
+              for key in ("intent", "voc", "dialog"):
+                  val = counts.get(key, 0)
+                  if val:
+                      label = {"intent": "intents", "voc": "vocab", "dialog": "dialogs"}[key]
+                      parts.append(f"{val} {label}")
+              sj_icon = "✅" if sj.get("valid_json") and not sj.get("missing_fields") else "⚠️"
+              sj_text = f"skill.json {sj_icon}"
+              parts.append(sj_text)
+              lines.append("**en-us:** " + " · ".join(parts))
+          else:
+              lines.append("❌ **en-us locale not found**")
+          lines.append("")
+
+          # Translation coverage table
+          translations = r.get("translations", [])
+          if translations:
+              lines.append("<details><summary>Translation coverage ({} language{})</summary>".format(
+                  len(translations), "s" if len(translations) != 1 else ""))
+              lines.append("")
+              lines.append("| Language | Coverage |")
+              lines.append("|----------|----------|")
+              for t in translations:
+                  pct = t["pct"]
+                  present = t["present"]
+                  total = t["total"]
+                  if pct >= 95:
+                      icon = "✅"
+                  elif pct >= 50:
+                      icon = "⚠️"
+                  else:
+                      icon = "❌"
+                  lines.append(f"| {t['lang']} | {icon} {pct}% ({present}/{total}) |")
+              lines.append("")
+              lines.append("</details>")
+              lines.append("")
+
+          # Gitlocalize readiness
+          gl = r.get("gitlocalize", {})
+          if gl:
+              gl_parts = []
+              gl_parts.append(("✅" if gl.get("sync_script_exists") else "❌") + " sync script")
+              gl_parts.append(("✅" if gl.get("translations_dir_exists") else "❌") + " translations/")
+              gl_parts.append(("✅" if gl.get("sync_workflow_exists") else "❌") + " sync workflow")
+              lines.append("**Gitlocalize:** " + " · ".join(gl_parts))
+
+          with open("/tmp/skill-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Post skill section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "skill" \
+            --title "🎙️ Skill" \
+            --content-file /tmp/skill-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Pass/fail logic (after comment is posted) ---
+
+      - name: Skip if not an OVOS skill repo
+        if: ${{ inputs.skip_if_not_skill }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          try:
+              with open("/tmp/skill-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              sys.exit(0)
+          if not r.get("is_skill"):
+              print("Not an OVOS skill repo — check skipped (skip_if_not_skill=true).")
+              sys.exit(0)
+          PYEOF
+
+      - name: Fail if en-us locale is missing
+        if: ${{ inputs.fail_on_missing_en_us }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          try:
+              with open("/tmp/skill-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              sys.exit(0)
+          if not r.get("is_skill"):
+              sys.exit(0)
+          if not r.get("has_en_us"):
+              print("ERROR: en-us locale directory not found (fail_on_missing_en_us=true).")
+              sys.exit(1)
+          PYEOF
+
+      - name: Fail if skill.json is invalid
+        if: ${{ inputs.fail_on_invalid_skill_json }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          try:
+              with open("/tmp/skill-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              sys.exit(0)
+          if not r.get("is_skill"):
+              sys.exit(0)
+          sj = r.get("skill_json", {})
+          if not sj.get("exists") or not sj.get("valid_json") or sj.get("missing_fields"):
+              missing = sj.get("missing_fields", [])
+              print(f"ERROR: skill.json is invalid. Missing fields: {missing}")
+              sys.exit(1)
+          PYEOF
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      - name: Fail job if skill check failed
+        if: ${{ steps.skill_check.outcome == 'failure' }}
+        run: |
+          echo "Skill check script exited with an error — see report above."
+          exit 1
