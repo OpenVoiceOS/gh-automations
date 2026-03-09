@@ -42,6 +42,13 @@ on:
         type: string
         default: ""
         description: "Custom Matrix message. Leave empty to use the default 'stable release' message."
+      matrix_message_pool:
+        type: string
+        default: ""
+        description: >
+          Newline-separated pool of fun messages to randomly prefix the notification.
+          One is chosen at random and prepended to the standard message.
+          Leave empty to skip.
     outputs:
       version:
         description: Updated version
@@ -150,9 +157,31 @@ jobs:
     needs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix }}
-    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
-    secrets: inherit
-    with:
-      homeserver: ${{ inputs.matrix_homeserver }}
-      channel: ${{ inputs.matrix_channel }}
-      message: ${{ inputs.matrix_message != '' && inputs.matrix_message || format('🎉 {0} stable release published! https://github.com/{1}/releases', github.event.repository.name, github.repository) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick message
+        id: msg
+        run: |
+          POOL="${{ inputs.matrix_message_pool }}"
+          CUSTOM="${{ inputs.matrix_message }}"
+          DEFAULT="🎉 ${{ github.event.repository.name }} stable release published! https://github.com/${{ github.repository }}/releases"
+
+          if [ -n "$CUSTOM" ]; then
+            MSG="$CUSTOM"
+          elif [ -n "$POOL" ]; then
+            PREFIX=$(echo -e "$POOL" | shuf -n 1)
+            MSG="${PREFIX} — ${DEFAULT}"
+          else
+            MSG="$DEFAULT"
+          fi
+          echo "message<<MSGEOF" >> $GITHUB_OUTPUT
+          echo "$MSG" >> $GITHUB_OUTPUT
+          echo "MSGEOF" >> $GITHUB_OUTPUT
+
+      - name: Send to Matrix
+        uses: fadenb/matrix-chat-message@v0.0.6
+        with:
+          homeserver: ${{ inputs.matrix_homeserver }}
+          token: ${{ secrets.MATRIX_TOKEN }}
+          channel: ${{ inputs.matrix_channel }}
+          message: ${{ steps.msg.outputs.message }}

@@ -50,6 +50,13 @@ on:
         type: string
         default: ""
         description: "Custom Matrix message. Leave empty to use the default 'PR merged' message."
+      matrix_message_pool:
+        type: string
+        default: ""
+        description: >
+          Newline-separated pool of fun messages to randomly prefix the notification.
+          One is chosen at random and prepended to the standard message.
+          Leave empty to skip. Example: "🎉 Another one!\n🚀 Shipped!"
       skip_bot_prs:
         type: boolean
         default: true
@@ -278,9 +285,32 @@ jobs:
     needs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix && github.event.pull_request.merged == true }}
-    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
-    secrets: inherit
-    with:
-      homeserver: ${{ inputs.matrix_homeserver }}
-      channel: ${{ inputs.matrix_channel }}
-      message: ${{ inputs.matrix_message != '' && inputs.matrix_message || format('new {0} PR merged! https://github.com/{1}/pull/{2}', github.event.repository.name, github.repository, github.event.number) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick message
+        id: msg
+        run: |
+          POOL="${{ inputs.matrix_message_pool }}"
+          CUSTOM="${{ inputs.matrix_message }}"
+          DEFAULT="new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
+
+          if [ -n "$CUSTOM" ]; then
+            MSG="$CUSTOM"
+          elif [ -n "$POOL" ]; then
+            # Pick a random line from the pool and prepend to default
+            PREFIX=$(echo -e "$POOL" | shuf -n 1)
+            MSG="${PREFIX} — ${DEFAULT}"
+          else
+            MSG="$DEFAULT"
+          fi
+          echo "message<<MSGEOF" >> $GITHUB_OUTPUT
+          echo "$MSG" >> $GITHUB_OUTPUT
+          echo "MSGEOF" >> $GITHUB_OUTPUT
+
+      - name: Send to Matrix
+        uses: fadenb/matrix-chat-message@v0.0.6
+        with:
+          homeserver: ${{ inputs.matrix_homeserver }}
+          token: ${{ secrets.MATRIX_TOKEN }}
+          channel: ${{ inputs.matrix_channel }}
+          message: ${{ steps.msg.outputs.message }}
