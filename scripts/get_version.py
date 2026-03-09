@@ -1,35 +1,32 @@
-"""Read version string from version.py file (START_VERSION_BLOCK/END_VERSION_BLOCK format)"""
+"""Read version string from version.py file (START_VERSION_BLOCK/END_VERSION_BLOCK format).
+
+Used by publish-alpha.yml and publish-stable.yml to capture the new version after
+update_version.py or remove_alpha.py has run.
+"""
+
+from __future__ import annotations
+
 import argparse
+from os.path import abspath
+
+from _version_utils import format_version, read_version
 
 
-def get_version(version_file):
-    VERSION_MAJOR = 0
-    VERSION_MINOR = 0
-    VERSION_BUILD = 0
-    VERSION_ALPHA = 0
+def get_version(version_file: str) -> str:
+    """Read and format the version string from *version_file*.
 
-    with open(version_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("# END_VERSION_BLOCK"):
-                break
-            if line.startswith("VERSION_MAJOR"):
-                VERSION_MAJOR = int(line.split("=")[-1].strip())
-            elif line.startswith("VERSION_MINOR"):
-                VERSION_MINOR = int(line.split("=")[-1].strip())
-            elif line.startswith("VERSION_BUILD"):
-                VERSION_BUILD = int(line.split("=")[-1].strip())
-            elif line.startswith("VERSION_ALPHA"):
-                VERSION_ALPHA = int(line.split("=")[-1].strip())
+    Args:
+        version_file: Absolute or relative path to the version.py file.
 
-    version = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}"
-    if VERSION_ALPHA:
-        version += f"a{VERSION_ALPHA}"
-    return version
+    Returns:
+        Version string, e.g. "1.2.3a4" (alpha) or "1.2.3" (stable).
+    """
+    major, minor, build, alpha = read_version(version_file)
+    return format_version(major, minor, build, alpha)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Get version string from version.py file')
-    parser.add_argument('--version-file', required=True, help='Path to version.py file')
+    parser = argparse.ArgumentParser(description="Get version string from version.py file")
+    parser.add_argument("--version-file", required=True, help="Path to version.py file")
     args = parser.parse_args()
-    print(get_version(args.version_file))
+    print(get_version(abspath(args.version_file)))

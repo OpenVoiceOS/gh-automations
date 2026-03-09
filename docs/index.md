@@ -2,7 +2,7 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Document master-freeze / dev
 
 # gh-automations
 
-`gh-automations` (hosted at [TigreGotico/gh-automations](https://github.com/TigreGotico/gh-automations)) is the shared GitHub Actions automation library for all OpenVoiceOS repositories. It provides reusable workflows and Python scripts that implement the OVOS rolling-release model: bump version on PR merge to `dev`, publish alpha to PyPI, open a release PR to `master`, then on merge declare stable and tag.
+`gh-automations` (hosted at [OpenVoiceOS/gh-automations](https://github.com/OpenVoiceOS/gh-automations)) is the shared GitHub Actions automation library for all OpenVoiceOS repositories. It provides reusable workflows and Python scripts that implement the OVOS rolling-release model: bump version on PR merge to `dev`, publish alpha to PyPI, open a release PR to `master`, then on merge declare stable and tag.
 
 As of 2026-03-09 it is used by **209 OVOS repositories**.
 
@@ -21,23 +21,19 @@ gh-automations itself follows the same `dev` / `master` model it enforces in all
 **Why freeze `@master`?**
 Every OVOS repo calls these workflows with `@<ref>`. Because GitHub resolves the ref at call time, pinning to `@master` means all 209 callers would instantly receive any change merged to `master`. By freezing `master` and doing all work on `dev`, changes are opt-in: a repo migrates when its maintainer opens a PR changing `@master` → `@dev`.
 
-### Scripts checkout note
+### Scripts checkout
 
-The reusable workflows check out this repo at runtime to access `scripts/` — but without a pinned ref:
+The reusable workflows check out this repo at runtime to access `scripts/`, pinned to `ref: dev`:
 
 ```yaml
 - uses: actions/checkout@v4
   with:
-    repository: TigreGotico/gh-automations
+    repository: OpenVoiceOS/gh-automations
+    ref: dev
     path: action/github/
-    # no ref: — uses default branch
 ```
 
-This means whichever branch is set as **GitHub default branch** is what all callers (regardless of `@master` or `@dev`) will use for scripts. Keep the default branch in sync with the intent:
-- While `@master` is the recommended ref → keep `master` as default.
-- When `@dev` becomes the recommended ref → change the GitHub default branch to `dev`.
-
-See [SUGGESTIONS.md](../SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the proposed fix.
+Both `@master` and `@dev` callers execute scripts from the `dev` branch. This ensures all callers always run the latest script fixes regardless of which workflow ref they use.
 
 ---
 
@@ -45,7 +41,7 @@ See [SUGGESTIONS.md](../SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusabl
 
 All workflows are called with:
 ```yaml
-uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@dev
+uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 ```
 
 | Workflow | Purpose | Used by |
@@ -56,6 +52,7 @@ uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@dev
 | `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | All 209 repos — `release_workflow.yml` (notify job) |
 | `pip-audit.yml` | Scan installed dependencies for CVEs | Selected repos — `pipaudit.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
+| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | OVOS skill repos — `sync_tx.yml` |
 
 Full input/output/job reference: [workflow-reference.md](workflow-reference.md)
 

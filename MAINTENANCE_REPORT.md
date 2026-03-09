@@ -4,6 +4,40 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Log the master-freeze / dev-
 
 ---
 
+## [2026-03-09] — Implementation session: scripts refactor, workflow fixes, new reusable workflows, test suite
+
+### Changes
+
+**Repository fork:**
+- gh-automations forked from `TigreGotico/gh-automations` to `OpenVoiceOS/gh-automations` (now the canonical location).
+- `TigreGotico/gh-automations` will be archived. GitHub redirects preserve backward compatibility for all existing `uses:` references.
+- All internal references updated from `TigreGotico/gh-automations` → `OpenVoiceOS/gh-automations`.
+
+**Workflow improvements (all changes on `dev` branch):**
+- `publish-alpha.yml`: Added `ref: dev` to scripts checkout; changed `git checkout -b` → `git checkout -B` (idempotent branch creation); replaced `curl` PR-creation with `gh pr create` guarded by existing-PR check; pinned `pypa/gh-action-pypi-publish@master` → `release/v1`; pinned `pozetroninc/github-action-get-latest-release@master` → `v0.7.0`; migrated `Increment Version` step to use `working-directory: action/github/scripts` for cleaner script invocation.
+- `publish-stable.yml`: Added `ref: dev` to scripts checkout; pinned `pypa/gh-action-pypi-publish@master` → `release/v1`; migrated `Declare Alpha stable` step to use `working-directory`.
+- `downstream-check.yml`: Added `ref: dev` to scripts checkout; updated org name.
+- New: `.github/workflows/sync-translations.yml` — reusable workflow standardising the per-repo `sync_tx.yml` pattern across OVOS skill repos. Fixes `github.actor` detection, standardises action versions, normalises commit message.
+- New: `.github/workflows/test.yml` — runs `test/test_scripts.py` on Python 3.10/3.11/3.12.
+
+**Scripts refactor:**
+- New: `scripts/_version_utils.py` — shared `read_version`, `format_version`, `write_version_block` functions; correctly scoped within `START_VERSION_BLOCK/END_VERSION_BLOCK` markers; handles inline comments in version values.
+- `scripts/update_version.py`: Migrated to use `_version_utils`; added `choices=` validation for `part` argument; added return value (new version string).
+- `scripts/get_version.py`: Migrated to use `_version_utils`; simplified to 2 lines of logic.
+- `scripts/remove_alpha.py`: Migrated to use `write_version_block` (scoped to block markers); eliminated `fileinput` in-place replacement which was unscoped.
+- New: `scripts/migrate_refs.py` — bulk migration tool (`gh` CLI) for opening PRs across repos to change `@master` → `@dev`.
+
+**Tests:**
+- New: `test/test_scripts.py` — 30 test cases for `_version_utils`, `update_version`, `get_version`, `remove_alpha`; covers edge cases (stable→alpha bump, inline comments, content outside block preservation, idempotency).
+
+### AI Transparency Report
+
+- **AI Model**: Claude Sonnet 4.6
+- **Actions Taken**: Read all 4 Python scripts, all 6 workflow files, all existing docs. Implemented 6 of 7 SUGGESTIONS from the previous session. Created `_version_utils.py`, updated 3 scripts, rewrote 2 workflow files, updated 1 workflow file, created 3 new files (sync-translations.yml, test.yml, test_scripts.py, migrate_refs.py, _version_utils.py). Updated all docs to reflect new `OpenVoiceOS` org and resolved audit items.
+- **Oversight**: Repository fork decision and master-freeze decision provided by human. All code changes derived from direct source analysis.
+
+---
+
 ## [2026-03-09] — Branching model change & full documentation overhaul
 
 ### Decision

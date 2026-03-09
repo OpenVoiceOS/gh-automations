@@ -31,7 +31,7 @@ There is no urgency — `@master` is frozen, not deleted. Migrate at your own pa
 All workflows live in `.github/workflows/` and are called from other repos via:
 
 ```yaml
-uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@dev
+uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 ```
 
 | Workflow | Purpose | Docs |

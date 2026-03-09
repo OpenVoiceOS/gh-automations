@@ -22,10 +22,10 @@ Open a PR in the target repo with the following change in every `.github/workflo
 
 ```
 # Before
-uses: TigreGotico/gh-automations/.github/workflows/publish-alpha.yml@master
+uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@master
 
 # After
-uses: TigreGotico/gh-automations/.github/workflows/publish-alpha.yml@dev
+uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@dev
 ```
 
 Repeat for every `uses:` and `license_tests.yml` / `downstream.yml` reference in the repo.
@@ -51,12 +51,12 @@ The reusable workflow files checkout this repo at runtime to access `scripts/` v
 ```yaml
 - uses: actions/checkout@v4
   with:
-    repository: TigreGotico/gh-automations
+    repository: OpenVoiceOS/gh-automations
     path: action/github/
     # no ref: specified — uses the GitHub default branch
 ```
 
-This means the scripts that actually run are determined by whichever branch is set as the **GitHub default branch** of `TigreGotico/gh-automations`, regardless of which ref (`@master` or `@dev`) the calling workflow uses to select the workflow file. See [SUGGESTIONS.md](../SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the proposed fix.
+This means the scripts that actually run are determined by whichever branch is set as the **GitHub default branch** of `OpenVoiceOS/gh-automations`, regardless of which ref (`@master` or `@dev`) the calling workflow uses to select the workflow file. See [SUGGESTIONS.md](../SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the proposed fix.
 
 ---
 

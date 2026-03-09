@@ -35,7 +35,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: action/github/
-          repository: TigreGotico/gh-automations
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

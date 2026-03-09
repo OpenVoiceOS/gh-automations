@@ -2,7 +2,7 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-08 - Motive: Complete documentation from 
 
 # Repos Using gh-automations
 
-All repos in the OpenVoiceOS ecosystem that call one or more reusable workflows from `TigreGotico/gh-automations`.
+All repos in the OpenVoiceOS ecosystem that call one or more reusable workflows from `OpenVoiceOS/gh-automations`.
 
 Total: **209 repos** (as of 2026-03-07).
 

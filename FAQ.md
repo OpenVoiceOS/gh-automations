@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Full rewrite with comprehensive Q&A covering versioning policy, migration, scripts, bot guards, and known issues; all answers verified against source code.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Full rewrite; added org fork/archive context, sync-translations workflow Q&A, and opportunistic migration policy.
 
 # FAQ — `gh-automations`
 
@@ -10,7 +10,9 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Full rewrite with comprehens
 
 ### Where is it hosted?
 
-[TigreGotico/gh-automations](https://github.com/TigreGotico/gh-automations). It is not a Python package you install — it is a GitHub repository that other repos call via the `uses:` directive in their workflow files.
+[OpenVoiceOS/gh-automations](https://github.com/OpenVoiceOS/gh-automations) — the canonical location since 2026-03-09. It is not a Python package you install — it is a GitHub repository that other repos call via the `uses:` directive in their workflow files.
+
+The original `TigreGotico/gh-automations` is now archived. GitHub preserves redirects, so existing repos that still reference `TigreGotico/gh-automations` will continue to work, but should be updated to `OpenVoiceOS/gh-automations` opportunistically.
 
 ### How many repos use it?
 
@@ -20,17 +22,17 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Full rewrite with comprehens
 
 ## Versioning & Branching of gh-automations Itself
 
-### Which ref should new repos use — `@master` or `@dev`?
+### Which ref should new repos use — `TigreGotico/gh-automations@@master` or `OpenVoiceOS/gh-automations@dev`?
 
-`@dev`. The `master` branch of gh-automations is **frozen** as the v1 baseline. All active development — bug fixes, new features, improvements — targets `dev`. New repos and repos that opt in via migration should call `@dev`.
+`OpenVoiceOS/gh-automations@dev`. The `TigreGotico/gh-automations@master` branch of gh-automations is **frozen** as the v1 baseline. All active development — bug fixes, new features, improvements — targets `dev`. New repos and repos that opt in via migration should call `@dev`.
 
-### Will `@master` stop working?
+### Will `TigreGotico/gh-automations@master` stop working?
 
 No. `master` is frozen, not deleted. Repos still calling `@master` will continue to receive exactly the same behaviour they always have. There is no deadline to migrate.
 
-### What is `@dev` and how is it different from `@master`?
+### What is `[OpenVoiceOS/gh-automations@dev` and how is it different from `TigreGotico/gh-automations@master`?
 
-`@dev` is the active development branch. After the freeze, `@dev` will receive:
+`OpenVoiceOS/gh-automations@dev` is the active development branch. After the freeze, `OpenVoiceOS/gh-automations@dev` will receive:
 - Bug fixes (e.g. pinning third-party action refs)
 - New optional inputs (fully backward-compatible)
 - Documentation improvements
@@ -55,11 +57,11 @@ Adding new optional inputs with sensible defaults is **not** breaking.
 
 In each repo's `.github/workflows/` files, replace:
 ```
-TigreGotico/gh-automations/.github/workflows/foo.yml@master
+OpenVoiceOS/gh-automations/.github/workflows/foo.yml@master
 ```
 with:
 ```
-TigreGotico/gh-automations/.github/workflows/foo.yml@dev
+OpenVoiceOS/gh-automations/.github/workflows/foo.yml@dev
 ```
 
 Open a PR, wait for CI, merge. No functional changes on day one.
@@ -68,9 +70,9 @@ Open a PR, wait for CI, merge. No functional changes on day one.
 
 ## Scripts Checkout
 
-### The workflows checkout `TigreGotico/gh-automations` without a ref — what branch does that use?
+### The workflows checkout `OpenVoiceOS/gh-automations` without a ref — what branch does that use?
 
-It uses whichever branch is set as the **GitHub default branch** of `TigreGotico/gh-automations`, regardless of whether the calling workflow uses `@master` or `@dev`.
+It uses whichever branch is set as the **GitHub default branch** of `OpenVoiceOS/gh-automations`, regardless of whether the calling workflow uses `@master` or `@dev`.
 
 This means:
 - While `master` is the GitHub default branch → all callers (both `@master` and `@dev`) run scripts from `master`.
@@ -157,6 +159,43 @@ For organisation repos these are typically set at org level and inherited automa
 ### Why does the workflow use `secrets: inherit`?
 
 Reusable workflows do not automatically receive the calling repo's secrets — they must be explicitly forwarded. `secrets: inherit` passes all of the caller's secrets to the reusable workflow. This is the standard approach for organisation-managed secrets.
+
+---
+
+## Translation Sync
+
+### What is `sync-translations.yml`?
+
+A reusable workflow that standardises the per-repo `sync_tx.yml` translation sync pattern. It runs `scripts/sync_translations.py` (in the calling repo) when `gitlocalize-app[bot]` pushes a commit, or on manual dispatch.
+
+### Why replace the per-repo `sync_tx.yml` with this?
+
+The per-repo files have inconsistencies:
+- Some use `actions/checkout@v2` and `actions/setup-python@v1` (deprecated).
+- Some use `github.event.head_commit.author.username` for bot detection — this is unreliable. The correct field is `github.actor`.
+- `stefanzweifel/git-auto-commit-action` versions vary (`@v4`, `@v5`, `@v7`).
+- Commit messages differ across repos.
+
+The reusable workflow fixes all of these in one place.
+
+### How do I migrate a skill repo's `sync_tx.yml`?
+
+Replace the entire file with:
+
+```yaml
+name: Sync Translations
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+jobs:
+  sync_translations:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
+    secrets: inherit
+    with:
+      branch: dev
+```
 
 ---
 

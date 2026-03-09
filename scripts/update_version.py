@@ -1,73 +1,72 @@
 """
-on merge to dev:
-- depending on labels (conventional commits) script is called with "major", "minor", "build", "alpha"
-- on merge to dev, update version.py string to enforce semver
+On merge to dev: bump version in version.py according to PR label.
+
+Called by publish-alpha.yml with one of: major | minor | build | alpha
+
+Bump rules:
+  major  — MAJOR += 1, MINOR = 0, BUILD = 0, ALPHA = 1
+  minor  — MINOR += 1, BUILD = 0, ALPHA = 1
+  build  — BUILD += 1, ALPHA = 1
+  alpha  — ALPHA += 1 (if currently stable: BUILD += 1 first)
 """
 
-import sys
+from __future__ import annotations
+
 import argparse
+import sys
 from os.path import abspath
 
-def read_version(version_file):
-    VERSION_MAJOR = 0
-    VERSION_MINOR = 0
-    VERSION_BUILD = 0
-    VERSION_ALPHA = 0
-
-    with open(version_file, 'r') as file:
-        content = file.read()
-    for l in content.split("\n"):
-        l = l.strip()
-        if l.startswith("# END_VERSION_BLOCK"):
-            break
-        if l.startswith("VERSION_MAJOR"):
-            VERSION_MAJOR = int(l.split("=")[-1])
-        elif l.startswith("VERSION_MINOR"):
-            VERSION_MINOR = int(l.split("=")[-1])
-        elif l.startswith("VERSION_BUILD"):
-            VERSION_BUILD = int(l.split("=")[-1])
-        elif l.startswith("VERSION_ALPHA"):
-            VERSION_ALPHA = int(l.split("=")[-1])
-    return VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_ALPHA
+from _version_utils import format_version, read_version, write_version_block
 
 
-def update_version(part, version_file):
-    VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_ALPHA = read_version(version_file)
+def update_version(part: str, version_file: str) -> str:
+    """Bump the version in *version_file* according to *part* and return the new version string.
 
-    if part == 'major':
-        VERSION_MAJOR += 1
-        VERSION_MINOR = 0
-        VERSION_BUILD = 0
-        VERSION_ALPHA = 1
-    elif part == 'minor':
-        VERSION_MINOR += 1
-        VERSION_BUILD = 0
-        VERSION_ALPHA = 1
-    elif part == 'build':
-        VERSION_BUILD += 1
-        VERSION_ALPHA = 1
-    elif part == 'alpha':
-        if not VERSION_ALPHA:  # it's a stable release
-            VERSION_BUILD += 1
-        VERSION_ALPHA += 1
+    Args:
+        part: One of "major", "minor", "build", or "alpha".
+        version_file: Absolute path to the version.py file.
 
-    with open(version_file, 'r') as file:
-        contents = file.read().split("# END_VERSION_BLOCK")[-1]
+    Returns:
+        The new version string (e.g. "1.2.3a4").
 
-    with open(version_file, 'w') as file:
-        file.write(f"""# START_VERSION_BLOCK
-VERSION_MAJOR = {VERSION_MAJOR}
-VERSION_MINOR = {VERSION_MINOR}
-VERSION_BUILD = {VERSION_BUILD}
-VERSION_ALPHA = {VERSION_ALPHA}
-# END_VERSION_BLOCK""" + contents)
+    Raises:
+        ValueError: If *part* is not one of the accepted values.
+    """
+    major, minor, build, alpha = read_version(version_file)
+
+    if part == "major":
+        major += 1
+        minor = 0
+        build = 0
+        alpha = 1
+    elif part == "minor":
+        minor += 1
+        build = 0
+        alpha = 1
+    elif part == "build":
+        build += 1
+        alpha = 1
+    elif part == "alpha":
+        if not alpha:  # currently stable — start a new build series
+            build += 1
+        alpha += 1
+    else:
+        raise ValueError(f"Unknown version part: {part!r}. Expected one of: major, minor, build, alpha")
+
+    write_version_block(version_file, major, minor, build, alpha)
+    return format_version(major, minor, build, alpha)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Update the version based on the specified part (major, minor, build, alpha)')
-    parser.add_argument('part', help='Part of the version to update (major, minor, build, alpha)')
-    parser.add_argument('--version-file', help='Path to the version.py file', required=True)
+    parser = argparse.ArgumentParser(
+        description="Update the version based on the specified part (major, minor, build, alpha)"
+    )
+    parser.add_argument(
+        "part",
+        choices=["major", "minor", "build", "alpha"],
+        help="Part of the version to update",
+    )
+    parser.add_argument("--version-file", required=True, help="Path to the version.py file")
 
     args = parser.parse_args()
-
     update_version(args.part, abspath(args.version_file))

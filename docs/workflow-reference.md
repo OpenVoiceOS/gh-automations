@@ -5,7 +5,7 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Update all @master refs to @
 All reusable workflows are in `.github/workflows/` and are called via:
 
 ```yaml
-uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@dev
+uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 ```
 
 > **Ref policy:** Use `@dev` for all new repos and migrations. `@master` is frozen (v1 baseline).
@@ -75,7 +75,7 @@ on:
 jobs:
   publish_alpha:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
-    uses: TigreGotico/gh-automations/.github/workflows/publish-alpha.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@dev
     secrets: inherit
     with:
       branch: 'dev'
@@ -144,7 +144,7 @@ on:
 jobs:
   publish_stable:
     if: github.actor != 'github-actions[bot]'
-    uses: TigreGotico/gh-automations/.github/workflows/publish-stable.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-stable.yml@dev
     secrets: inherit
     with:
       branch: 'master'
@@ -185,7 +185,7 @@ on:
 
 jobs:
   license_tests:
-    uses: TigreGotico/gh-automations/.github/workflows/license-check.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
     with:
       install_extras: '[extras]'
       system_deps: 'swig libfann-dev'
@@ -220,7 +220,7 @@ Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](
   notify:
     if: github.event.pull_request.merged == true
     needs: publish_alpha
-    uses: TigreGotico/gh-automations/.github/workflows/notify-matrix.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
     secrets: inherit
     with:
       message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
@@ -255,7 +255,7 @@ on:
 
 jobs:
   pip_audit:
-    uses: TigreGotico/gh-automations/.github/workflows/pip-audit.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@dev
     with:
       install_extras: '[all]'
 ```
@@ -292,7 +292,7 @@ on:
 
 jobs:
   check_downstream:
-    uses: TigreGotico/gh-automations/.github/workflows/downstream-check.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
     secrets: inherit
     with:
       package_name: 'ovos-utils'
@@ -300,17 +300,71 @@ jobs:
 
 ---
 
+## `sync-translations.yml`
+
+Synchronises [gitlocalize-app](https://gitlocalize.com/) translation commits. Runs `scripts/sync_translations.py` in the calling repo when triggered by a push from `gitlocalize-app[bot]` or by manual `workflow_dispatch`.
+
+Standardises the per-repo `sync_tx.yml` pattern found across all OVOS skill repos. Issues fixed over the per-repo pattern:
+- Old repos used `actions/checkout@v2` and `actions/setup-python@v1` — updated to `@v4`/`@v5`
+- `github.actor` is the correct field for bot detection (some repos incorrectly used `github.event.head_commit.author.username`)
+- `stefanzweifel/git-auto-commit-action` standardised to `@v5`
+- Commit message normalised to `chore: sync translations`
+
+**Source:** `.github/workflows/sync-translations.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `branch` | string | `dev` | Branch to checkout, run the script on, and commit back to |
+| `python_version` | string | `3.11` | Python version |
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `script_path` | string | `scripts/sync_translations.py` | Relative path to the sync script in the calling repo |
+
+### Typical usage
+
+Replace the per-repo `sync_tx.yml` with:
+
+```yaml
+name: Sync Translations
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+jobs:
+  sync_translations:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
+    secrets: inherit
+    with:
+      branch: dev
+      # script_path: scripts/sync_translations.py  # default
+```
+
+### Known issues
+
+Some existing `sync_tx.yml` files use `github.event.head_commit.author.username == 'gitlocalize-app[bot]'` for bot detection. This field is not reliable for filtering. The reusable workflow uses `github.actor == 'gitlocalize-app[bot]'` which is the correct field. When migrating, remove the old per-repo `sync_tx.yml` and replace with a call to this reusable workflow.
+
+---
+
 ## Scripts Reference
 
 The following Python scripts are checked out from this repo at workflow run time and are not installed as a Python package.
+
+### `scripts/_version_utils.py`
+
+Shared version-block parsing utilities imported by all other scripts.
+
+**Key functions:**
+- `read_version(version_file: str) -> tuple[int, int, int, int]` — `scripts/_version_utils.py:18` — parses `START_VERSION_BLOCK/END_VERSION_BLOCK`, returns `(major, minor, build, alpha)`
+- `format_version(major, minor, build, alpha) -> str` — `scripts/_version_utils.py:51` — formats PEP 440 string
+- `write_version_block(version_file, major, minor, build, alpha)` — `scripts/_version_utils.py:70` — rewrites only the block, preserving all surrounding content
 
 ### `scripts/update_version.py`
 
 Bumps the version in a `version.py` file.
 
-**Key function:** `update_version(part: str, version_file: str)` — `scripts/update_version.py:34`
-
-**Helper:** `read_version(version_file: str) -> tuple` — `scripts/update_version.py:11`
+**Key function:** `update_version(part: str, version_file: str) -> str` — `scripts/update_version.py:18`
 
 ```
 usage: update_version.py <part> --version-file <path>

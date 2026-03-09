@@ -82,7 +82,7 @@ on:
 jobs:
   publish_alpha:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
-    uses: TigreGotico/gh-automations/.github/workflows/publish-alpha.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@dev
     secrets: inherit
     with:
       branch: 'dev'
@@ -95,7 +95,7 @@ jobs:
   notify:
     if: github.event.pull_request.merged == true
     needs: publish_alpha
-    uses: TigreGotico/gh-automations/.github/workflows/notify-matrix.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
     secrets: inherit
     with:
       message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
@@ -138,7 +138,7 @@ on:
 jobs:
   publish_stable:
     if: github.actor != 'github-actions[bot]'
-    uses: TigreGotico/gh-automations/.github/workflows/publish-stable.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-stable.yml@dev
     secrets: inherit
     with:
       branch: 'master'
@@ -213,7 +213,7 @@ on:
 
 jobs:
   license_tests:
-    uses: TigreGotico/gh-automations/.github/workflows/license-check.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
     with:
       install_extras: ''          # e.g. '[extras]'
       system_deps: ''             # e.g. 'swig libfann-dev'
@@ -236,7 +236,7 @@ on:
 
 jobs:
   check_downstream:
-    uses: TigreGotico/gh-automations/.github/workflows/downstream-check.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
     secrets: inherit
     with:
       package_name: 'my-package'
@@ -253,7 +253,7 @@ on:
 
 jobs:
   pip_audit:
-    uses: TigreGotico/gh-automations/.github/workflows/pip-audit.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@dev
     with:
       install_extras: ''
 ```
@@ -300,7 +300,7 @@ Manual dispatch (`workflow_dispatch`) is always allowed for both `release_workfl
 If your repo currently calls `@master` workflows, migration to `@dev` is a single PR per repo:
 
 1. Find all `.github/workflows/*.yml` files that call gh-automations.
-2. Replace every occurrence of `@master` (in `uses:` lines referencing `TigreGotico/gh-automations`) with `@dev`.
+2. Replace every occurrence of `@master` (in `uses:` lines referencing `OpenVoiceOS/gh-automations`) with `@dev`.
 3. Open the PR targeting `dev` (or `master` if your repo has no dev branch).
 4. Wait for CI to pass.
 5. Merge.
