@@ -84,7 +84,9 @@ def write_version_block(version_file: str, major: int, minor: int, build: int, a
     with open(version_file, "r") as f:
         content = f.read()
 
-    # Split on END_VERSION_BLOCK to preserve everything after the block
+    # Preserve everything before START_VERSION_BLOCK
+    before_block = content.split("# START_VERSION_BLOCK")[0]
+    # Preserve everything after END_VERSION_BLOCK
     after_block = content.split("# END_VERSION_BLOCK")[-1]
 
     new_block = (
@@ -97,4 +99,4 @@ def write_version_block(version_file: str, major: int, minor: int, build: int, a
     )
 
     with open(version_file, "w") as f:
-        f.write(new_block + after_block)
+        f.write(before_block + new_block + after_block)

@@ -125,9 +125,9 @@ jobs:
             echo "Processing label: $label"
             if [ "$label" == "breaking" ]; then
               MAJOR=1
-            elif [ "$label" == "feature" ]; then
+            elif [ "$label" == "feature" ] || [ "$label" == "enhancement" ]; then
               MINOR=1
-            elif [ "$label" == "fix" ]; then
+            elif [ "$label" == "fix" ] || [ "$label" == "bug" ]; then
               BUILD=1
             fi
           done

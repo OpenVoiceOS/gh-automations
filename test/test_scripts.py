@@ -6,6 +6,7 @@ Tests all public functions in:
   - scripts/update_version.py  (update_version)
   - scripts/get_version.py     (get_version)
   - scripts/remove_alpha.py    (update_alpha)
+  - scripts/update_pr_comment.py (build_section, insert_or_replace_section)
 
 Runs without any external dependencies beyond the Python standard library.
 """
@@ -26,6 +27,7 @@ from _version_utils import format_version, read_version, write_version_block  # 
 from get_version import get_version  # noqa: E402
 from remove_alpha import update_alpha  # noqa: E402
 from update_version import update_version  # noqa: E402
+from update_pr_comment import build_section, insert_or_replace_section  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +35,9 @@ from update_version import update_version  # noqa: E402
 # ---------------------------------------------------------------------------
 
 STABLE_VERSION_PY = textwrap.dedent("""\
-    # The following lines are replaced during the release process.
+    # Header comment
+    import os
+
     # START_VERSION_BLOCK
     VERSION_MAJOR = 1
     VERSION_MINOR = 2
@@ -45,7 +49,6 @@ STABLE_VERSION_PY = textwrap.dedent("""\
 """)
 
 ALPHA_VERSION_PY = textwrap.dedent("""\
-    # The following lines are replaced during the release process.
     # START_VERSION_BLOCK
     VERSION_MAJOR = 1
     VERSION_MINOR = 2
@@ -149,6 +152,12 @@ class TestFormatVersion:
 # ---------------------------------------------------------------------------
 
 class TestWriteVersionBlock:
+    def test_preserves_content_before_block(self, stable_version_file: Path) -> None:
+        write_version_block(str(stable_version_file), 2, 0, 0, 1)
+        content = stable_version_file.read_text()
+        assert "# Header comment" in content
+        assert "import os" in content
+
     def test_preserves_content_after_block(self, stable_version_file: Path) -> None:
         write_version_block(str(stable_version_file), 2, 0, 0, 1)
         content = stable_version_file.read_text()
@@ -254,6 +263,57 @@ class TestUpdateAlpha:
         update_alpha(str(alpha_version_file))
         content = alpha_version_file.read_text()
         assert "__version__" in content
+
+
+# ---------------------------------------------------------------------------
+# update_pr_comment.py
+# ---------------------------------------------------------------------------
+
+class TestUpdatePrComment:
+    def test_build_section(self) -> None:
+        section = build_section("test", "Title", "Hello")
+        assert "<!-- section:test -->" in section
+        assert "### Title" in section
+        assert "Hello" in section
+        assert "<!-- /section:test -->" in section
+
+    def test_insert_new_section(self) -> None:
+        body = "Initial body"
+        new_body = insert_or_replace_section(body, "test", "Title", "Hello")
+        assert "Initial body" in new_body
+        assert "<!-- section:test -->" in new_body
+        assert "### Title" in new_body
+        assert "Hello" in new_body
+
+    def test_replace_existing_section(self) -> None:
+        initial = (
+            "Header\n\n"
+            "<!-- section:test -->\n"
+            "### Old Title\n\n"
+            "Old content\n"
+            "<!-- /section:test -->\n"
+            "Footer"
+        )
+        updated = insert_or_replace_section(initial, "test", "New Title", "New content")
+        assert "Header" in updated
+        assert "Footer" in updated
+        assert "### Old Title" not in updated
+        assert "### New Title" in updated
+        assert "New content" in updated
+        assert "<!-- section:test -->" in updated
+        assert "<!-- /section:test -->" in updated
+
+    def test_idempotent_replace(self) -> None:
+        initial = (
+            "Header\n\n"
+            "<!-- section:test -->\n"
+            "### Title\n\n"
+            "Content\n"
+            "<!-- /section:test -->"
+        )
+        # Content match (whitespace stripped)
+        updated = insert_or_replace_section(initial, "test", "Title", "  Content  ")
+        assert "Content" in updated
 
 
 # ---------------------------------------------------------------------------

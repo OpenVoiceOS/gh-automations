@@ -116,7 +116,7 @@ def main() -> None:
         if new_body == body:
             print(f"Section '{args.section_id}' content unchanged — skipping update")
             return
-        github_api("PATCH", f"/repos/{args.repo}/issues/{args.pr}/comments/{comment_id}", data={"body": new_body})
+        github_api("PATCH", f"/repos/{args.repo}/issues/comments/{comment_id}", data={"body": new_body})
         print(f"Updated section '{args.section_id}' in existing OVOS PR Checks comment #{comment_id}")
 
 
