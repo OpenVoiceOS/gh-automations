@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added Skill Check and Release Preview Q&A sections.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added Bulk Skill Migration Q&A section.
 
 # FAQ — `gh-automations`
 
@@ -450,3 +450,42 @@ Only if `version.py` is present but unparseable (malformed block markers). If `v
 ### What env vars does check_release.py read?
 
 `PR_LABELS_JSON` — JSON array of label objects from `github.event.pull_request.labels` (set automatically by the workflow). `PR_TITLE` — PR title string. Both can also be passed via `--pr-labels-json` and `--pr-title` CLI args.
+
+---
+
+## Bulk Skill Migration
+
+### How were all 59 OVOS skill repos migrated from TigreGotico to OpenVoiceOS@dev?
+
+A migration script at `scripts/migrate_skills.py` was run on 2026-03-09. It processed 60 skill directories in `Skills/`, skipping 2 that were already migrated (`ovos-skill-icanhazdadjokes`, `ovos-skill-confucius-quotes`) and committing the rest.
+
+### What did the migration script change per skill?
+
+For each skill repo:
+- `release_workflow.yml` — **Rewritten**: removed inline translations job, updated ref to `OpenVoiceOS/gh-automations@dev`, added `publish_pypi: true` and `notify_matrix: true`
+- `publish_stable.yml` — **Rewritten**: updated ref to `OpenVoiceOS/gh-automations@dev`, added `notify_matrix: true`
+- `license_tests.yml` — **Updated ref** to `OpenVoiceOS@dev`, existing `with:` params preserved
+- `skill_check.yml` — **Created** (new file calling `skill-check.yml@dev`)
+- `release_preview.yml` — **Created** (new file calling `release-preview.yml@dev`)
+- `conventional-label.yml` — **Created** where missing
+
+### What about skills with sync_tx.yml?
+
+9 skills with an inline `sync_tx.yml` had it deleted and replaced with `sync_translations.yml` (calling the reusable `sync-translations.yml@dev` workflow). Skills: `ovos-skill-fallback-chatgpt`, `ovos-skill-mark1-ctrl`, `ovos-skill-moon-game`, `ovos-skill-randomness`, `ovos-skill-wikihow`, `skill-ovos-radio-spain`, `skill-ovos-radio-tuga`, `ovos-skill-easter-eggs`.
+
+### What about ovos-skill-easter-eggs?
+
+Easter-eggs previously used `neongeckocom/.github@master` (not OVOS automation at all). The migration performed a full rewrite: removed `propose_release.yml`, `publish_alpha.yml`, `publish_release.yml`, `update_skill_json.yml`, and `sync_tx.yml`. The `skill_tests.yml` multi-version matrix was preserved as-is. All standard OVOS workflows were added.
+
+### What about skills with no .github/workflows directory?
+
+3 skills (`ovos-skill-cave-adventure-game`, `ovos-skill-music-assistant`, `ovos-skill-white-house-adventure`) had the full workflow set created from scratch: `release_workflow.yml`, `publish_stable.yml`, `license_tests.yml`, `skill_check.yml`, `release_preview.yml`, `conventional-label.yml`.
+
+### How do I re-run the migration for a single skill?
+
+```bash
+cd gh-automations
+python scripts/migrate_skills.py --skill ovos-skill-name
+```
+
+Use `--dry-run` to preview changes without writing files.
