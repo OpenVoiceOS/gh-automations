@@ -1,25 +1,14 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Document master-freeze / dev-active branching; update all @master refs; add versioning policy; expand cross-references.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add new workflows and scripts; fix all line numbers; remove stale @master branching narrative; update scripts-checkout note.
 
 # gh-automations
 
 `gh-automations` (hosted at [OpenVoiceOS/gh-automations](https://github.com/OpenVoiceOS/gh-automations)) is the shared GitHub Actions automation library for all OpenVoiceOS repositories. It provides reusable workflows and Python scripts that implement the OVOS rolling-release model: bump version on PR merge to `dev`, publish alpha to PyPI, open a release PR to `master`, then on merge declare stable and tag.
 
-As of 2026-03-09 it is used by **209 OVOS repositories**.
+As of 2026-03-09 it is used by **209 OVOS repositories**. All calling repos should reference `@dev`:
 
----
-
-## Branching & Versioning Policy
-
-gh-automations itself follows the same `dev` / `master` model it enforces in all calling repos.
-
-| Ref | Status | Use for |
-|-----|--------|---------|
-| `@master` | **Frozen (v1)** | Legacy callers. No new development. Do not use for new repos. |
-| `@dev` | **Active** | All new repos and migrated repos. Receives all fixes and new features. |
-| `@v2` _(future)_ | Planned | Will be tagged from `dev` when breaking changes warrant a formal major version. |
-
-**Why freeze `@master`?**
-Every OVOS repo calls these workflows with `@<ref>`. Because GitHub resolves the ref at call time, pinning to `@master` means all 209 callers would instantly receive any change merged to `master`. By freezing `master` and doing all work on `dev`, changes are opt-in: a repo migrates when its maintainer opens a PR changing `@master` → `@dev`.
+```yaml
+uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
+```
 
 ### Scripts checkout
 
@@ -33,8 +22,6 @@ The reusable workflows check out this repo at runtime to access `scripts/`, pinn
     path: action/github/
 ```
 
-Both `@master` and `@dev` callers execute scripts from the `dev` branch. This ensures all callers always run the latest script fixes regardless of which workflow ref they use.
-
 ---
 
 ## Reusable Workflows
@@ -47,12 +34,15 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | Workflow | Purpose | Used by |
 |---|---|---|
 | `publish-alpha.yml` | Bump version, publish alpha to PyPI, open release PR | All 209 repos — `release_workflow.yml` |
-| `publish-stable.yml` | Remove alpha suffix, tag stable release | All 209 repos — `publish_stable.yml` |
+| `publish-stable.yml` | Remove alpha suffix, tag stable release, sync dev | All 209 repos — `publish_stable.yml` |
 | `license-check.yml` | Scan dependencies for copyleft/incompatible licenses | 126 repos — `license_tests.yml` |
-| `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | All 209 repos — `release_workflow.yml` (notify job) |
+| `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
 | `pip-audit.yml` | Scan installed dependencies for CVEs | Selected repos — `pipaudit.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | OVOS skill repos — `sync_tx.yml` |
+| `coverage.yml` | Run pytest with coverage; post diff report to PR comment | Selected repos — `coverage.yml` |
+| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
+| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | Skill repos — `skill_check.yml` |
+| `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |
 
 Full input/output/job reference: [workflow-reference.md](workflow-reference.md)
 
@@ -64,12 +54,19 @@ Located in `scripts/`. Checked out by the reusable workflows at run time — not
 
 | Script | Key function | Purpose |
 |---|---|---|
-| `update_version.py` | `update_version(part, version_file)` — `scripts/update_version.py:34` | Bump `VERSION_MAJOR/MINOR/BUILD/ALPHA` in `version.py` |
-| `remove_alpha.py` | `update_alpha(version_file)` — `scripts/remove_alpha.py:10` | Set `VERSION_ALPHA = 0` (declare stable) |
-| `get_version.py` | `get_version(version_file)` — `scripts/get_version.py:5` | Read and print current version string |
+| `_version_utils.py` | `read_version(version_file)` — `scripts/_version_utils.py:17` | Parse `version.py` block; shared by all version scripts |
+| `_version_utils.py` | `format_version(major, minor, build, alpha)` — `scripts/_version_utils.py:54` | Format PEP 440 version string |
+| `_version_utils.py` | `write_version_block(version_file, ...)` — `scripts/_version_utils.py:72` | Rewrite block, preserve surrounding content |
+| `update_version.py` | `update_version(part, version_file)` — `scripts/update_version.py:22` | Bump `VERSION_MAJOR/MINOR/BUILD/ALPHA` in `version.py` |
+| `remove_alpha.py` | `update_alpha(version_file)` — `scripts/remove_alpha.py:17` | Set `VERSION_ALPHA = 0` (declare stable) |
+| `get_version.py` | `get_version(version_file)` — `scripts/get_version.py:15` | Read and print current version string |
 | `check_downstream.py` | `get_downstream(package_name)` — `scripts/check_downstream.py:61` | Report reverse dependencies using `pipdeptree` |
+| `update_pr_comment.py` | `find_ovos_comment(repo, pr)` — `scripts/update_pr_comment.py:56` | Find-or-create the shared OVOS PR Checks comment |
+| `update_pr_comment.py` | `insert_or_replace_section(body, ...)` — `scripts/update_pr_comment.py:81` | Replace a named section in the shared PR comment |
+| `check_skill.py` | `run_checks(repo_root, ...)` — `scripts/check_skill.py:220` | Full skill locale/skill.json/gitlocalize analysis |
+| `check_release.py` | `run_checks(version_file, ...)` — `scripts/check_release.py:196` | Predict next version from PR labels/title |
 
-All four scripts share the same `version.py` block format:
+All version scripts share the `version.py` block format:
 
 ```python
 # START_VERSION_BLOCK
@@ -79,8 +76,6 @@ VERSION_BUILD = 3
 VERSION_ALPHA = 4   # 0 = stable
 # END_VERSION_BLOCK
 ```
-
-`read_version()` in `update_version.py:11` and `get_version()` in `get_version.py:5` implement identical parsing logic. See [SUGGESTIONS.md](../SUGGESTIONS.md#1-deduplicate-read_version-logic) for the proposed consolidation.
 
 ---
 

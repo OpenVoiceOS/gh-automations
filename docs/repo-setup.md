@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Update all @master refs to @dev; add migration section for existing repos; expand branch protection and secret requirements.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Replace inline publish_pypi jobs with workflow inputs; add skill-check/release-preview/coverage optional workflows; remove @master migration section; fix license example.
 
 # Setting Up a New OVOS Repo
 
@@ -90,36 +90,9 @@ jobs:
       update_changelog: true
       publish_prerelease: true
       propose_release: true
+      publish_pypi: true        # builds with python -m build, publishes to PyPI
+      notify_matrix: true       # posts to OVOS Matrix channel
       changelog_max_issues: 100
-
-  notify:
-    if: github.event.pull_request.merged == true
-    needs: publish_alpha
-    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
-    secrets: inherit
-    with:
-      message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
-
-  publish_pypi:
-    needs: publish_alpha
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: dev
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install Build Tools
-        run: python -m pip install build
-      - name: Build
-        run: python -m build
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@master
-        with:
-          password: ${{secrets.PYPI_TOKEN}}
 ```
 
 ### 5. `.github/workflows/publish_stable.yml`
@@ -144,28 +117,9 @@ jobs:
       branch: 'master'
       version_file: 'my_package/version.py'  # ← update this path
       publish_release: true
-      sync_dev: true
-
-  publish_pypi:
-    needs: publish_stable
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: master
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install Build Tools
-        run: python -m pip install build
-      - name: Build
-        run: python -m build
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@master
-        with:
-          password: ${{secrets.PYPI_TOKEN}}
+      publish_pypi: true        # builds with python -m build, publishes to PyPI
+      sync_dev: true            # pushes master → dev after stable release
+      notify_matrix: true       # posts to OVOS Matrix channel
 ```
 
 ---
@@ -217,8 +171,8 @@ jobs:
     with:
       install_extras: ''          # e.g. '[extras]'
       system_deps: ''             # e.g. 'swig libfann-dev'
-      # exclude_packages: '^(tqdm).*'       # default
-      # exclude_licenses: '^(Mozilla).*$'   # default
+      # exclude_packages: '^(chardet).*'         # per-package exclusions
+      # exclude_licenses: '^Mozilla Public License.*'  # MPL allowed by default
 ```
 
 ### `downstream.yml` — Track downstream dependents
@@ -258,6 +212,73 @@ jobs:
       install_extras: ''
 ```
 
+### `coverage.yml` — Test coverage with PR diff comments
+
+```yaml
+name: Coverage
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'   # measure only your own code
+      min_coverage: 80                # optional: fail below 80%
+```
+
+### `skill_check.yml` — Skill locale + skill.json (skill repos only)
+
+```yaml
+name: Skill Check
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  skill_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
+    secrets: inherit
+```
+
+Default `skip_if_not_skill: true` means this safely no-ops on non-skill repos.
+
+### `release_preview.yml` — Next-version prediction
+
+```yaml
+name: Release Preview
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  release_preview:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/release-preview.yml@dev
+    secrets: inherit
+```
+
+### `sync_translations.yml` — Gitlocalize sync (skill repos only)
+
+```yaml
+name: Sync Translations
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+jobs:
+  sync_translations:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
+    secrets: inherit
+    with:
+      branch: dev
+```
+
 ---
 
 ## Required GitHub Secrets
@@ -293,18 +314,3 @@ Configure under repo Settings → Branches:
 
 Manual dispatch (`workflow_dispatch`) is always allowed for both `release_workflow.yml` and `publish_stable.yml`.
 
----
-
-## Migrating an Existing Repo
-
-If your repo currently calls `@master` workflows, migration to `@dev` is a single PR per repo:
-
-1. Find all `.github/workflows/*.yml` files that call gh-automations.
-2. Replace every occurrence of `@master` (in `uses:` lines referencing `OpenVoiceOS/gh-automations`) with `@dev`.
-3. Open the PR targeting `dev` (or `master` if your repo has no dev branch).
-4. Wait for CI to pass.
-5. Merge.
-
-There is no functional difference on day one — `@dev` currently contains the same workflows as `@master` plus any fixes applied since the freeze. The benefit is that future improvements land automatically in your repo once you are on `@dev`.
-
-**Bulk migration** across many repos is best done with a script using the GitHub API or `gh` CLI to open PRs programmatically.

@@ -1,62 +1,10 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Document master-freeze / dev-active model for gh-automations itself; update all @master refs; add gh-automations versioning lifecycle section.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Remove stale @master branching narrative; fix all script line numbers; fix propose_release diagram (gh pr create); fix scripts-checkout note.
 
 # OVOS Release Flow
 
 All OVOS packages follow a rolling release model with three channels: **alpha**, **testing**, and **stable**. This document describes the full lifecycle from code change to published package, and separately covers the versioning strategy for gh-automations itself.
 
 ---
-
-## gh-automations Versioning Policy
-
-gh-automations is a reusable workflow library, not an installable Python package. It does not have a `version.py` of its own. Instead it is versioned via **Git refs** that callers pin in their workflow files.
-
-| Ref | Status | Semantics |
-|-----|--------|-----------|
-| `@master` | **Frozen (v1)** | The original stable baseline. Frozen in place — no new commits will land on `master`. Repos still calling `@master` will keep working exactly as before, indefinitely. |
-| `@dev` | **Active** | All fixes, new features, and improvements target `dev`. New repos and repos that opt in by migrating should call `@dev`. |
-| `@v2` _(future)_ | Planned | Will be tagged from `dev` when breaking changes (input renames, removed jobs, changed outputs) accumulate to the point where a formal major version bump is warranted. |
-
-### How to migrate a repo from `@master` to `@dev`
-
-Open a PR in the target repo with the following change in every `.github/workflows/` file:
-
-```
-# Before
-uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@master
-
-# After
-uses: OpenVoiceOS/gh-automations/.github/workflows/publish-alpha.yml@dev
-```
-
-Repeat for every `uses:` and `license_tests.yml` / `downstream.yml` reference in the repo.
-Verify CI passes, then merge.
-
-### What counts as a breaking change requiring `@v3` (or `@v2`→next)?
-
-| Change type | Breaking? |
-|---|---|
-| New optional input with a default value | No — existing callers are unaffected |
-| Bug fix that does not change outputs | No |
-| New job that does not affect existing job names | No |
-| Removing or renaming an existing input | **Yes** |
-| Removing or renaming an existing output | **Yes** |
-| Renaming a job (breaks callers that `needs:` the old name) | **Yes** |
-| Changing the default value of an existing input in a way that alters behaviour | **Yes** |
-| Adding a new **required** input (no default) | **Yes** |
-
-### Scripts checkout note
-
-The reusable workflow files checkout this repo at runtime to access `scripts/` via:
-
-```yaml
-- uses: actions/checkout@v4
-  with:
-    repository: OpenVoiceOS/gh-automations
-    path: action/github/
-    # no ref: specified — uses the GitHub default branch
-```
-
-This means the scripts that actually run are determined by whichever branch is set as the **GitHub default branch** of `OpenVoiceOS/gh-automations`, regardless of which ref (`@master` or `@dev`) the calling workflow uses to select the workflow file. See [SUGGESTIONS.md](../SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the proposed fix.
 
 ---
 
@@ -89,7 +37,7 @@ VERSION_ALPHA = 4   # 0 = stable release
 __version__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}" + (f"a{VERSION_ALPHA}" if VERSION_ALPHA else "")
 ```
 
-`update_version.py:11-31` (`read_version`) parses this block. `update_version.py:34-63` (`update_version`) rewrites it. `remove_alpha.py:10-17` (`update_alpha`) sets `VERSION_ALPHA = 0` using `fileinput` in-place replacement. `get_version.py:5-28` (`get_version`) reads and formats the string.
+`_version_utils.py:17` (`read_version`) parses this block. `update_version.py:22` (`update_version`) rewrites it via `write_version_block` at `_version_utils.py:72`. `remove_alpha.py:17` (`update_alpha`) sets `VERSION_ALPHA = 0` using `write_version_block`. `get_version.py:15` (`get_version`) reads and formats the string.
 
 ### Version bump rules (driven by PR labels from conventional commits)
 
@@ -135,7 +83,7 @@ release_workflow.yml  (per-repo)
     │               │   Create GitHub pre-release tag (e.g. 1.2.3a4)
     │               │
     │               └─ [propose_release job]  (optional: propose_release: true)
-    │                   git checkout -b release-X.Y.ZaN
+    │                   git checkout -B release-X.Y.ZaN  (force-create, idempotent)
     │                   git push origin release-X.Y.ZaN
     │                   curl → open PR to master
     │

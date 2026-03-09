@@ -8,8 +8,7 @@ All reusable workflows are in `.github/workflows/` and are called via:
 uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 ```
 
-> **Ref policy:** Use `@dev` for all new repos and migrations. `@master` is frozen (v1 baseline).
-> See [release-flow.md — gh-automations Versioning Policy](release-flow.md#gh-automations-versioning-policy) for the full rationale.
+> **Ref:** Always use `@dev`.
 
 ---
 
@@ -90,10 +89,10 @@ jobs:
       changelog_max_issues: 100
 ```
 
-### Known issues
+### Notes
 
-- `pypa/gh-action-pypi-publish@master` and `pozetroninc/github-action-get-latest-release@master` are pinned to `@master` rather than a fixed ref — any upstream breaking change would silently affect all callers. See [AUDIT.md](../AUDIT.md).
-- `propose_release` job uses `git checkout -b release-${VERSION}` — if the branch already exists (e.g. after a failed retry), this step will fail. Proposed fix: use `git checkout -B`. See [SUGGESTIONS.md](../SUGGESTIONS.md#4-use-git-checkout--b-in-propose_release).
+- `publish_pypi: true` uses `pypa/gh-action-pypi-publish@release/v1` (pinned to stable tag).
+- `propose_release` uses `git checkout -B` (force-create) and `gh pr create` with duplicate-check — both steps are idempotent on retry.
 
 ---
 
@@ -795,14 +794,14 @@ Requires `pipdeptree` to be installed in the environment before calling.
 Analyses a checked-out OVOS skill repository. Outputs a JSON report. Stdlib only.
 
 **Key functions:**
-- `is_skill_repo(repo_root)` — `scripts/check_skill.py:27` — searches `setup.py`/`pyproject.toml`/`setup.cfg` for `ovos.plugin.skill`
-- `find_locale_dir(repo_root, override="")` — `scripts/check_skill.py:39` — auto-detects shallowest `locale/` dir containing `en-us/`
-- `count_locale_files(lang_dir)` — `scripts/check_skill.py:68` — counts by extension: `intent`, `voc`, `dialog`, `rx`, `entity`, `total`
-- `get_en_us_file_set(locale_dir)` — `scripts/check_skill.py:84` — relative paths of all files under `locale/en-us/` (excluding `skill.json`)
-- `check_skill_json(lang_dir)` — `scripts/check_skill.py:96` — validates presence and required fields: `skill_id`, `name`, `description`, `examples`, `tags`
-- `check_translation_completeness(locale_dir, en_us_files)` — `scripts/check_skill.py:121` — per-language coverage %
-- `check_gitlocalize_readiness(repo_root)` — `scripts/check_skill.py:144` — checks `scripts/sync_translations.py`, `translations/`, sync workflow
-- `run_checks(repo_root, locale_dir_override="")` — `scripts/check_skill.py:172` — orchestrates all checks, returns full report dict
+- `is_skill_repo(repo_root)` — `scripts/check_skill.py:39` — searches `setup.py`/`pyproject.toml`/`setup.cfg` for `ovos.plugin.skill`
+- `find_locale_dir(repo_root, override="")` — `scripts/check_skill.py:52` — auto-detects shallowest `locale/` dir containing `en-us/`
+- `count_locale_files(lang_dir)` — `scripts/check_skill.py:98` — counts by extension: `intent`, `voc`, `dialog`, `rx`, `entity`, `total`
+- `get_en_us_file_set(locale_dir)` — `scripts/check_skill.py:117` — relative paths of all files under `locale/en-us/` (excluding `skill.json`)
+- `check_skill_json(lang_dir)` — `scripts/check_skill.py:133` — validates presence and required fields: `skill_id`, `name`, `description`, `examples`, `tags`
+- `check_translation_completeness(locale_dir, en_us_files)` — `scripts/check_skill.py:157` — per-language coverage %
+- `check_gitlocalize_readiness(repo_root)` — `scripts/check_skill.py:183` — checks `scripts/sync_translations.py`, `translations/`, sync workflow
+- `run_checks(repo_root, locale_dir_override="")` — `scripts/check_skill.py:220` — orchestrates all checks, returns full report dict
 
 ```
 usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skill-report.json]
@@ -813,11 +812,11 @@ usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skil
 Reads `version.py`, predicts next version from PR labels/title. Imports `_version_utils` via `sys.path.insert`. Stdlib only.
 
 **Key functions:**
-- `parse_pr_title(pr_title)` — `scripts/check_release.py:75` — matches conventional commit prefix (case-insensitive)
-- `detect_bump_part(labels, pr_title)` — `scripts/check_release.py:50` — labels > title; priority: major > minor > build > alpha
-- `compute_next_version(major, minor, build, alpha, part)` — `scripts/check_release.py:89` — mirrors `update_version.py:37-52` exactly
-- `validate_version_block(version_file)` — `scripts/check_release.py:109` — checks markers + parseability
-- `run_checks(version_file, pr_labels_json, pr_title)` — `scripts/check_release.py:134` — orchestrates all checks; exits 0 for missing file, 1 for parse error
+- `parse_pr_title(pr_title)` — `scripts/check_release.py:106` — matches conventional commit prefix (case-insensitive)
+- `detect_bump_part(labels, pr_title)` — `scripts/check_release.py:74` — labels > title; priority: major > minor > build > alpha
+- `compute_next_version(major, minor, build, alpha, part)` — `scripts/check_release.py:120` — mirrors `update_version.py:22` bump rules exactly
+- `validate_version_block(version_file)` — `scripts/check_release.py:146` — checks markers + parseability
+- `run_checks(version_file, pr_labels_json, pr_title)` — `scripts/check_release.py:196` — orchestrates all checks; exits 0 for missing file, 1 for parse error
 
 ```
 usage: check_release.py --version-file version.py \
@@ -835,8 +834,8 @@ Manages the shared **OVOS PR Checks** comment on a pull request. Finds the comme
 Uses only Python stdlib (`urllib`, `json`, `re`) — no extra dependencies.
 
 **Key logic:**
-- `find_ovos_comment(repo, pr_number)` — paginates the PR comments API to find the marker — `scripts/update_pr_comment.py:44`
-- `insert_or_replace_section(body, section_id, title, content)` — regex replace within `<!-- section:X --> … <!-- /section:X -->` delimiters — `scripts/update_pr_comment.py:65`
+- `find_ovos_comment(repo, pr_number)` — paginates the PR comments API to find the marker — `scripts/update_pr_comment.py:56`
+- `insert_or_replace_section(body, section_id, title, content)` — regex replace within `<!-- section:X --> … <!-- /section:X -->` delimiters — `scripts/update_pr_comment.py:81`
 
 ```
 usage: update_pr_comment.py \

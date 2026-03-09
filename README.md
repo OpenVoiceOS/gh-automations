@@ -1,28 +1,10 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Document master-freeze / dev-active branching model; update all @master refs to @dev; add versioning policy section.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add coverage/sync-translations/skill-check/release-preview to workflow table; add all new scripts; fix scripts-checkout note; simplify Quick Start.
 
 # gh-automations
 
 Reusable GitHub Actions workflows and Python scripts for the [OpenVoiceOS](https://github.com/OpenVoiceOS) ecosystem.
 
 Used by **209 repos** across the OVOS project. See [docs/repos.md](docs/repos.md) for the full list.
-
----
-
-## Branching & Versioning Policy
-
-| Ref | Status | Description |
-|-----|--------|-------------|
-| `@master` | **Frozen (v1)** | The original stable baseline. Repos already calling `@master` continue to receive the frozen behaviour. No new features will land here. |
-| `@dev` | **Active** | All new development targets `dev`. New repos and migrated repos should call `@dev`. |
-| `@v2` _(future)_ | Planned | Will be tagged from `dev` once enough breaking changes accumulate to warrant a formal major bump. |
-
-### Migration path for existing repos
-
-1. Open a PR in the target repo changing every `@master` → `@dev` in `.github/workflows/`.
-2. Verify CI passes on `dev` branch of the target repo.
-3. Merge. Done.
-
-There is no urgency — `@master` is frozen, not deleted. Migrate at your own pace.
 
 ---
 
@@ -42,6 +24,10 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
 | `pip-audit.yml` | Scan dependencies for known CVEs | [reference](docs/workflow-reference.md#pip-audityml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
+| `coverage.yml` | Run pytest with coverage; post diff report to PR comment | [reference](docs/workflow-reference.md#coverageyml) |
+| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
+| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 
 ---
 
@@ -58,6 +44,15 @@ The minimum required files for a new package:
   publish_stable.yml         # stable release on PR merge to master
   license_tests.yml          # license compliance check
   build_tests.yml            # build smoke test
+```
+
+For OVOS **skill repos**, also add:
+
+```
+.github/workflows/
+  skill_check.yml            # locale coverage + skill.json validity
+  release_preview.yml        # next-version prediction on every PR
+  sync_translations.yml      # gitlocalize translation sync
 ```
 
 ---
@@ -88,13 +83,16 @@ Scripts in `scripts/` are checked out by the reusable workflows at run time:
 
 | Script | Purpose |
 |--------|---------|
+| `_version_utils.py` | Shared parsing: `read_version`, `format_version`, `write_version_block` |
 | `update_version.py` | Bump version in `version.py` (major/minor/build/alpha) |
 | `remove_alpha.py` | Set `VERSION_ALPHA = 0` (declare stable) |
 | `get_version.py` | Read and print version string from `version.py` |
 | `check_downstream.py` | Report downstream dependents via pipdeptree |
+| `update_pr_comment.py` | Manage the shared OVOS PR Checks comment (find-or-create, section replace) |
+| `check_skill.py` | Analyse skill locale structure, skill.json, translation coverage, gitlocalize |
+| `check_release.py` | Predict next version from PR labels/title using conventional commit rules |
 
-> **Note:** The reusable workflows check out this repo at runtime without pinning a ref
-> (see [SUGGESTIONS.md](SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the risk and proposed fix).
+> **Note:** The reusable workflows check out this repo at runtime pinned to `ref: dev`.
 
 ---
 
