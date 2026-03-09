@@ -16,6 +16,10 @@ on:
         type: string
         default: "3.11"
         description: "Python version"
+      package_name:
+        type: string
+        default: ""
+        description: "Package name (for channel compatibility check). If empty, attempt to read from setup.py/pyproject.toml."
       version_file:
         type: string
         default: "version.py"
@@ -61,6 +65,39 @@ jobs:
         env:
           PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels) }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+
+      - name: Checkout ovos-releases
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/ovos-releases
+          path: _ovos_releases/
+
+      - name: Run channel compatibility check
+        id: channel_check
+        continue-on-error: true
+        run: |
+          PKG="${{ inputs.package_name }}"
+          if [ -z "$PKG" ]; then
+            # Attempt to extract package name from pyproject.toml or setup.py
+            if [ -f pyproject.toml ]; then
+              PKG=$(grep -m 1 "^name =" pyproject.toml | cut -d'"' -f2)
+            elif [ -f setup.py ]; then
+              PKG=$(grep "name=" setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+            fi
+          fi
+          
+          NEXT_VER=$(jq -r '.next_version' /tmp/release-report.json)
+          
+          if [ -n "$PKG" ] && [ "$NEXT_VER" != "null" ]; then
+            python3 _gh_automations/scripts/check_release_channels.py \
+              --releases-dir _ovos_releases/ \
+              --package "$PKG" \
+              --version "$NEXT_VER" \
+              --output /tmp/channel-report.md
+          else
+            echo "Skipping channel check: package or version not found."
+            echo "Skipped." > /tmp/channel-report.md
+          fi
 
       - name: Format release section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -119,6 +156,15 @@ jobs:
 
           with open("/tmp/release-section.md", "w") as f:
               f.write("\n".join(lines))
+
+          # Append channel report if it exists
+          if os.path.exists("/tmp/channel-report.md"):
+              with open("/tmp/channel-report.md") as f:
+                  channel_report = f.read().strip()
+              if channel_report and channel_report != "Skipped.":
+                  with open("/tmp/release-section.md", "a") as f:
+                      f.write("\n\n---\n\n")
+                      f.write(channel_report)
           PYEOF
 
       - name: Post release section to PR comment

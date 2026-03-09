@@ -1,0 +1,195 @@
+name: Python Support
+# Reusable workflow for checking Python version compatibility and OPM detection.
+#
+# Runs a matrix of Python versions AND install modes (regular, editable),
+# attempts to install the package, verifies OPM detection,
+# and generates a report section for the aggregated OVOS PR Checks comment.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      package_name:
+        type: string
+        default: ""
+        description: "Package name (for OPM verification). If empty, attempt to read from setup.py/pyproject.toml."
+      python_versions:
+        type: string
+        default: '["3.8", "3.9", "3.10", "3.11", "3.12"]'
+        description: "JSON array of Python versions to check"
+      install_modes:
+        type: string
+        default: '["regular", "editable"]'
+        description: "JSON array of install modes ('regular', 'editable')"
+      install_extras:
+        type: string
+        default: ""
+        description: "pip extras to install, e.g. '[dev]'"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages beyond python3-dev and libssl-dev"
+      entry_point:
+        type: string
+        default: ""
+        description: "The expected skill entry point ID to verify with OPM"
+      pr_comment:
+        type: boolean
+        default: true
+        description: "Post/update the '🐍 Python Support' section in the PR comment"
+
+jobs:
+  check_compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python_versions) }}
+        install-mode: ${{ fromJson(inputs.install_modes) }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
+      
+      - name: Install package
+        id: install
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ovos-plugin-manager
+          
+          INSTALL_CMD="pip install"
+          if [ "${{ matrix.install-mode }}" == "editable" ]; then
+            INSTALL_CMD="pip install -e"
+          fi
+          
+          if [ -f setup.py ] || [ -f pyproject.toml ]; then
+            $INSTALL_CMD .${{ inputs.install_extras }}
+          else
+             echo "No setup.py or pyproject.toml found — check your repo root."
+             exit 1
+          fi
+      
+      - name: Verify OPM Detection
+        id: opm_check
+        if: ${{ steps.install.outcome == 'success' && inputs.entry_point != '' }}
+        continue-on-error: true
+        run: |
+          python3 _gh_automations/scripts/check_opm.py --entry-point "${{ inputs.entry_point }}"
+
+      - name: Save result
+        run: |
+          mkdir -p results
+          STATUS="success"
+          if [ "${{ steps.install.outcome }}" != "success" ]; then
+            STATUS="failure"
+          elif [ "${{ inputs.entry_point }}" != "" ] && [ "${{ steps.opm_check.outcome }}" != "success" ]; then
+            STATUS="opm_failure"
+          fi
+          echo "$STATUS" > results/${{ matrix.python-version }}-${{ matrix.install-mode }}.txt
+      
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-result-${{ matrix.python-version }}-${{ matrix.install-mode }}
+          path: results/${{ matrix.python-version }}-${{ matrix.install-mode }}.txt
+          retention-days: 1
+
+  post_report:
+    needs: check_compatibility
+    if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+      
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: results_download
+          pattern: python-result-*
+          merge-multiple: true
+      
+      - name: Checkout ovos-releases
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/ovos-releases
+          path: _ovos_releases/
+
+      - name: Run channel compatibility check
+        id: channel_check
+        continue-on-error: true
+        run: |
+          PKG="${{ inputs.package_name }}"
+          if [ -z "$PKG" ]; then
+            if [ -f pyproject.toml ]; then
+              PKG=$(grep -m 1 "^name =" pyproject.toml | cut -d'"' -f2)
+            elif [ -f setup.py ]; then
+              PKG=$(grep "name=" setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+            fi
+          fi
+          
+          # Use current version for channel check if no PR release report available
+          # (Standard release-preview handles the 'next' version, this is for general support info)
+          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file version.py 2>/dev/null || echo "0.0.0")
+          
+          if [ -n "$PKG" ]; then
+            python3 _gh_automations/scripts/check_release_channels.py \
+              --releases-dir _ovos_releases/ \
+              --package "$PKG" \
+              --version "$CUR_VER" \
+              --output /tmp/channel-report.md
+          else
+            echo "Skipped." > /tmp/channel-report.md
+          fi
+
+      - name: Aggregate results
+        run: |
+          VERSIONS=$(echo '${{ inputs.python_versions }}' | jq -r '. | join(",")')
+          MODES=$(echo '${{ inputs.install_modes }}' | jq -r '. | join(",")')
+          python3 _gh_automations/scripts/aggregate_python_results.py \
+            --results-dir results_download \
+            --output /tmp/python-report.md \
+            --versions "$VERSIONS" \
+            --modes "$MODES"
+          
+          # Append channel report
+          if [ -f /tmp/channel-report.md ]; then
+            echo -e "\n---\n" >> /tmp/python-report.md
+            cat /tmp/channel-report.md >> /tmp/python-report.md
+          fi
+      
+      - name: Post PR comment section
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "python_support" \
+            --title "🐍 Python Support" \
+            --content-file /tmp/python-report.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

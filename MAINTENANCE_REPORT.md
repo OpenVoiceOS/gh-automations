@@ -4,6 +4,47 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added skill-check.yml, relea
 
 ---
 
+## [2026-03-09] — Sixth implementation session: enhanced CI checks and PR reporting
+
+### Changes
+
+**`scripts/aggregate_python_results.py` — new script:**
+- Generates a multi-mode (Regular/Editable) Python support matrix from matrix job results.
+- Supports mapping status to icons (`success`, `failure`, `opm_failure`).
+- Outputs Markdown table for PR comments.
+
+**`scripts/check_release_channels.py` — new script:**
+- Verifies package compatibility with `ovos-releases` channels (`Stable`, `Testing`, `Alpha`).
+- Reads constraints files from `ovos-releases` repo.
+- Simplified version comparison logic for OVOS-specific requirement patterns.
+
+**`scripts/check_opm.py` — new script:**
+- Verifies that a skill is correctly detected by `ovos-plugin-manager` after installation.
+- Checks for entry point presence in `find_skill_plugins()`.
+
+**`.github/workflows/python-support.yml` — new reusable workflow:**
+- Runs a matrix of Python versions (3.8-3.12) and install modes (regular, editable).
+- Installs `ovos-plugin-manager` and the package.
+- Runs `check_opm.py` to verify entry point detection.
+- Aggregates all results and channel compatibility into a `🐍 Python Support` PR comment section.
+
+**`.github/workflows/release-preview.yml` — updated:**
+- Integrated `check_release_channels.py` to show channel compatibility for the predicted next version.
+- Added `package_name` input.
+
+**`test/test_scripts.py` — extended:**
+- Added `TestAggregatePythonResults` covering success, failure, and missing data scenarios.
+
+### Transparency Report
+
+| Field | Value |
+|-------|-------|
+| Model | Gemini CLI |
+| Actions taken | Created 3 scripts, 1 workflow; updated 1 workflow, 1 doc, 1 test file |
+| Human oversight level | Plan reviewed and approved by user before implementation |
+
+---
+
 ## [2026-03-09] — Fifth implementation session: skill-check + release-preview
 
 ### Changes

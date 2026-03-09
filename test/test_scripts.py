@@ -7,6 +7,8 @@ Tests all public functions in:
   - scripts/get_version.py     (get_version)
   - scripts/remove_alpha.py    (update_alpha)
   - scripts/update_pr_comment.py (build_section, insert_or_replace_section)
+  - scripts/aggregate_python_results.py (main)
+  - scripts/check_release_channels.py (parse_constraints, check_version_against_constraint)
 
 Runs without any external dependencies beyond the Python standard library.
 """
@@ -28,6 +30,8 @@ from get_version import get_version  # noqa: E402
 from remove_alpha import update_alpha  # noqa: E402
 from update_version import update_version  # noqa: E402
 from update_pr_comment import build_section, insert_or_replace_section  # noqa: E402
+from aggregate_python_results import main as aggregate_main  # noqa: E402
+from check_release_channels import parse_constraints, check_version_against_constraint # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -179,31 +183,31 @@ class TestWriteVersionBlock:
 
 class TestUpdateVersion:
     def test_major_bump(self, alpha_version_file: Path) -> None:
-        # 1.2.3a4 → 2.0.0a1
+        # 1.2.3a4 -> 2.0.0a1
         result = update_version("major", str(alpha_version_file))
         assert result == "2.0.0a1"
         assert read_version(str(alpha_version_file)) == (2, 0, 0, 1)
 
     def test_minor_bump(self, alpha_version_file: Path) -> None:
-        # 1.2.3a4 → 1.3.0a1
+        # 1.2.3a4 -> 1.3.0a1
         result = update_version("minor", str(alpha_version_file))
         assert result == "1.3.0a1"
         assert read_version(str(alpha_version_file)) == (1, 3, 0, 1)
 
     def test_build_bump(self, alpha_version_file: Path) -> None:
-        # 1.2.3a4 → 1.2.4a1
+        # 1.2.3a4 -> 1.2.4a1
         result = update_version("build", str(alpha_version_file))
         assert result == "1.2.4a1"
         assert read_version(str(alpha_version_file)) == (1, 2, 4, 1)
 
     def test_alpha_bump_from_alpha(self, alpha_version_file: Path) -> None:
-        # 1.2.3a4 → 1.2.3a5
+        # 1.2.3a4 -> 1.2.3a5
         result = update_version("alpha", str(alpha_version_file))
         assert result == "1.2.3a5"
         assert read_version(str(alpha_version_file)) == (1, 2, 3, 5)
 
     def test_alpha_bump_from_stable(self, stable_version_file: Path) -> None:
-        # 1.2.3 (alpha=0) → 1.2.4a1 (build increments first)
+        # 1.2.3 (alpha=0) -> 1.2.4a1 (build increments first)
         result = update_version("alpha", str(stable_version_file))
         assert result == "1.2.4a1"
         assert read_version(str(stable_version_file)) == (1, 2, 4, 1)
@@ -314,6 +318,71 @@ class TestUpdatePrComment:
         # Content match (whitespace stripped)
         updated = insert_or_replace_section(initial, "test", "Title", "  Content  ")
         assert "Content" in updated
+
+
+# ---------------------------------------------------------------------------
+# aggregate_python_results.py
+# ---------------------------------------------------------------------------
+
+class TestAggregatePythonResults:
+    def test_aggregate_multi_mode(self, tmp_path: Path) -> None:
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        # Create success for 3.11-regular, failure for 3.11-editable
+        (results_dir / "3.11-regular.txt").write_text("success")
+        (results_dir / "3.11-editable.txt").write_text("failure")
+        
+        output_file = tmp_path / "report.md"
+        
+        import sys
+        original_argv = sys.argv
+        sys.argv = [
+            "aggregate_python_results.py",
+            "--results-dir", str(results_dir),
+            "--output", str(output_file),
+            "--versions", "3.11",
+            "--modes", "regular,editable"
+        ]
+        try:
+            aggregate_main()
+        finally:
+            sys.argv = original_argv
+            
+        report = output_file.read_text()
+        assert "🐍 **Python Support Matrix**" in report
+        assert "| Mode | 3.11 |" in report
+        assert "| Regular | ✅ |" in report
+        assert "| Editable | ❌ |" in report
+        assert "Installation failed" in report
+
+# ---------------------------------------------------------------------------
+# check_release_channels.py
+# ---------------------------------------------------------------------------
+
+class TestCheckReleaseChannels:
+    def test_parse_constraints(self) -> None:
+        content = "ovos-core>=1.3.1,<1.4.0\n# comment\nonnxruntime<=1.20.1\n"
+        constraints = parse_constraints(content)
+        assert constraints["ovos-core"] == "ovos-core>=1.3.1,<1.4.0"
+        assert constraints["onnxruntime"] == "onnxruntime<=1.20.1"
+
+    def test_check_version_compatible(self) -> None:
+        # 1.3.2a1 vs >=1.3.1,<1.4.0
+        icon, note = check_version_against_constraint("1.3.2a1", "ovos-core>=1.3.1,<1.4.0")
+        assert icon == "✅"
+        assert note == "Compatible"
+
+    def test_check_version_too_new(self) -> None:
+        # 1.4.0a1 vs >=1.3.1,<1.4.0
+        icon, note = check_version_against_constraint("1.4.0a1", "ovos-core>=1.3.1,<1.4.0")
+        assert icon == "❌"
+        assert "Too new" in note
+
+    def test_check_version_too_old(self) -> None:
+        # 1.2.0 vs >=1.3.1
+        icon, note = check_version_against_constraint("1.2.0", "ovos-core>=1.3.1")
+        assert icon == "❌"
+        assert "Too old" in note
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +664,7 @@ class TestComputeNextVersion:
         assert compute_next_version(1, 2, 3, 4, "alpha") == (1, 2, 3, 5)
 
     def test_alpha_bump_from_stable(self) -> None:
-        # alpha=0 (stable) → BUILD increments first
+        # alpha=0 (stable) -> BUILD increments first
         assert compute_next_version(1, 2, 3, 0, "alpha") == (1, 2, 4, 1)
 
     def test_mirrors_update_version_major(self, stable_version_file: Path) -> None:
