@@ -1,8 +1,28 @@
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Document master-freeze / dev-active branching model; update all @master refs to @dev; add versioning policy section.
+
 # gh-automations
 
-Reusable GitHub Actions workflows and scripts for the [OpenVoiceOS](https://github.com/OpenVoiceOS) ecosystem.
+Reusable GitHub Actions workflows and Python scripts for the [OpenVoiceOS](https://github.com/OpenVoiceOS) ecosystem.
 
 Used by **209 repos** across the OVOS project. See [docs/repos.md](docs/repos.md) for the full list.
+
+---
+
+## Branching & Versioning Policy
+
+| Ref | Status | Description |
+|-----|--------|-------------|
+| `@master` | **Frozen (v1)** | The original stable baseline. Repos already calling `@master` continue to receive the frozen behaviour. No new features will land here. |
+| `@dev` | **Active** | All new development targets `dev`. New repos and migrated repos should call `@dev`. |
+| `@v2` _(future)_ | Planned | Will be tagged from `dev` once enough breaking changes accumulate to warrant a formal major bump. |
+
+### Migration path for existing repos
+
+1. Open a PR in the target repo changing every `@master` → `@dev` in `.github/workflows/`.
+2. Verify CI passes on `dev` branch of the target repo.
+3. Merge. Done.
+
+There is no urgency — `@master` is frozen, not deleted. Migrate at your own pace.
 
 ---
 
@@ -11,7 +31,7 @@ Used by **209 repos** across the OVOS project. See [docs/repos.md](docs/repos.md
 All workflows live in `.github/workflows/` and are called from other repos via:
 
 ```yaml
-uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@master
+uses: TigreGotico/gh-automations/.github/workflows/<name>.yml@dev
 ```
 
 | Workflow | Purpose | Docs |
@@ -62,9 +82,9 @@ PR merged to master (after human review)
 
 ---
 
-## Scripts
+## Python Scripts
 
-Python scripts in `scripts/` are used by the reusable workflows:
+Scripts in `scripts/` are checked out by the reusable workflows at run time:
 
 | Script | Purpose |
 |--------|---------|
@@ -72,6 +92,9 @@ Python scripts in `scripts/` are used by the reusable workflows:
 | `remove_alpha.py` | Set `VERSION_ALPHA = 0` (declare stable) |
 | `get_version.py` | Read and print version string from `version.py` |
 | `check_downstream.py` | Report downstream dependents via pipdeptree |
+
+> **Note:** The reusable workflows check out this repo at runtime without pinning a ref
+> (see [SUGGESTIONS.md](SUGGESTIONS.md#3-pin-the-scripts-checkout-ref-in-reusable-workflows) for the risk and proposed fix).
 
 ---
 
@@ -81,7 +104,7 @@ All workflows include guards against accidental bot-triggered runs:
 
 - **`publish-alpha.yml`** — `bump_version` job only runs when `github.event.pull_request.merged == true` or `workflow_dispatch`
 - **`publish-stable.yml`** — `bump_version` job skips when `github.actor == 'github-actions[bot]'` (prevents infinite loop when the version commit triggers another push event)
-- **`release_workflow.yml`** (per-repo) — supports `workflow_dispatch` for manual reruns; `publish_alpha` job allows both merged PRs and manual dispatch
+- **`release_workflow.yml`** (per-repo) — supports `workflow_dispatch` for manual reruns
 
 ---
 
@@ -89,8 +112,12 @@ All workflows include guards against accidental bot-triggered runs:
 
 | File | Contents |
 |------|---------|
+| [docs/index.md](docs/index.md) | High-level overview and navigation |
 | [docs/release-flow.md](docs/release-flow.md) | Full release lifecycle, versioning rules, channel overview |
 | [docs/workflow-reference.md](docs/workflow-reference.md) | All inputs, outputs, and jobs for each reusable workflow |
 | [docs/repo-setup.md](docs/repo-setup.md) | Step-by-step setup guide for new repos |
-| [docs/improvements.md](docs/improvements.md) | Planned improvements and migration status |
 | [docs/repos.md](docs/repos.md) | All repos currently using these automations |
+| [FAQ.md](FAQ.md) | Common questions and answers |
+| [QUICK_FACTS.md](QUICK_FACTS.md) | Machine-readable facts for RAG retrieval |
+| [AUDIT.md](AUDIT.md) | Known issues and technical debt |
+| [SUGGESTIONS.md](SUGGESTIONS.md) | Proposed improvements |
