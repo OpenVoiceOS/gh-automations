@@ -3,7 +3,7 @@ name: Build Tests
 #
 # Runs across a configurable matrix of Python versions, verifies the sdist/wheel can be
 # built with `python -m build`, installs the resulting package, and optionally runs the
-# test suite.
+# test suite. Posts a summary to the OVOS PR Checks comment.
 #
 on:
   workflow_call:
@@ -24,7 +24,7 @@ on:
         type: string
         default: ""
         description: >
-          pip extras appended to the install command, e.g. '[test]' or '[dev,test]'.
+          pip extras appended to the install command, e.g. 'test' or 'dev,test'.
           Applied when installing the built package.
       test_path:
         type: string
@@ -32,6 +32,13 @@ on:
         description: >
           If set, run pytest against this path after installing the package.
           Leave empty to skip test execution (build/install verification only).
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
+          Only runs on pull_request events.
+
 jobs:
   build_tests:
     strategy:
@@ -58,10 +65,12 @@ jobs:
           python -m pip install build wheel
 
       - name: Build Distribution Packages
+        id: build
         run: |
           python -m build
 
       - name: Install Built Package
+        id: install
         run: |
           WHEEL=$(ls dist/*.whl 2>/dev/null | head -1)
           EXTRAS="${{ inputs.install_extras }}"
@@ -76,7 +85,129 @@ jobs:
           fi
 
       - name: Run Tests
+        id: tests
         if: ${{ inputs.test_path != '' }}
         run: |
           python -m pip install pytest
           python -m pytest ${{ inputs.test_path }} -v
+
+      - name: Save result
+        if: always()
+        run: |
+          mkdir -p build-results
+          STATUS="success"
+          if [ "${{ steps.build.outcome }}" != "success" ]; then
+            STATUS="build_failed"
+          elif [ "${{ steps.install.outcome }}" != "success" ]; then
+            STATUS="install_failed"
+          elif [ "${{ inputs.test_path }}" != "" ] && [ "${{ steps.tests.outcome }}" != "success" ]; then
+            STATUS="tests_failed"
+          fi
+          echo "$STATUS" > build-results/${{ matrix.python-version }}.txt
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-result-${{ matrix.python-version }}
+          path: build-results/${{ matrix.python-version }}.txt
+          retention-days: 1
+
+  post_build_report:
+    needs: build_tests
+    if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: results_download
+          pattern: build-result-*
+          merge-multiple: true
+
+      - name: Format build report
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, glob
+
+          versions = json.loads('${{ inputs.python_versions }}')
+          has_tests = bool("${{ inputs.test_path }}")
+
+          icons = {
+              "success": "✅",
+              "build_failed": "❌",
+              "install_failed": "🔶",
+              "tests_failed": "⚠️",
+              "unknown": "❓",
+          }
+
+          results = {}
+          # Check both flat and subdir patterns (artifact download variations)
+          for version in versions:
+              status = "unknown"
+              for pattern in [
+                  f"results_download/{version}.txt",
+                  f"results_download/build-result-{version}/{version}.txt",
+              ]:
+                  for path in glob.glob(pattern):
+                      with open(path) as f:
+                          status = f.read().strip()
+                      break
+              results[version] = status
+
+          lines = []
+
+          # Compact format: one row per version
+          all_ok = all(s == "success" for s in results.values())
+          if all_ok:
+              lines.append("✅ All versions pass")
+              lines.append("")
+              lines.append("| Python | Build | Install |{}".format(
+                  " Tests |" if has_tests else ""))
+              lines.append("|--------|-------|---------|{}".format(
+                  "-------|" if has_tests else ""))
+              for v in versions:
+                  line = f"| {v} | ✅ | ✅ |"
+                  if has_tests:
+                      line += " ✅ |"
+                  lines.append(line)
+          else:
+              lines.append("⚠️ Some versions have issues")
+              lines.append("")
+              lines.append("| Python | Status | Detail |")
+              lines.append("|--------|--------|--------|")
+              detail_map = {
+                  "success": "All steps passed",
+                  "build_failed": "`python -m build` failed",
+                  "install_failed": "Build OK, install failed",
+                  "tests_failed": "Build + install OK, tests failed",
+                  "unknown": "Result not available",
+              }
+              for v in versions:
+                  s = results[v]
+                  lines.append(f"| {v} | {icons[s]} | {detail_map.get(s, s)} |")
+
+          with open("/tmp/build-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Post build section to PR comment
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "build" \
+            --title "🔨 Build Tests" \
+            --content-file /tmp/build-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

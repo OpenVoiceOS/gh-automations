@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added Bulk Skill Migration Q&A section.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added PR comment improvements Q&A (repo health, welcome, breaking banner, build tests, locale bars).
 
 # FAQ — `gh-automations`
 
@@ -481,11 +481,53 @@ Easter-eggs previously used `neongeckocom/.github@master` (not OVOS automation a
 
 3 skills (`ovos-skill-cave-adventure-game`, `ovos-skill-music-assistant`, `ovos-skill-white-house-adventure`) had the full workflow set created from scratch: `release_workflow.yml`, `publish_stable.yml`, `license_tests.yml`, `skill_check.yml`, `release_preview.yml`, `conventional-label.yml`.
 
-### How do I re-run the migration for a single skill?
+---
 
-```bash
-cd gh-automations
-python scripts/migrate_skills.py --skill ovos-skill-name
+## Repo Health Check
+
+### What does repo-health.yml check?
+
+`repo-health.yml` verifies that required project files exist: `version.py`, `README.md`, `LICENSE`, and at least one of `pyproject.toml`/`setup.py`. Also checks `CHANGELOG.md` and `requirements.txt` as optional. Validates that `version.py` has `START_VERSION_BLOCK`/`END_VERSION_BLOCK` markers. Posts a `📋 Repo Health` section to the PR comment.
+
+### Does it greet first-time contributors?
+
+Yes. If `github.event.pull_request.author_association` is `FIRST_TIME_CONTRIBUTOR` or `FIRST_TIMER`, a `👋 Welcome` section is added to the PR comment with onboarding tips.
+
+### How do I add it to my repo?
+
+Call it from your PR workflow:
+
+```yaml
+jobs:
+  repo_health:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/repo-health.yml@dev
+    secrets: inherit
 ```
 
-Use `--dry-run` to preview changes without writing files.
+---
+
+## Build Tests
+
+### What does build-tests.yml do?
+
+Runs `python -m build` across a configurable Python version matrix (default: 3.10, 3.11, 3.12), installs the built wheel, and optionally runs pytest. Posts a `🔨 Build Tests` section to the PR comment showing per-version build/install/test status.
+
+### How does the PR comment look?
+
+If all versions pass: a compact table with ✅ for Build, Install, Tests columns. If any fail: a detailed table with status icons (❌ build_failed, 🔶 install_failed, ⚠️ tests_failed) and descriptions.
+
+---
+
+## Breaking Change Banner
+
+### When does the breaking change banner appear?
+
+In the `🏷️ Release Preview` section, a `[!CAUTION]` alert appears when the PR labels or title trigger a MAJOR version bump. It warns that downstream dependents may break and recommends a compatibility check before merging.
+
+---
+
+## Locale Progress Bars
+
+### What changed in the Skill Check translation table?
+
+The `🎙️ Skill` section now shows progress bars for each language's translation coverage. Each bar is 10 characters wide (█ filled, ░ empty) with a percentage and file count. A summary line at the top shows how many languages are complete/partial/incomplete.

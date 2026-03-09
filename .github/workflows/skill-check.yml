@@ -117,25 +117,41 @@ jobs:
               lines.append("❌ **en-us locale not found**")
           lines.append("")
 
-          # Translation coverage table
+          # Translation coverage table with progress bars
           translations = r.get("translations", [])
           if translations:
-              lines.append("<details><summary>Translation coverage ({} language{})</summary>".format(
-                  len(translations), "s" if len(translations) != 1 else ""))
+              # Summary counts
+              complete = sum(1 for t in translations if t["pct"] >= 95)
+              partial = sum(1 for t in translations if 50 <= t["pct"] < 95)
+              missing = sum(1 for t in translations if t["pct"] < 50)
+              summary_parts = []
+              if complete:
+                  summary_parts.append(f"{complete} complete")
+              if partial:
+                  summary_parts.append(f"{partial} partial")
+              if missing:
+                  summary_parts.append(f"{missing} incomplete")
+              summary = ", ".join(summary_parts) or "none"
+
+              lines.append("<details><summary>Translation coverage — {} language{} ({})</summary>".format(
+                  len(translations), "s" if len(translations) != 1 else "", summary))
               lines.append("")
-              lines.append("| Language | Coverage |")
-              lines.append("|----------|----------|")
+              lines.append("| Language | Progress | Coverage |")
+              lines.append("|----------|----------|----------|")
               for t in translations:
                   pct = t["pct"]
                   present = t["present"]
                   total = t["total"]
+                  # Build progress bar: 10 chars wide
+                  filled = round(pct / 10)
+                  bar = "\u2588" * filled + "\u2591" * (10 - filled)
                   if pct >= 95:
-                      icon = "✅"
+                      icon = "\u2705"
                   elif pct >= 50:
-                      icon = "⚠️"
+                      icon = "\u26a0\ufe0f"
                   else:
-                      icon = "❌"
-                  lines.append(f"| {t['lang']} | {icon} {pct}% ({present}/{total}) |")
+                      icon = "\u274c"
+                  lines.append(f"| {t['lang']} | `{bar}` | {icon} {pct}% ({present}/{total}) |")
               lines.append("")
               lines.append("</details>")
               lines.append("")

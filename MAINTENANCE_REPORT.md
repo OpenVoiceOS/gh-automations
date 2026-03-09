@@ -1,6 +1,38 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Bulk migration of 58 skill repos from TigreGotico@master to OpenVoiceOS@dev.
+Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: PR comment improvements — repo health, welcome, breaking banner, build tests report, locale progress bars.
 
 # Maintenance Report — `gh-automations`
+
+---
+
+## [2026-03-09] — Eighth implementation session: PR comment improvements
+
+### Changes
+
+**#3 — Missing files check (`repo-health.yml` + `check_repo_health.py`):**
+- New `scripts/check_repo_health.py`: checks for `version.py`, `README.md`, `LICENSE`, `pyproject.toml`/`setup.py`, `CHANGELOG.md`, `requirements.txt`. Validates version block markers.
+- New `.github/workflows/repo-health.yml`: runs health check, posts `📋 Repo Health` section.
+
+**#4 — First-time contributor greeting:**
+- Added to `repo-health.yml`: detects `FIRST_TIME_CONTRIBUTOR` / `FIRST_TIMER` via `github.event.pull_request.author_association`. Posts a `👋 Welcome` section with onboarding tips.
+
+**#5 — Breaking change banner:**
+- Updated `release-preview.yml` formatting: when `bump_part == "major"`, adds a `> [!CAUTION]` GitHub alert block warning about downstream breakage.
+
+**#6 — Build test results in PR comment:**
+- Updated `build-tests.yml`: added `pr_comment` input (default: true), artifact upload per Python version, `post_build_report` aggregate job. Posts `🔨 Build Tests` section with per-version status table. Compact table when all pass; detailed table with failure reasons when issues found.
+
+**#7 — Locale completeness progress bars:**
+- Updated `skill-check.yml` formatting: translation coverage table now shows `█████░░░░░` progress bars (10 chars wide). Summary line counts complete/partial/incomplete languages.
+
+**Tests:** 93 tests pass (added 9 new tests for `check_repo_health.py`).
+
+### Transparency Report
+
+| Field | Value |
+|-------|-------|
+| Model | Claude Sonnet 4.6 |
+| Actions | Created `check_repo_health.py` + `repo-health.yml`; updated `release-preview.yml`, `build-tests.yml`, `skill-check.yml`; added tests; updated FAQ.md |
+| Human oversight | Tests verified passing |
 
 ---
 

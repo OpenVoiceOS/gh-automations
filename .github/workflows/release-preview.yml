@@ -136,6 +136,14 @@ jobs:
           prefix = r.get("conventional_prefix")
 
           lines = []
+
+          # Breaking change banner (#5)
+          if bump_part == "major":
+              lines.append("> [!CAUTION]")
+              lines.append(f"> **Breaking change** — this PR will bump the MAJOR version (`{current}` → `{nxt}`).")
+              lines.append("> Downstream dependents may break. Double-check compatibility before merging.")
+              lines.append("")
+
           lines.append(f"**Current:** `{current}` → **Next:** `{nxt}`")
           lines.append("")
 

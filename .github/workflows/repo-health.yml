@@ -1,0 +1,141 @@
+name: Repo Health
+# Checks required files (version.py, README, LICENSE, setup file)
+# and greets first-time contributors.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      version_file:
+        type: string
+        default: "version.py"
+        description: "Path to version.py (relative to repo root)"
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post sections in the shared 'OVOS PR Checks' comment.
+          Only runs when triggered by a pull_request event.
+
+jobs:
+  repo_health:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run repo health check
+        run: |
+          python3 _gh_automations/scripts/check_repo_health.py \
+            --repo-root . \
+            --version-file "${{ inputs.version_file }}" \
+            --output-json /tmp/health-report.json
+
+      - name: Format health section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+
+          try:
+              with open("/tmp/health-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              with open("/tmp/health-section.md", "w") as f:
+                  f.write("⚠️ Repo health check did not produce a report.")
+              sys.exit(0)
+
+          files = r.get("files", [])
+          version = r.get("version", {})
+
+          lines = []
+          all_ok = True
+
+          for item in files:
+              icon = "✅" if item["exists"] else ("❌" if item["required"] else "⚠️")
+              if not item["exists"] and item["required"]:
+                  all_ok = False
+              # Group check for setup files
+              if item.get("group") == "setup" and not item.get("group_satisfied"):
+                  all_ok = False
+              lines.append(f"{icon} `{item['file']}` — {item['label']}")
+
+          # Version block markers
+          if version.get("exists"):
+              if version.get("has_start_marker") and version.get("has_end_marker"):
+                  lines.append(f"✅ `{version['path']}` has valid version block markers")
+              else:
+                  lines.append(f"⚠️ `{version['path']}` missing START/END_VERSION_BLOCK markers")
+                  all_ok = False
+
+          # Setup file group note
+          setup_items = [i for i in files if i.get("group") == "setup"]
+          has_any_setup = any(i["exists"] for i in setup_items)
+          if not has_any_setup:
+              lines.insert(0, "❌ No `pyproject.toml` or `setup.py` found — package is not buildable")
+              all_ok = False
+
+          # Summary line at top
+          if all_ok:
+              summary = "✅ All required files present."
+          else:
+              summary = "⚠️ Some required files are missing."
+
+          output = summary + "\n\n" + "\n".join(lines)
+
+          with open("/tmp/health-section.md", "w") as f:
+              f.write(output)
+          PYEOF
+
+      - name: Post health section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "health" \
+            --title "📋 Repo Health" \
+            --content-file /tmp/health-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- First-time contributor greeting (#4) ---
+
+      - name: Greet first-time contributor
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && (github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' || github.event.pull_request.author_association == 'FIRST_TIMER') }}
+        run: |
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          cat > /tmp/welcome-section.md <<GREETING
+          Welcome **@${AUTHOR}**! Thanks for your first contribution to this repo.
+
+          A maintainer will review your PR shortly. In the meantime:
+          - Make sure the CI checks above pass
+          - Add a conventional commit prefix to your PR title (e.g. \`fix:\`, \`feat:\`) for automatic versioning
+          - Questions? Open a discussion or ping a maintainer
+          GREETING
+
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "welcome" \
+            --title "👋 Welcome" \
+            --content-file /tmp/welcome-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

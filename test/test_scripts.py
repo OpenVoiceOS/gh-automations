@@ -728,3 +728,93 @@ class TestReleaseRunChecks:
         import json as _json
         report = release_run_checks(str(alpha_version_file), _json.dumps(["breaking"]), "")
         assert report["bump_part"] == "major"
+
+
+# ---------------------------------------------------------------------------
+# check_repo_health.py
+# ---------------------------------------------------------------------------
+
+from check_repo_health import (  # noqa: E402
+    check_required_files,
+    check_version_file,
+    run_checks as health_run_checks,
+)
+
+
+class TestCheckRequiredFiles:
+    def test_all_present(self, tmp_path: Path) -> None:
+        (tmp_path / "version.py").write_text("VERSION = 1")
+        (tmp_path / "README.md").write_text("# README")
+        (tmp_path / "LICENSE").write_text("Apache 2.0")
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="test"')
+        results = check_required_files(str(tmp_path))
+        for item in results:
+            if item["required"]:
+                assert item["exists"] is True
+
+    def test_missing_readme(self, tmp_path: Path) -> None:
+        (tmp_path / "version.py").write_text("V = 1")
+        (tmp_path / "LICENSE").write_text("Apache 2.0")
+        results = check_required_files(str(tmp_path))
+        readme = [r for r in results if r["file"] == "README.md"][0]
+        assert readme["exists"] is False
+
+    def test_setup_group(self, tmp_path: Path) -> None:
+        """At least one of pyproject.toml/setup.py must exist."""
+        results = check_required_files(str(tmp_path))
+        setup_items = [r for r in results if r.get("group") == "setup"]
+        assert len(setup_items) == 2
+        assert all(r["group_satisfied"] is False for r in setup_items)
+
+        (tmp_path / "setup.py").write_text("setup()")
+        results = check_required_files(str(tmp_path))
+        setup_items = [r for r in results if r.get("group") == "setup"]
+        assert any(r["group_satisfied"] is True for r in setup_items)
+
+    def test_optional_files(self, tmp_path: Path) -> None:
+        results = check_required_files(str(tmp_path))
+        changelog = [r for r in results if r["file"] == "CHANGELOG.md"][0]
+        assert changelog["required"] is False
+        assert changelog["exists"] is False
+
+
+class TestCheckVersionFile:
+    def test_valid_version(self, alpha_version_file: Path) -> None:
+        result = check_version_file(str(alpha_version_file.parent), alpha_version_file.name)
+        assert result["exists"] is True
+        assert result["has_start_marker"] is True
+        assert result["has_end_marker"] is True
+
+    def test_missing_file(self, tmp_path: Path) -> None:
+        result = check_version_file(str(tmp_path), "version.py")
+        assert result["exists"] is False
+
+    def test_no_markers(self, tmp_path: Path) -> None:
+        (tmp_path / "version.py").write_text("__version__ = '1.0.0'\n")
+        result = check_version_file(str(tmp_path), "version.py")
+        assert result["exists"] is True
+        assert result["has_start_marker"] is False
+
+
+class TestHealthRunChecks:
+    def test_full_repo(self, tmp_path: Path) -> None:
+        (tmp_path / "version.py").write_text(
+            "# START_VERSION_BLOCK\n"
+            "VERSION_MAJOR = 1\nVERSION_MINOR = 0\n"
+            "VERSION_BUILD = 0\nVERSION_ALPHA = 0\n"
+            "# END_VERSION_BLOCK\n"
+        )
+        (tmp_path / "README.md").write_text("# Test")
+        (tmp_path / "LICENSE").write_text("Apache 2.0")
+        (tmp_path / "pyproject.toml").write_text('[project]\nname="test"')
+        report = health_run_checks(str(tmp_path))
+        assert report["version"]["exists"] is True
+        assert report["version"]["has_start_marker"] is True
+        files = report["files"]
+        assert all(f["exists"] for f in files if f["required"])
+
+    def test_empty_repo(self, tmp_path: Path) -> None:
+        report = health_run_checks(str(tmp_path))
+        assert report["version"]["exists"] is False
+        required = [f for f in report["files"] if f["required"]]
+        assert all(not f["exists"] for f in required)
