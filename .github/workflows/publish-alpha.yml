@@ -71,6 +71,13 @@ on:
           change runtime code (allcontributors[bot], pre-commit-ci[bot]).
           Dependency-update bots (renovate[bot], dependabot[bot]) are NOT skipped
           since dep updates should produce a new alpha.
+    secrets:
+      PYPI_TOKEN:
+        required: false
+        description: "PyPI API token for publishing. Required when publish_pypi: true."
+      MATRIX_TOKEN:
+        required: false
+        description: "Matrix access token for notifications. Required when notify_matrix: true."
     outputs:
       version:
         description: Updated version

@@ -51,6 +51,13 @@ on:
           Newline-separated pool of fun messages to randomly prefix the notification.
           One is chosen at random and prepended to the standard message.
           Leave empty to skip.
+    secrets:
+      PYPI_TOKEN:
+        required: false
+        description: "PyPI API token for publishing. Required when publish_pypi: true."
+      MATRIX_TOKEN:
+        required: false
+        description: "Matrix access token for notifications. Required when notify_matrix: true."
     outputs:
       version:
         description: Updated version
