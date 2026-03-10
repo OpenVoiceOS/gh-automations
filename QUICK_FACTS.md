@@ -13,13 +13,14 @@
 
 ---
 
-## Reusable Workflows (14 total)
+## Reusable Workflows (15 total)
 
 | Workflow | Callers | Key inputs |
 |----------|---------|-----------|
 | `publish-alpha.yml` | 209 repos | `version_file`, `propose_release`, `update_changelog`, `publish_pypi`, `notify_matrix` |
 | `publish-stable.yml` | 209 repos | `version_file`, `publish_release`, `sync_dev`, `publish_pypi`, `notify_matrix` |
-| `build-tests.yml` | All repos | `python_versions`, `install_extras`, `system_deps`, `test_path`, `package_name`, `version_file` |
+| `build-tests.yml` | All repos | `python_versions`, `install_extras`, `system_deps`, `test_path` |
+| `ovoscope.yml` | Skill repos | `python_version`, `install_extras`, `system_deps`, `test_path` |
 | `opm-check.yml` | Plugin repos | `plugin_type`, `entry_point`, `opm_require_found`, `opm_validate_interface`, `opm_test_import`, `opm_perf_threshold_ms` |
 | `coverage.yml` | Selected repos | `coverage_source`, `min_coverage`, `system_deps`, `publish_to_gh_pages`, `pr_comment` |
 | `license-check.yml` | 126 repos | `install_extras`, `system_deps`, `exclude_packages`, `fail_licenses`, `warn_only` |
@@ -49,6 +50,7 @@ Each workflow that posts to the shared OVOS PR Checks comment uses a unique sect
 | `build` | `🔨 Build Tests` | `build-tests.yml` |
 | `opm` | `🔌 Plugin Detection` | `opm-check.yml` |
 | `coverage` | `📊 Coverage` | `coverage.yml` |
+| `ovoscope` | `🔌 Skill Tests (ovoscope)` | `ovoscope.yml` |
 | `skill` | `🎙️ Skill` | `skill-check.yml` |
 
 ---

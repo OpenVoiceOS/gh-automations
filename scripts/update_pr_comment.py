@@ -105,6 +105,12 @@ FLAVOR_TEXTS = {
         "Thanks for joining us! 🤝",
         "We're glad to have you here! 🌈",
     ],
+    "ovoscope": [
+        "I ran the end-to-end skill tests to see how your skill behaves in the real world! 🎤",
+        "End-to-end tests complete! Let's see how the skill handles real utterances. 🗣️",
+        "I've put the skill through its paces with live intent matching. 🏃",
+        "Checking that intents fire, dialogs speak, and handlers complete cleanly. ✅",
+    ],
     "opm": [
         "Let's see if this plugin can be found by the plugin manager! 🔌",
         "Checking if the plugin ecosystem recognizes this contribution... 🌐",
