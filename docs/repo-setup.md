@@ -244,6 +244,32 @@ jobs:
       min_coverage: 80                # optional: fail below 80%
 ```
 
+### `coverage_pages.yml` — Deploy coverage HTML to GitHub Pages
+
+Deploys the HTML coverage report to GitHub Pages on every push to `dev`. Requires Pages enabled in repo settings (Source: GitHub Actions).
+
+```yaml
+name: Coverage Pages
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  coverage_pages:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage-pages.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'   # measure only your own code
+```
+
+**Prerequisites**: Go to repo Settings → Pages → Source → select "GitHub Actions".
+
 ### `skill_check.yml` — Skill locale + skill.json (skill repos only)
 
 ```yaml

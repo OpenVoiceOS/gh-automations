@@ -22,6 +22,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility | [reference](docs/workflow-reference.md#build-testsyml) |
 | `opm-check.yml` | OPM plugin detection, interface validation, import timing | [reference](docs/workflow-reference.md#opm-checkyml) |
 | `coverage.yml` | Run pytest with coverage; post diff report to PR comment | [reference](docs/workflow-reference.md#coverageyml) |
+| `coverage-pages.yml` | Run tests with coverage; deploy HTML report to GitHub Pages | [reference](docs/workflow-reference.md#coverage-pagesyml) |
 | `license-check.yml` | Check all dependency licenses for copyleft violations | [reference](docs/workflow-reference.md#license-checkyml) |
 | `pip-audit.yml` | Scan dependencies for known CVEs; optional SARIF upload | [reference](docs/workflow-reference.md#pip-audityml) |
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |

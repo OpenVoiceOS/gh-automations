@@ -303,7 +303,9 @@ jobs:
 
 ## `coverage.yml`
 
-Runs `pytest --cov`, generates a coverage report, posts it to the job summary, uploads the XML as an artifact, and (on pull requests) posts a `📊 Coverage` section in the shared OVOS PR Checks comment. Optionally publishes an HTML report to GitHub Pages.
+Runs `pytest --cov`, generates a coverage report, posts it to the job summary, uploads the XML as an artifact, and (on pull requests) posts a `📊 Coverage` section in the shared OVOS PR Checks comment.
+
+For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](#coverage-pagesyml).
 
 **Source:** `.github/workflows/coverage.yml`
 
@@ -313,6 +315,7 @@ Runs `pytest --cov`, generates a coverage report, posts it to the job summary, u
 - PR comment shows total coverage %, threshold pass/fail, and a collapsible table of under-covered files (files below 80%, or all files if ≤ 10). The `coverage.xml` artifact is available for deep inspection.
 - PR comment is a section in the shared [OVOS PR Checks comment](#pr-checks-comment-pattern) — one comment per PR, not a separate coverage comment.
 - Job summary is always written (push, dispatch, and PR events alike).
+- Pages deployment is a separate workflow (`coverage-pages.yml`) to avoid requiring `pages: write` / `id-token: write` permissions from all callers — only repos that opt in need those.
 
 ### Inputs
 
@@ -328,23 +331,19 @@ Runs `pytest --cov`, generates a coverage report, posts it to the job summary, u
 | `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |
 | `artifact_retention_days` | number | `14` | Days to retain the artifact |
-| `publish_to_gh_pages` | boolean | `false` | Publish an HTML coverage report to GitHub Pages. Requires Pages enabled with source set to `GitHub Actions`. Only deploys on `push` events, not PRs. |
-| `gh_pages_subdir` | string | `coverage` | Sub-directory within the Pages site for the HTML report, e.g. `coverage` → `https://org.github.io/repo/coverage/`. Empty string = deploy at root. |
 
 ### Jobs
 
 | Job step | Description |
 |----------|-------------|
 | Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
-| Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, and the package itself |
+| Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, `ovoscope`, and the package itself |
 | Run Tests with Coverage | `pytest --cov --cov-report=xml --cov-report=json --cov-report=html --cov-report=term-missing`. `continue-on-error: true` so the PR comment posts even when tests fail. |
 | Extract Coverage Percentage | Reads `coverage.json` for `totals.percent_covered` |
 | Write Job Summary | Coverage table written to `$GITHUB_STEP_SUMMARY` |
 | Format coverage section | Generates the PR comment content from `coverage.json` |
 | Post coverage section to PR comment | Calls `scripts/update_pr_comment.py` to find-or-create-and-update the OVOS PR Checks comment |
 | Upload Coverage XML Artifact | Uploads `coverage.xml` as a workflow artifact |
-| Prepare HTML report for GitHub Pages | Only when `publish_to_gh_pages: true` and event is `push` |
-| Deploy to GitHub Pages | Uses `actions/deploy-pages@v4` |
 | Enforce Minimum Coverage Threshold | Fails if `min_coverage > 0` and total is below threshold |
 | Fail job if tests failed | Re-raises test failure after the PR comment has been posted |
 
@@ -356,6 +355,10 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
 
 jobs:
   coverage:
@@ -370,6 +373,70 @@ jobs:
 
 - `pr_comment` only fires on `pull_request` events — job summary is written for all events.
 - If all tests are skipped and `coverage.xml` is never generated, the PR comment will note that coverage data is unavailable rather than failing.
+
+---
+
+## `coverage-pages.yml`
+
+Runs `pytest --cov` and deploys the HTML coverage report to GitHub Pages. Designed to run on `push` to `dev` (not PRs), so the Pages site always reflects the latest merged code.
+
+**Source:** `.github/workflows/coverage-pages.yml`
+
+### Design choices
+
+- Separated from `coverage.yml` because GitHub Pages deployment requires `pages: write` and `id-token: write` permissions. Including those in `coverage.yml` caused `startup_failure` in repos that don't enable Pages.
+- Callers must grant `pages: write`, `id-token: write`, and `contents: read` at their workflow level.
+- The repo must have GitHub Pages enabled with source set to **GitHub Actions** (not `gh-pages` branch).
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version to run tests under |
+| `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
+| `install_extras` | string | `""` | Extra pip install arguments run before tests |
+| `test_path` | string | `test/` | Path passed to pytest |
+| `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory |
+| `gh_pages_subdir` | string | `coverage` | Sub-directory within the Pages site, e.g. `coverage` → `https://org.github.io/repo/coverage/`. Empty string = deploy at root. |
+
+### Jobs
+
+| Job step | Description |
+|----------|-------------|
+| Checkout | Checks out the calling repo |
+| Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, `ovoscope`, and the package itself |
+| Run Tests with Coverage | `pytest --cov --cov-report=html:htmlcov`. `continue-on-error: true` so deployment proceeds even with test failures. |
+| Prepare HTML report | Copies `htmlcov/` to `_pages_output/` (with optional subdirectory) |
+| Upload Pages artifact | `actions/upload-pages-artifact@v3` |
+| Deploy to GitHub Pages | `actions/deploy-pages@v4` |
+
+### Typical usage
+
+```yaml
+name: Coverage Pages
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  coverage_pages:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage-pages.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'
+```
+
+### Prerequisites
+
+1. Enable GitHub Pages in repo settings → Source: **GitHub Actions**
+2. Grant `pages: write` and `id-token: write` permissions in the calling workflow
 
 ---
 

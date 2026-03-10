@@ -13,7 +13,7 @@
 
 ---
 
-## Reusable Workflows (15 total)
+## Reusable Workflows (16 total)
 
 | Workflow | Callers | Key inputs |
 |----------|---------|-----------|
@@ -22,7 +22,8 @@
 | `build-tests.yml` | All repos | `python_versions`, `install_extras`, `system_deps`, `test_path` |
 | `ovoscope.yml` | Skill repos | `python_version`, `install_extras`, `system_deps`, `test_path` |
 | `opm-check.yml` | Plugin repos | `plugin_type`, `entry_point`, `opm_require_found`, `opm_validate_interface`, `opm_test_import`, `opm_perf_threshold_ms` |
-| `coverage.yml` | Selected repos | `coverage_source`, `min_coverage`, `system_deps`, `publish_to_gh_pages`, `pr_comment` |
+| `coverage.yml` | Selected repos | `coverage_source`, `min_coverage`, `system_deps`, `pr_comment` |
+| `coverage-pages.yml` | Selected repos | `coverage_source`, `test_path`, `system_deps`, `gh_pages_subdir` |
 | `license-check.yml` | 126 repos | `install_extras`, `system_deps`, `exclude_packages`, `fail_licenses`, `warn_only` |
 | `pip-audit.yml` | Selected repos | `install_extras`, `ignore_vulns`, `warn_only`, `upload_sarif`, `pr_comment` |
 | `release-preview.yml` | All repos | `version_file`, `package_name`, `pr_comment` |

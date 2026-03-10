@@ -384,6 +384,36 @@ Yes. Set `min_coverage: 80` (or any integer). The job will fail if total coverag
 
 ---
 
+### How do I deploy coverage reports to GitHub Pages?
+
+Use the dedicated `coverage-pages.yml` reusable workflow. It runs tests with coverage and deploys the HTML report to GitHub Pages on push to `dev` (not on PRs). This is separate from `coverage.yml`, which handles PR comments.
+
+```yaml
+name: Coverage Pages
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  coverage_pages:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage-pages.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'
+```
+
+**Prerequisites**: Enable Pages in repo Settings → Pages → Source → "GitHub Actions".
+
+### Why are coverage.yml and coverage-pages.yml separate workflows?
+
+`coverage.yml` runs on PRs and posts results to the PR comment — it only needs `pull-requests: write` and `contents: read`. `coverage-pages.yml` deploys to GitHub Pages and needs `pages: write` and `id-token: write` (OIDC). If these permissions were in `coverage.yml`, repos without Pages enabled would get `startup_failure` errors because GitHub rejects jobs requesting `pages: write` when Pages is not configured.
+
 ### `update_changelog` step fails
 
 `github-changelog-generator-action@v2.3` requires `GITHUB_TOKEN` to read issues and PRs. Ensure `secrets: inherit` is set on the `publish_alpha` job. Also check that the repo has at least one closed issue or merged PR — empty changelogs sometimes cause the action to error.

@@ -37,6 +37,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility check | All repos — `build_tests.yml` |
 | `opm-check.yml` | OPM plugin detection, interface validation, import timing | Plugin repos — `opm_check.yml` |
 | `coverage.yml` | Run pytest with coverage; post diff report to PR comment | Selected repos — `coverage.yml` |
+| `coverage-pages.yml` | Run tests with coverage and deploy HTML report to GitHub Pages | Selected repos — `coverage_pages.yml` |
 | `license-check.yml` | Scan dependencies for copyleft/incompatible licenses | 126 repos — `license_tests.yml` |
 | `pip-audit.yml` | Scan installed dependencies for CVEs; optional SARIF upload | Selected repos — `pipaudit.yml` |
 | `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |

@@ -57,9 +57,9 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
-      # Callers that set publish_to_gh_pages: true must grant pages: write
-      # and id-token: write at their workflow level.  These are NOT set
-      # here to avoid startup_failure in repos that don't enable Pages.
+      # Pages deployment is handled by the separate coverage-pages.yml
+      # workflow.  Do NOT add pages: write or id-token: write here —
+      # it would cause startup_failure in repos without Pages enabled.
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

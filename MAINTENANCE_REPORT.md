@@ -3,6 +3,21 @@
 
 ---
 
+## [2026-03-10] — Twelfth session: Coverage Pages workflow + CI/CD fixes
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Claude Opus 4.6
+**Actions Taken:**
+- Created `coverage-pages.yml` reusable workflow for deploying HTML coverage reports to GitHub Pages
+- Removed Pages permissions from `coverage.yml` to fix `startup_failure` in repos without Pages enabled
+- Updated all documentation: `workflow-reference.md`, `index.md`, `README.md`, `QUICK_FACTS.md`, `repo-setup.md`, `FAQ.md`
+- Added caller workflows for ovoscope and ovos-skill-confucius-quotes
+
+**Human Oversight Level:** High — user directed architecture decisions (separate workflow vs embedded boolean, push-to-dev trigger)
+
+---
+
 ## [2026-03-10] — Eleventh session: 10 OPM Deep Enhancements
 
 ### AI-Assisted Implementation Summary
