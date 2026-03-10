@@ -1,5 +1,5 @@
 """
-On merge to master: declare stable by setting VERSION_ALPHA = 0.
+On merge to the stable branch (e.g. master or main): declare stable by setting VERSION_ALPHA = 0.
 
 Called by publish-stable.yml after the release PR is merged.
 Uses the shared write_version_block utility to rewrite only the version block,
