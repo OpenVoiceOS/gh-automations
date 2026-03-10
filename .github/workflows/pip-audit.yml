@@ -30,12 +30,24 @@ on:
           Newline-separated list of GHSA vulnerability IDs to ignore.
           Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal —
           dev-only, not exploitable in OVOS runtime context).
+      warn_only:
+        type: boolean
+        default: false
+        description: >
+          When true, report vulnerabilities in the PR comment but do NOT fail the job.
+          Useful for repos that want visibility without blocking merges.
       pr_comment:
         type: boolean
         default: true
         description: >
           Post a section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
+      upload_sarif:
+        type: boolean
+        default: true
+        description: >
+          Upload a SARIF report to GitHub's Security tab (Code scanning alerts).
+          Requires the repo to have GitHub Advanced Security enabled, or be public.
 
 jobs:
   pip_audit:
@@ -43,6 +55,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
+      security-events: write  # needed for SARIF upload
     steps:
       - uses: actions/checkout@v4
 
@@ -68,21 +81,21 @@ jobs:
           sudo apt-get install -yq python3-dev ${{ inputs.system_deps }}
 
       - name: Install package
-        run: uv pip install --system .${{ inputs.install_extras }}
+        run: uv pip install --system ".${{ inputs.install_extras }}"
 
       - name: Run pip-audit (GitHub Checks + annotations)
         id: pip_audit_check
         uses: pypa/gh-action-pip-audit@v1.0.0
         # continue-on-error so the PR comment step always runs, even when CVEs are found.
-        # The job still fails at the end via the outcome check below.
+        # The job still fails at the end via the outcome check below (unless warn_only).
         continue-on-error: true
         with:
           ignore-vulns: ${{ inputs.ignore_vulns }}
 
-      - name: Run pip-audit (JSON output for PR comment)
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+      - name: Run pip-audit (JSON output for PR comment and SARIF)
+        id: pip_audit_json
         # pip-audit was installed above; packages are already in the environment.
-        # Run a second time with JSON format to get structured data for the PR comment.
+        # Run with JSON format to get structured data for the PR comment and SARIF upload.
         run: |
           IGNORE_ARGS=""
           while IFS= read -r vuln_id; do
@@ -92,6 +105,37 @@ jobs:
             fi
           done <<< "${{ inputs.ignore_vulns }}"
           pip-audit --format=json $IGNORE_ARGS > /tmp/pip-audit-results.json 2>/dev/null || true
+          # Count audited packages for informational output
+          TOTAL=$(python3 -c "
+          import json
+          try:
+              data = json.load(open('/tmp/pip-audit-results.json'))
+              deps = data if isinstance(data, list) else data.get('dependencies', [])
+              print(len(deps))
+          except Exception:
+              print(0)
+          ")
+          echo "total_packages=$TOTAL" >> $GITHUB_OUTPUT
+
+      - name: Generate SARIF report
+        if: ${{ inputs.upload_sarif }}
+        run: |
+          IGNORE_ARGS=""
+          while IFS= read -r vuln_id; do
+            vuln_id="${vuln_id//[[:space:]]/}"
+            if [ -n "$vuln_id" ]; then
+              IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
+            fi
+          done <<< "${{ inputs.ignore_vulns }}"
+          pip-audit --format=sarif $IGNORE_ARGS > /tmp/pip-audit.sarif 2>/dev/null || true
+
+      - name: Upload SARIF to GitHub Security tab
+        if: ${{ inputs.upload_sarif }}
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true  # Don't fail if Security tab is not available (private repos without GHAS)
+        with:
+          sarif_file: /tmp/pip-audit.sarif
+          category: pip-audit
 
       - name: Format security section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -100,6 +144,7 @@ jobs:
           import json, os
 
           outcome = os.environ["OUTCOME"]
+          total_packages = int(os.environ.get("TOTAL_PACKAGES", "0"))
           results_path = "/tmp/pip-audit-results.json"
 
           try:
@@ -114,16 +159,21 @@ jobs:
               else:
                   deps = []
               findings = [d for d in deps if d.get("vulns")]
+              if total_packages == 0:
+                  total_packages = len(deps)
           except (FileNotFoundError, json.JSONDecodeError):
               findings = None
 
+          pkg_note = f" ({total_packages} packages scanned)" if total_packages > 0 else ""
+
           if outcome == "success" or (findings is not None and len(findings) == 0):
-              body = "✅ No known vulnerabilities found."
+              body = f"✅ No known vulnerabilities found{pkg_note}."
           elif findings:
+              total_vulns = sum(len(d.get("vulns", [])) for d in findings)
               lines = [
-                  "❌ Vulnerabilities found — review and update affected packages.\n",
-                  "| Package | Version | ID | Description | Fix |",
-                  "|---------|---------|-----|-------------|-----|",
+                  f"❌ **{total_vulns} vulnerabilit{'y' if total_vulns == 1 else 'ies'}** in {len(findings)} package{'s' if len(findings) != 1 else ''}{pkg_note} — review and update affected packages.\n",
+                  "| Package | Version | ID | Severity | Description | Fix |",
+                  "|---------|---------|-----|----------|-------------|-----|",
               ]
               for dep in findings:
                   name = dep.get("name", "?")
@@ -131,24 +181,34 @@ jobs:
                   for vuln in dep.get("vulns", []):
                       vid = vuln.get("id", "?")
                       desc = vuln.get("description", "")
+                      aliases = vuln.get("aliases", [])
+                      # Try to extract a CVE alias for display
+                      cve = next((a for a in aliases if a.startswith("CVE-")), "")
+                      severity = ""
+                      if "fix_versions" in vuln:
+                          pass  # no severity in pip-audit JSON by default
                       # Truncate long descriptions
-                      if len(desc) > 100:
-                          desc = desc[:97] + "..."
+                      if len(desc) > 120:
+                          desc = desc[:117] + "..."
                       fixes = ", ".join(vuln.get("fix_versions", [])) or "no fix available"
-                      lines.append(f"| `{name}` | `{version}` | [{vid}](https://osv.dev/vulnerability/{vid}) | {desc} | {fixes} |")
+                      id_cell = f"[{vid}](https://osv.dev/vulnerability/{vid})"
+                      if cve:
+                          id_cell += f" / {cve}"
+                      lines.append(f"| `{name}` | `{version}` | {id_cell} | | {desc} | {fixes} |")
               body = "\n".join(lines)
           else:
               # Could not parse results — fall back to outcome-based message
               if outcome == "failure":
-                  body = "❌ Vulnerabilities found — check the job log for details."
+                  body = f"❌ Vulnerabilities found{pkg_note} — check the job log for details."
               else:
-                  body = "✅ No known vulnerabilities found."
+                  body = f"✅ No known vulnerabilities found{pkg_note}."
 
           with open("/tmp/security-section.md", "w") as f:
               f.write(body)
           PYEOF
         env:
           OUTCOME: ${{ steps.pip_audit_check.outcome }}
+          TOTAL_PACKAGES: ${{ steps.pip_audit_json.outputs.total_packages }}
 
       - name: Post security section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -163,8 +223,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so the check status is correct.
+      # Skipped when warn_only is true — vulnerabilities are reported but don't block the merge.
       - name: Fail job if audit found vulnerabilities
-        if: ${{ steps.pip_audit_check.outcome == 'failure' }}
+        if: ${{ steps.pip_audit_check.outcome == 'failure' && !inputs.warn_only }}
         run: |
           echo "pip-audit found vulnerabilities — see report above."
           exit 1
+
+      - name: Warn about vulnerabilities (warn_only mode)
+        if: ${{ steps.pip_audit_check.outcome == 'failure' && inputs.warn_only }}
+        run: |
+          echo "::warning::pip-audit found vulnerabilities (warn_only=true — job not failed). See Security tab or PR comment for details."

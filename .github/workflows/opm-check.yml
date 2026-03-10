@@ -1,0 +1,376 @@
+name: OPM Plugin Check
+# Reusable workflow for OPM (OVOS Plugin Manager) plugin detection and validation.
+#
+# Runs on a single Python version (OPM detection does not vary by Python version).
+# Verifies that the plugin is discoverable by OPM after wheel install, and optionally
+# after editable install (to catch entry-point registration issues). Posts a summary
+# to the OVOS PR Checks comment.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      python_version:
+        type: string
+        default: "3.11"
+        description: "Python version to use for OPM checks"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages to install before building (space-separated)"
+      install_extras:
+        type: string
+        default: ""
+        description: "pip extras appended to the install command, e.g. 'test' or 'dev,test'."
+      plugin_type:
+        type: string
+        default: "auto"
+        description: "Plugin type (auto, skill, tts, stt, wake_word, vad, phal, pipeline, utterance_transformer, tts_transformer)"
+      entry_point:
+        type: string
+        default: ""
+        description: "Legacy: entry point ID to verify"
+      opm_require_found:
+        type: boolean
+        default: false
+        description: "Fail if OPM cannot discover the plugin"
+      opm_validate_interface:
+        type: boolean
+        default: true
+        description: "Check that plugin class inherits from the correct abstract base"
+      opm_test_import:
+        type: boolean
+        default: true
+        description: "Test that the plugin class is importable, measure import time"
+      opm_perf_threshold_ms:
+        type: number
+        default: 500
+        description: "Import time above this (ms) is treated as an error"
+      pr_comment:
+        type: boolean
+        default: true
+        description: "Post a '🔌 Plugin Detection' section in the OVOS PR Checks comment. Only runs on pull_request events."
+
+jobs:
+  opm_check:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Install Build Tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build wheel ovos-plugin-manager
+
+      - name: Build Distribution Packages
+        run: |
+          python -m build
+
+      - name: Install Built Package
+        run: |
+          WHEEL=$(ls dist/*.whl 2>/dev/null | head -1)
+          EXTRAS="${{ inputs.install_extras }}"
+          if [ -n "$WHEEL" ]; then
+            if [ -n "$EXTRAS" ]; then
+              pip install "${WHEEL}[${EXTRAS}]"
+            else
+              pip install "$WHEEL"
+            fi
+          else
+            pip install dist/*.tar.gz
+          fi
+
+      - name: Verify OPM Detection (wheel install)
+        id: opm_wheel
+        continue-on-error: true
+        run: |
+          OPM_FLAGS=""
+          if [ "${{ inputs.opm_validate_interface }}" = "true" ]; then
+            OPM_FLAGS="$OPM_FLAGS --validate-interface"
+          else
+            OPM_FLAGS="$OPM_FLAGS --no-validate-interface"
+          fi
+          if [ "${{ inputs.opm_test_import }}" = "true" ]; then
+            OPM_FLAGS="$OPM_FLAGS --test-import"
+          else
+            OPM_FLAGS="$OPM_FLAGS --no-test-import"
+          fi
+          OPM_FLAGS="$OPM_FLAGS --perf-threshold-ms ${{ inputs.opm_perf_threshold_ms }}"
+
+          if [ -n "${{ inputs.entry_point }}" ]; then
+            python3 _gh_automations/scripts/check_opm.py --entry-point "${{ inputs.entry_point }}" $OPM_FLAGS
+          else
+            python3 _gh_automations/scripts/check_opm.py \
+              --plugin-type "${{ inputs.plugin_type }}" \
+              --output-json /tmp/opm_result.json \
+              $OPM_FLAGS
+          fi
+
+      - name: Verify OPM Detection (editable install)
+        id: opm_editable
+        if: ${{ steps.opm_wheel.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          # Re-install in editable mode — historically OVOS plugins had entry-point
+          # registration issues that only appeared with editable installs.
+          # Only run this when the wheel OPM check confirmed this is an OVOS plugin.
+          IS_PLUGIN=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/opm_result.json'))
+              print('yes' if d.get('is_ovos_plugin') else 'no')
+          except Exception:
+              print('no')
+          " 2>/dev/null || echo "no")
+
+          if [ "$IS_PLUGIN" != "yes" ]; then
+            echo "Not an OVOS plugin — skipping editable OPM check."
+            exit 0
+          fi
+
+          EXTRAS="${{ inputs.install_extras }}"
+          if [ -n "$EXTRAS" ]; then
+            pip install -e ".[$EXTRAS]"
+          else
+            pip install -e .
+          fi
+
+          python3 _gh_automations/scripts/check_opm.py \
+            --plugin-type "${{ inputs.plugin_type }}" \
+            --output-json /tmp/opm_result_editable.json \
+            --no-validate-interface \
+            --no-test-import \
+            2>/dev/null || true
+
+      - name: Fail if required and not found
+        if: ${{ inputs.opm_require_found && steps.opm_wheel.outcome != 'success' }}
+        run: exit 1
+
+      - name: Upload OPM results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opm-results
+          path: /tmp/opm_result*.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  post_opm_report:
+    needs: opm_check
+    if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Download OPM results
+        uses: actions/download-artifact@v4
+        with:
+          path: opm_artifacts
+          pattern: opm-results
+        continue-on-error: true
+
+      - name: Format OPM report
+        id: format_opm
+        run: |
+          python3 - <<'PYEOF'
+          import json, glob
+
+          def load_opm_json(patterns):
+              for pattern in patterns:
+                  for path in glob.glob(pattern):
+                      try:
+                          with open(path) as f:
+                              return json.load(f)
+                      except Exception:
+                          pass
+              return None
+
+          # Wheel install result (full validation)
+          opm_data = load_opm_json([
+              "opm_artifacts/opm-results/opm_result.json",
+              "opm_artifacts/opm_result.json",
+          ])
+          # Editable install result (detection only)
+          opm_editable = load_opm_json([
+              "opm_artifacts/opm-results/opm_result_editable.json",
+              "opm_artifacts/opm_result_editable.json",
+          ])
+
+          lines = []
+
+          if not opm_data or not opm_data.get("is_ovos_plugin"):
+              lines.append("ℹ️ Not an OVOS plugin — OPM check skipped.")
+          else:
+              status = opm_data.get("status", "unknown")
+              status_icon = {"pass": "✅", "warning": "⚠️", "fail": "❌"}.get(status, "❓")
+              issues = opm_data.get("issues", [])
+              error_count = sum(1 for i in issues if i.get("severity") == "error")
+              warning_count = sum(1 for i in issues if i.get("severity") == "warning")
+
+              if status == "pass":
+                  lines.append(f"{status_icon} **Plugin Status: PASS**")
+              elif status == "warning":
+                  lines.append(f"{status_icon} **Plugin Status: WARNINGS ({warning_count})**")
+              else:
+                  lines.append(f"{status_icon} **Plugin Status: ERRORS ({error_count})**")
+              lines.append("")
+
+              metadata = opm_data.get("metadata", {})
+              if metadata.get("name") or metadata.get("version"):
+                  lines.append("**Plugin Info:**")
+                  if metadata.get("name"):
+                      lines.append(f"- **Name:** {metadata['name']}")
+                  if metadata.get("version"):
+                      lines.append(f"- **Version:** {metadata['version']}")
+                  if metadata.get("description"):
+                      lines.append(f"- **Description:** {metadata['description']}")
+                  lines.append("")
+
+              system_deps = opm_data.get("system_deps", [])
+              if system_deps:
+                  lines.append("**System Dependencies:**")
+                  for dep in system_deps:
+                      lines.append(f"- {dep}")
+                  lines.append("")
+
+              detected = opm_data.get("detected_types", [])
+              if detected:
+                  lines.append(f"**Plugin Types:** {', '.join(t.replace('opm.', '') for t in detected)}")
+                  lines.append("")
+
+              entry_points = opm_data.get("entry_points", {})
+              opm_found = opm_data.get("opm_found", {})
+              validation = opm_data.get("validation", {})
+              editable_found = opm_editable.get("opm_found", {}) if opm_editable else {}
+
+              if entry_points or opm_found:
+                  has_editable_data = bool(editable_found)
+                  lines.append("**Validation Table:**")
+                  lines.append("")
+                  if has_editable_data:
+                      lines.append("| Type | Wheel OPM | Editable OPM | Import | Interface | Config Docs |")
+                      lines.append("|------|-----------|--------------|--------|-----------|-------------|")
+                  else:
+                      lines.append("| Type | OPM Found | Import | Interface | Config Docs |")
+                      lines.append("|------|-----------|--------|-----------|-------------|")
+
+                  for type_key in sorted(set(list(opm_found.keys()) + list(entry_points.keys()))):
+                      short_type = type_key.replace("opm.", "")
+
+                      opm_ok = opm_found.get(type_key)
+                      opm_icon = "✅" if opm_ok else ("❌" if opm_ok is False else "❓")
+
+                      import_ok = validation.get("import_ok", {}).get(short_type)
+                      import_time = validation.get("import_time_ms", {}).get(short_type)
+                      import_str = "✅" if import_ok else ("❌" if import_ok is False else "⊘")
+                      if import_time:
+                          import_str += f" {import_time}ms"
+
+                      iface_ok = validation.get("interface_ok", {}).get(short_type)
+                      iface_str = "✅" if iface_ok else ("❌" if iface_ok is False else "⊘")
+
+                      has_config = validation.get("has_config_docs", False)
+                      config_str = "✅" if has_config else "⊘"
+
+                      if has_editable_data:
+                          ed_ok = editable_found.get(type_key)
+                          ed_icon = "✅" if ed_ok else ("❌" if ed_ok is False else "❓")
+                          lines.append(f"| {short_type} | {opm_icon} | {ed_icon} | {import_str} | {iface_str} | {config_str} |")
+                      else:
+                          lines.append(f"| {short_type} | {opm_icon} | {import_str} | {iface_str} | {config_str} |")
+              lines.append("")
+
+              if issues:
+                  lines.append("**Issues:**")
+                  for issue in issues:
+                      sev = issue.get("severity", "info")
+                      sev_icon = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(sev, "•")
+                      lines.append(f"- {sev_icon} {issue.get('message', 'Unknown issue')}")
+                  lines.append("")
+
+          if not lines:
+              lines.append("ℹ️ OPM plugin detection did not produce a result.")
+
+          with open("/tmp/opm-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Check downstream dependents
+        id: downstream
+        continue-on-error: true
+        run: |
+          PACKAGE_NAME=$(python3 - <<'PYEOF'
+          import json, glob
+          for pattern in ["opm_artifacts/opm-results/opm_result.json", "opm_artifacts/opm_result.json"]:
+              for path in glob.glob(pattern):
+                  try:
+                      data = json.load(open(path))
+                      print(data.get("metadata", {}).get("name", ""))
+                      exit()
+                  except Exception:
+                      pass
+          print("")
+          PYEOF
+          )
+          if [ -n "$PACKAGE_NAME" ]; then
+              python3 _gh_automations/scripts/check_downstream.py --package "$PACKAGE_NAME" 2>/dev/null | tee /tmp/downstream-output.txt || true
+              DOWNSTREAM_COUNT=$(python3 -c "
+          import re
+          try:
+              text = open('/tmp/downstream-output.txt').read()
+              m = re.search(r'(\d+)\s+(?:package|dependent)s?', text)
+              print(m.group(1) if m else '0')
+          except: print('0')
+          ")
+              echo "DOWNSTREAM_COUNT=$DOWNSTREAM_COUNT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Append downstream info to OPM section
+        if: ${{ steps.downstream.outcome == 'success' && steps.downstream.outputs.DOWNSTREAM_COUNT != '' }}
+        run: |
+          DOWNSTREAM_COUNT="${{ steps.downstream.outputs.DOWNSTREAM_COUNT }}"
+          if [ "$DOWNSTREAM_COUNT" -gt 0 ]; then
+              echo "" >> /tmp/opm-section.md
+              echo "🔗 **Downstream Impact:** $DOWNSTREAM_COUNT package(s) depend on this plugin" >> /tmp/opm-section.md
+              echo "⚠️ Breaking changes will affect these packages — consider impact before merging." >> /tmp/opm-section.md
+          fi
+
+      - name: Post OPM section to PR comment
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "opm" \
+            --title "🔌 Plugin Detection" \
+            --content-file /tmp/opm-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

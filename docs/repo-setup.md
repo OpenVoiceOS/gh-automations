@@ -125,7 +125,7 @@ jobs:
 
 ## Optional Files
 
-### `build_tests.yml` — Verify the package builds cleanly
+### `build_tests.yml` — Build, install, and test across Python versions
 
 ```yaml
 name: Run Build Tests
@@ -134,23 +134,38 @@ on:
     branches: [master]
   pull_request:
     branches: [dev]
-    paths: ['pyproject.toml']
   workflow_dispatch:
 
 jobs:
   build_tests:
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11"]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: python -m pip install build wheel
-      - run: python -m build
-      - run: pip install .
+    uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+    secrets: inherit
+    with:
+      python_versions: '["3.10", "3.11", "3.12"]'
+      test_path: 'test/'            # optional: run pytest after install
+      package_name: 'my-package'    # needed for channel compatibility check
+      version_file: 'my_package/version.py'  # needed for channel compatibility check
+```
+
+To skip test execution and only verify build+install, omit `test_path` (defaults to empty — build/install only).
+
+### `opm_check.yml` — OPM plugin detection (plugin repos only)
+
+```yaml
+name: OPM Check
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  opm_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/opm-check.yml@dev
+    secrets: inherit
+    with:
+      plugin_type: auto             # auto-detect from pyproject.toml entry points
+      opm_require_found: true       # fail if OPM cannot discover the plugin
+      opm_perf_threshold_ms: 500    # warn if import takes longer than 500ms
 ```
 
 ### `license_tests.yml` — Check dependency licenses
@@ -259,6 +274,23 @@ jobs:
   release_preview:
     uses: OpenVoiceOS/gh-automations/.github/workflows/release-preview.yml@dev
     secrets: inherit
+```
+
+### `repo_health.yml` — Required-files check + first-time contributor greeting
+
+```yaml
+name: Repo Health
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  repo_health:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/repo-health.yml@dev
+    secrets: inherit
+    with:
+      version_file: 'my_package/version.py'  # if empty, auto-detects
 ```
 
 ### `sync_translations.yml` — Gitlocalize sync (skill repos only)

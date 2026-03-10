@@ -19,14 +19,18 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 |----------|---------|------|
 | `publish-alpha.yml` | Bump version, publish alpha to PyPI, open release PR | [reference](docs/workflow-reference.md#publish-alphayml) |
 | `publish-stable.yml` | Remove alpha flag, publish stable to PyPI, tag release | [reference](docs/workflow-reference.md#publish-stableyml) |
-| `license-check.yml` | Check all dependency licenses for copyleft violations | [reference](docs/workflow-reference.md#license-checkyml) |
-| `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
-| `pip-audit.yml` | Scan dependencies for known CVEs | [reference](docs/workflow-reference.md#pip-audityml) |
-| `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
+| `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility | [reference](docs/workflow-reference.md#build-testsyml) |
+| `opm-check.yml` | OPM plugin detection, interface validation, import timing | [reference](docs/workflow-reference.md#opm-checkyml) |
 | `coverage.yml` | Run pytest with coverage; post diff report to PR comment | [reference](docs/workflow-reference.md#coverageyml) |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
-| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `license-check.yml` | Check all dependency licenses for copyleft violations | [reference](docs/workflow-reference.md#license-checkyml) |
+| `pip-audit.yml` | Scan dependencies for known CVEs; optional SARIF upload | [reference](docs/workflow-reference.md#pip-audityml) |
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
+| `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
+| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
+| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
+| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
+| `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
 
 ---
 
@@ -42,7 +46,16 @@ The minimum required files for a new package:
   release_workflow.yml       # alpha release on PR merge to dev
   publish_stable.yml         # stable release on PR merge to master
   license_tests.yml          # license compliance check
-  build_tests.yml            # build smoke test
+  build_tests.yml            # build/install/test matrix (build-tests.yml)
+  repo_health.yml            # required-files check + contributor greeting
+  release_preview.yml        # next-version prediction on every PR
+```
+
+For OVOS **plugin repos**, also add:
+
+```
+.github/workflows/
+  opm_check.yml              # OPM plugin detection + interface validation
 ```
 
 For OVOS **skill repos**, also add:
@@ -50,7 +63,6 @@ For OVOS **skill repos**, also add:
 ```
 .github/workflows/
   skill_check.yml            # locale coverage + skill.json validity
-  release_preview.yml        # next-version prediction on every PR
   sync_translations.yml      # gitlocalize translation sync
 ```
 
@@ -90,6 +102,7 @@ Scripts in `scripts/` are checked out by the reusable workflows at run time:
 | `update_pr_comment.py` | Manage the shared OVOS PR Checks comment (find-or-create, section replace) |
 | `check_skill.py` | Analyse skill locale structure, skill.json, translation coverage, gitlocalize |
 | `check_release.py` | Predict next version from PR labels/title using conventional commit rules |
+| `check_opm.py` | Detect OVOS plugins via OPM, validate interface, measure import time |
 
 > **Note:** The reusable workflows check out this repo at runtime pinned to `ref: dev`.
 
