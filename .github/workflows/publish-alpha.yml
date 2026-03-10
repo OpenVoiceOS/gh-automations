@@ -15,6 +15,11 @@ on:
       branch:
         type: string
         default: "dev"
+        description: "Development branch where changes are made"
+      base_branch:
+        type: string
+        default: ""
+        description: "Target branch for the release PR (e.g. master/main). If empty, detects default branch."
       publish_prerelease:
         type: boolean
         default: false
@@ -236,14 +241,24 @@ jobs:
           # -B force-creates the branch so retries don't fail if the branch already exists
           git checkout -B release-${VERSION}
           git push origin release-${VERSION} --force
-      - name: Open Pull Request from release branch to master
+      - name: Open Pull Request from release branch to default branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{needs.bump_version.outputs.version}}"
+          BASE="${{ inputs.base_branch }}"
+
+          if [ -z "$BASE" ]; then
+            # Detect default branch dynamically to support both 'master' and 'main'
+            BASE=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+            echo "Detected default branch: ${BASE}"
+          else
+            echo "Using provided base branch: ${BASE}"
+          fi
+
           # Check if PR already exists to make this step idempotent on retries
           EXISTING=$(gh pr list --repo "${{ github.repository }}" \
-            --head "release-${VERSION}" --base master \
+            --head "release-${VERSION}" --base "${BASE}" \
             --json number --jq '.[0].number')
           if [ -n "$EXISTING" ]; then
             echo "PR already exists: #${EXISTING} — skipping creation"
@@ -253,7 +268,7 @@ jobs:
               --title "Release ${VERSION}" \
               --body "Human review requested!" \
               --head "release-${VERSION}" \
-              --base master
+              --base "${BASE}"
           fi
 
   publish_pypi:

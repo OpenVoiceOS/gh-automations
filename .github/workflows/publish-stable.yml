@@ -15,6 +15,7 @@ on:
       branch:
         type: string
         default: "master"
+        description: "Stable branch where the release happens (e.g. master/main). If 'master' is requested but missing, detects default branch."
       publish_release:
         type: boolean
         default: true
@@ -61,18 +62,37 @@ jobs:
     runs-on: ${{inputs.runner}}
     outputs:
       version: ${{ steps.version.outputs.version }}
+      actual_branch: ${{ steps.branch_detect.outputs.actual_branch }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch }}
-          path: action/package/
       - name: Checkout Scripts Repo
         uses: actions/checkout@v4
         with:
           path: action/github/
           repository: OpenVoiceOS/gh-automations
           ref: dev
+
+      - name: Detect branch
+        id: branch_detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REQUESTED="${{ inputs.branch }}"
+          # If master is requested, verify it exists; if not, use the default branch
+          # We use gh repo view which doesn't require a full checkout of the package repo yet
+          DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef --jq .defaultBranchRef.name)
+          
+          if [ "$REQUESTED" == "master" ] && [ "$DEFAULT_BRANCH" != "master" ]; then
+             echo "Warning: 'master' branch requested but not found as default. Using '${DEFAULT_BRANCH}'."
+             REQUESTED="$DEFAULT_BRANCH"
+          fi
+          echo "actual_branch=${REQUESTED}" >> $GITHUB_OUTPUT
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch_detect.outputs.actual_branch }}
+          path: action/package/
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -89,7 +109,7 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Increment Version to ${{ steps.version.outputs.version }}
-          branch: ${{ inputs.branch }}
+          branch: ${{ steps.branch_detect.outputs.actual_branch }}
           repository: action/package/
 
   tag_release:
@@ -101,14 +121,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.bump_version.outputs.actual_branch }}
           path: action/package/
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           tag: ${{needs.bump_version.outputs.version}}
-          commit: ${{ inputs.branch }}
+          commit: ${{ needs.bump_version.outputs.actual_branch }}
           prerelease: false
           generateReleaseNotes: true
 
@@ -121,7 +141,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.bump_version.outputs.actual_branch }}
           fetch-depth: 0
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -145,9 +165,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.bump_version.outputs.actual_branch }}
           fetch-depth: 0
-      - name: Push master -> dev
+      - name: Push stable -> dev
         uses: ad-m/github-push-action@v0.8.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

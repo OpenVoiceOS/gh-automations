@@ -23,13 +23,95 @@ Environment:
 import argparse
 import json
 import os
+import random
 import re
 import sys
+import time
 import urllib.request
 import urllib.error
 
 # Invisible HTML comment used to identify the aggregated PR checks comment.
 COMMENT_MARKER = "<!-- ovos-pr-checks -->"
+
+GREETINGS = [
+    "Hello! I've finished running some automated checks on this PR. 👋",
+    "Beep boop! Here's the latest status of your PR checks. 🤖",
+    "Greetings! I've analyzed your changes and have some results to share. 🖖",
+    "Checking in! Here's how the automated tests are looking. 🧐",
+    "At your service! I've gathered all the check results for you. 🫡",
+    "Reporting for duty! The automated checks have completed. 🎖️",
+]
+
+SIGNATURES = [
+    "Generated with ❤️ by OVOS Automations",
+    "Your friendly neighborhood bot 🕷️",
+    "Beep boop, I'm just a script 🤖",
+    "Keeping the code clean, one PR at a time ✨",
+    "Automating the boring stuff so you don't have to! 🚀",
+]
+
+FLAVOR_TEXTS = {
+    "coverage": [
+        "I've been crunching the numbers! Here's how the test coverage changed. 📈",
+        "Let's see how much of the code is actually being tested... 🧐",
+        "I've mapped out the test coverage for you! 🗺️",
+        "Coverage report incoming! Every line counts. 🎯",
+    ],
+    "build": [
+        "I tried building your changes, and here's what happened! 🔨",
+        "Build test complete! Let's see if everything fits together. 🧩",
+        "I've put your code through the build grinder. ☕",
+        "Checking if the gears are still turning smoothly... ⚙️",
+    ],
+    "skill": [
+        "I've given your skill a thorough inspection! 🕵️",
+        "Skill structure analysis complete! 🧠",
+        "I've checked the skill's DNA. Here's what I found! 🔬",
+        "Is it a bird? Is it a plane? No, it's a skill check result! 🦸",
+    ],
+    "security": [
+        "I've scanned the dependencies for any hidden surprises. 🔍",
+        "Security check! Are we safe from vulnerabilities? 🛡️",
+        "I've audited the packages. Safety first! 🦺",
+        "Checking for any digital cooties in your dependencies... 👾",
+    ],
+    "license": [
+        "Legal eagle here! Checking those licenses. ⚖️",
+        "Are we all good on the legal front? Let's find out! 📑",
+        "I've verified the license compliance for your changes. ✅",
+        "Keeping the lawyers happy, one file at a time. 👔",
+    ],
+    "health": [
+        "A quick checkup for the repository! 🩺",
+        "How's the repo's pulse? Let's take a look. 💓",
+        "I've performed a health check on the project. 🏥",
+        "Keeping the project in tip-top shape! 🏃",
+    ],
+    "python_support": [
+        "Testing across the Python multiverse! 🐍",
+        "Checking if your code plays well with different Python versions. 🎭",
+        "Compatibility check! No version left behind. 🌍",
+        "I've tested your changes against multiple Python interpreters. 🧪",
+    ],
+    "release": [
+        "A sneak peek into the future! 🔮",
+        "Here's what the next release might look like! 🚀",
+        "I've generated a preview of the upcoming changes. 🎬",
+        "Coming soon to a stable branch near you! 📽️",
+    ],
+    "welcome": [
+        "Welcome to the community! 🥳",
+        "A new contributor! This is exciting! ✨",
+        "Thanks for joining us! 🤝",
+        "We're glad to have you here! 🌈",
+    ],
+    "generic": [
+        "I've got some results for you! 📝",
+        "Here's the latest update on this check. 🗞️",
+        "Analysis complete! Check out the details below. 📊",
+        "Another piece of the puzzle! 🧩",
+    ]
+}
 
 
 def github_api(method: str, path: str, data: dict = None) -> dict | list:
@@ -70,9 +152,14 @@ def find_ovos_comment(repo: str, pr_number: int) -> tuple[int | None, str | None
 
 
 def build_section(section_id: str, title: str, content: str) -> str:
+    # Choose a random flavor text from the appropriate pool
+    pool = FLAVOR_TEXTS.get(section_id, FLAVOR_TEXTS["generic"])
+    flavor = random.choice(pool)
+    
     return (
         f"<!-- section:{section_id} -->\n"
         f"### {title}\n\n"
+        f"{flavor}\n\n"
         f"{content.strip()}\n"
         f"<!-- /section:{section_id} -->"
     )
@@ -84,8 +171,17 @@ def insert_or_replace_section(body: str, section_id: str, title: str, content: s
     start = re.escape(f"<!-- section:{section_id} -->")
     end = re.escape(f"<!-- /section:{section_id} -->")
     pattern = rf"{start}.*?{end}"
+    
     if re.search(pattern, body, re.DOTALL):
         return re.sub(pattern, new_section, body, flags=re.DOTALL)
+    
+    # If adding the first section, ensure we don't just append to the signature
+    if "---" in body:
+        parts = body.split("---")
+        main_content = "---".join(parts[:-1]).rstrip()
+        signature = "---" + parts[-1]
+        return main_content + "\n\n" + new_section + "\n\n" + signature
+        
     return body.rstrip() + "\n\n" + new_section + "\n"
 
 
@@ -101,13 +197,29 @@ def main() -> None:
     with open(args.content_file, encoding="utf-8") as fh:
         content = fh.read()
 
+    # Initial check for existing comment
     comment_id, body = find_ovos_comment(args.repo, args.pr)
 
     if comment_id is None:
+        # Race condition mitigation: sleep a random amount and re-check
+        # This helps break ties if multiple workflows start at the exact same time.
+        wait_time = random.uniform(0.5, 5.0)
+        print(f"No existing comment found. Waiting {wait_time:.2f}s to mitigate race conditions...")
+        time.sleep(wait_time)
+        comment_id, body = find_ovos_comment(args.repo, args.pr)
+
+    if comment_id is None:
+        # Still none? Create it.
+        greeting = random.choice(GREETINGS)
+        signature = random.choice(SIGNATURES)
+        
         new_body = (
             f"{COMMENT_MARKER}\n"
-            f"## OVOS PR Checks\n\n"
-            + build_section(args.section_id, args.title, content) + "\n"
+            f"## {greeting}\n\n"
+            f"I've aggregated the results of the automated checks for this PR below.\n\n"
+            + build_section(args.section_id, args.title, content) + "\n\n"
+            f"---\n"
+            f"_{signature}_"
         )
         github_api("POST", f"/repos/{args.repo}/issues/{args.pr}/comments", data={"body": new_body})
         print(f"Created new OVOS PR Checks comment with section '{args.section_id}'")
@@ -118,6 +230,7 @@ def main() -> None:
             return
         github_api("PATCH", f"/repos/{args.repo}/issues/comments/{comment_id}", data={"body": new_body})
         print(f"Updated section '{args.section_id}' in existing OVOS PR Checks comment #{comment_id}")
+
 
 
 if __name__ == "__main__":
