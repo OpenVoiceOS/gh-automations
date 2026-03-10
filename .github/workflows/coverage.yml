@@ -29,6 +29,16 @@ on:
         description: >
           Value of --cov= passed to pytest. Set to your package directory (e.g.
           'ovos_core') to measure only your own code rather than the full repo.
+      deploy_pages:
+        type: boolean
+        default: false
+        description: >
+          Push the HTML coverage report to the gh-pages branch for GitHub Pages
+          serving. Replaces the separate coverage-pages.yml workflow.
+      gh_pages_branch:
+        type: string
+        default: "gh-pages"
+        description: "Branch to push the HTML coverage report to (when deploy_pages: true)."
       min_coverage:
         type: number
         default: 0
@@ -56,10 +66,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     permissions:
       pull-requests: write
-      contents: read
-      # Pages deployment is handled by the separate coverage-pages.yml
-      # workflow.  Do NOT add pages: write or id-token: write here —
-      # it would cause startup_failure in repos without Pages enabled.
+      contents: write   # needed for deploy_pages git push; harmless when deploy_pages: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -231,6 +238,28 @@ jobs:
           path: coverage.xml
           retention-days: ${{ inputs.artifact_retention_days }}
           if-no-files-found: warn
+
+      - name: Deploy coverage report to GitHub Pages
+        if: ${{ inputs.deploy_pages && hashFiles('htmlcov/index.html') != '' }}
+        run: |
+          BRANCH="${{ inputs.gh_pages_branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp -r htmlcov /tmp/htmlcov
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+          else
+            git checkout --orphan "$BRANCH"
+            git rm -rf .
+          fi
+          git rm -rf . 2>/dev/null || true
+          cp -r /tmp/htmlcov/. .
+          touch .nojekyll
+          git add -A
+          git diff --cached --quiet && echo "No changes to deploy" && exit 0
+          git commit -m "Update coverage report [skip ci]"
+          git push origin "$BRANCH"
 
       - name: Enforce Minimum Coverage Threshold
         if: ${{ inputs.min_coverage > 0 }}

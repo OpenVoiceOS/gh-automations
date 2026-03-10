@@ -1,6 +1,7 @@
 name: Coverage Pages
-# Reusable workflow that runs tests with coverage and pushes the HTML
-# report to the gh-pages branch for GitHub Pages serving.
+# DEPRECATED — use coverage.yml with deploy_pages: true instead.
+# This file is kept for backwards compatibility with existing callers.
+# It will be removed in a future cleanup pass.
 #
 # Callers must grant:  contents: write
 #

@@ -191,7 +191,7 @@ jobs:
 
 ### `downstream.yml` — Track downstream dependents
 
-For core packages (e.g. `ovos-utils`, `ovos-bus-client`) that many other packages depend on:
+For core packages (e.g. `ovos-utils`, `ovos-bus-client`) that many other packages depend on. The report is uploaded as a workflow artifact (no longer committed to the branch).
 
 ```yaml
 name: Track Downstream Dependencies
@@ -246,29 +246,50 @@ jobs:
 
 ### `coverage_pages.yml` — Deploy coverage HTML to GitHub Pages
 
-Deploys the HTML coverage report to GitHub Pages on every push to `dev`. Requires Pages enabled in repo settings (Source: GitHub Actions).
+Use `coverage.yml` with `deploy_pages: true` — no separate file needed. Requires Pages enabled in repo settings (Source: Deploy from a branch → `gh-pages`).
 
 ```yaml
-name: Coverage Pages
+name: Coverage
 on:
   push:
+    branches: [dev]
+  pull_request:
     branches: [dev]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write   # required for the gh-pages git push
 
 jobs:
-  coverage_pages:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage-pages.yml@dev
+  coverage:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
     secrets: inherit
     with:
       coverage_source: 'my_package'   # measure only your own code
+      deploy_pages: true              # push HTML report to gh-pages branch
 ```
 
-**Prerequisites**: Go to repo Settings → Pages → Source → select "GitHub Actions".
+**Prerequisites**: Go to repo Settings → Pages → Source → select "Deploy from a branch" → `gh-pages`.
+
+### `lint.yml` — Ruff + pre-commit
+
+```yaml
+name: Lint
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/lint.yml@dev
+    secrets: inherit
+    with:
+      ruff: true          # ruff check . (default)
+      pre_commit: false   # set true if you have .pre-commit-config.yaml
+```
+
+Results are posted to the OVOS PR Checks comment. The job fails if any tool finds issues.
 
 ### `skill_check.yml` — Skill locale + skill.json (skill repos only)
 

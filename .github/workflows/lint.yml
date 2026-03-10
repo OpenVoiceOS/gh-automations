@@ -1,0 +1,111 @@
+name: Lint
+# Reusable workflow — runs ruff and/or pre-commit and posts results to the
+# shared OVOS PR Checks comment.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      ruff:
+        type: boolean
+        default: true
+        description: "Run ruff check"
+      ruff_args:
+        type: string
+        default: "."
+        description: "Arguments passed to ruff check (e.g. '. --select E,F')"
+      pre_commit:
+        type: boolean
+        default: false
+        description: "Run pre-commit run --all-files (requires .pre-commit-config.yaml)"
+      pr_comment:
+        type: boolean
+        default: true
+        description: "Post a section in the OVOS PR Checks comment on pull_request events"
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install ruff
+        if: ${{ inputs.ruff }}
+        run: python -m pip install ruff
+
+      - name: Run ruff
+        if: ${{ inputs.ruff }}
+        id: ruff
+        run: ruff check ${{ inputs.ruff_args }} --output-format=github
+        continue-on-error: true
+
+      - name: Install pre-commit
+        if: ${{ inputs.pre_commit }}
+        run: python -m pip install pre-commit
+
+      - name: Run pre-commit
+        if: ${{ inputs.pre_commit }}
+        id: pre_commit
+        run: pre-commit run --all-files
+        continue-on-error: true
+
+      - name: Format lint section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          {
+            if [ "${{ inputs.ruff }}" == "true" ]; then
+              if [ "${{ steps.ruff.outcome }}" == "success" ]; then
+                echo "✅ **ruff**: no issues"
+              elif [ "${{ steps.ruff.outcome }}" == "failure" ]; then
+                echo "❌ **ruff**: issues found — see job log"
+              fi
+            fi
+            if [ "${{ inputs.pre_commit }}" == "true" ]; then
+              if [ "${{ steps.pre_commit.outcome }}" == "success" ]; then
+                echo "✅ **pre-commit**: all hooks passed"
+              elif [ "${{ steps.pre_commit.outcome }}" == "failure" ]; then
+                echo "❌ **pre-commit**: hooks failed — see job log"
+              fi
+            fi
+          } > /tmp/lint-section.md
+
+      - name: Post lint section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "lint" \
+            --title "🔍 Lint" \
+            --content-file /tmp/lint-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail if ruff found issues
+        if: ${{ inputs.ruff && steps.ruff.outcome == 'failure' }}
+        run: exit 1
+
+      - name: Fail if pre-commit found issues
+        if: ${{ inputs.pre_commit && steps.pre_commit.outcome == 'failure' }}
+        run: exit 1

@@ -19,18 +19,27 @@ on:
       output_file:
         type: string
         default: "downstream_report.txt"
+        description: "Local filename for the generated report (also used as artifact name)"
+      pr_comment:
+        type: boolean
+        default: true
+        description: "Post the report as a section in the OVOS PR Checks comment (only on pull_request events)"
+      # Deprecated: commit_branch no longer does anything. Kept for backwards
+      # compatibility with existing callers so they don't break on unknown input.
       commit_branch:
         type: string
         default: "dev"
+        description: "Deprecated — ignored. Report is now uploaded as an artifact instead of committed."
 
 jobs:
   check_downstream:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_branch }}
       - name: Checkout Scripts Repo
         uses: actions/checkout@v4
         with:
@@ -55,9 +64,21 @@ jobs:
           python action/github/scripts/check_downstream.py \
             --package "${{ inputs.package_name }}" \
             --output "${{ inputs.output_file }}"
-      - name: Commit report
-        uses: stefanzweifel/git-auto-commit-action@v5
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
         with:
-          commit_message: "Update downstream dependency report for ${{ inputs.package_name }}"
-          branch: ${{ inputs.commit_branch }}
-          file_pattern: ${{ inputs.output_file }}
+          name: ${{ inputs.output_file }}
+          path: ${{ inputs.output_file }}
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Post downstream section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 action/github/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "downstream" \
+            --title "🔗 Downstream Dependents" \
+            --content-file "${{ inputs.output_file }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
