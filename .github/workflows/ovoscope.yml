@@ -5,6 +5,16 @@ name: Ovoscope End-to-End Tests
 # runs pytest against the end2end test directory, parses the JSON report,
 # and posts a '🔌 Skill Tests (ovoscope)' section to the OVOS PR Checks comment.
 #
+# Pipeline plugin strategy:
+# - PADACIOSO_PIPELINE (pure Python) is always available via ovos-workshop.
+# - ADAPT_PIPELINE requires ovos-adapt-pipeline-plugin (add to [test] deps).
+# - PADATIOUS_PIPELINE requires ovos-padatious-pipeline-plugin (C extension, needs swig).
+# - M2V_PIPELINE requires ovos-m2v-pipeline.
+#
+# Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
+# Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
+# are absent instead of silently skipping.
+#
 on:
   workflow_call:
     inputs:
@@ -30,6 +40,27 @@ on:
         type: string
         default: "test/end2end/"
         description: "Path passed to pytest — should point at the end2end directory"
+      require_adapt:
+        type: boolean
+        default: false
+        description: >
+          Fail CI if ovos-adapt-pipeline-plugin is not installed.
+          When false, Adapt pipeline tests are skipped if the plugin is absent.
+          Requires ovos-adapt-pipeline-plugin in [test] deps.
+      require_padatious:
+        type: boolean
+        default: false
+        description: >
+          Fail CI if ovos-padatious-pipeline-plugin is not installed.
+          When false, Padatious pipeline tests are skipped if the plugin is absent.
+          Requires ovos-padatious-pipeline-plugin in [test] deps (C extension — needs swig).
+      require_m2v:
+        type: boolean
+        default: false
+        description: >
+          Fail CI if ovos-m2v-pipeline is not installed.
+          When false, M2V pipeline tests are skipped if the plugin is absent.
+          Requires ovos-m2v-pipeline in [test] deps.
       pr_comment:
         type: boolean
         default: true
@@ -75,6 +106,51 @@ jobs:
           else
             pip install .
           fi
+
+      - name: Check required pipeline availability
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          import importlib.metadata
+
+          def get_installed_pipeline_bases():
+              try:
+                  eps = importlib.metadata.entry_points(group="opm.pipeline")
+                  return {ep.name for ep in eps}
+              except Exception:
+                  return set()
+
+          installed = get_installed_pipeline_bases()
+          failures = []
+
+          if "${{ inputs.require_adapt }}" == "true":
+              if "ovos-adapt-pipeline-plugin" not in installed:
+                  failures.append(
+                      "ADAPT_PIPELINE (ovos-adapt-pipeline-plugin) is required but not installed.\n"
+                      "Add 'ovos-adapt-pipeline-plugin' to your [test] extras."
+                  )
+
+          if "${{ inputs.require_padatious }}" == "true":
+              if "ovos-padatious-pipeline-plugin" not in installed:
+                  failures.append(
+                      "PADATIOUS_PIPELINE (ovos-padatious-pipeline-plugin) is required but not installed.\n"
+                      "Add 'ovos-padatious-pipeline-plugin' to your [test] extras (requires swig)."
+                  )
+
+          if "${{ inputs.require_m2v }}" == "true":
+              if "ovos-m2v-pipeline" not in installed:
+                  failures.append(
+                      "M2V_PIPELINE (ovos-m2v-pipeline) is required but not installed.\n"
+                      "Add 'ovos-m2v-pipeline' to your [test] extras."
+                  )
+
+          if failures:
+              for msg in failures:
+                  print(f"::error::{msg}")
+              sys.exit(1)
+
+          print(f"Pipeline check passed. Installed: {sorted(installed)}")
+          PYEOF
 
       - name: Run ovoscope tests
         id: run_tests

@@ -159,6 +159,17 @@ For organisation repos these are typically set at org level and inherited automa
 
 Reusable workflows do not automatically receive the calling repo's secrets — they must be explicitly forwarded. `secrets: inherit` passes all of the caller's secrets to the reusable workflow. This is the standard approach for organisation-managed secrets.
 
+### Do I need `id-token: write` permissions for PyPI publishing?
+
+No. All OVOS workflows use `PYPI_TOKEN` (token-based auth via `pypa/gh-action-pypi-publish`). OIDC trusted publishing (`id-token: write`) is **not used and must not be added**. Adding `id-token: write` to a caller workflow that calls `publish-stable.yml` or `publish-alpha.yml` will cause GitHub to reject the workflow with "nested job is requesting id-token: write but is only allowed id-token: none."
+
+The only permissions needed on caller workflows are:
+```yaml
+permissions:
+  contents: write        # for git-auto-commit-action version bumps
+  pull-requests: write   # for release PR creation (release_workflow.yml only)
+```
+
 ---
 
 ## Bot Guards
