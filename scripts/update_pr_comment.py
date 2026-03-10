@@ -32,7 +32,6 @@ import urllib.error
 
 # Invisible HTML comment used to identify the aggregated PR checks comment.
 COMMENT_MARKER = "<!-- ovos-pr-checks -->"
-SIG_MARKER = "<!-- ovos-sig-start -->"
 
 GREETINGS = [
     "Hello! I've finished running some automated checks on this PR. 👋",
@@ -106,6 +105,12 @@ FLAVOR_TEXTS = {
         "Thanks for joining us! 🤝",
         "We're glad to have you here! 🌈",
     ],
+    "opm": [
+        "Let's see if this plugin can be found by the plugin manager! 🔌",
+        "Checking if the plugin ecosystem recognizes this contribution... 🌐",
+        "I've verified the plugin's entry points! 🎯",
+        "Plugin detection status — let's see what OPM found! 🔍",
+    ],
     "generic": [
         "I've got some results for you! 📝",
         "Here's the latest update on this check. 🗞️",
@@ -169,21 +174,17 @@ def build_section(section_id: str, title: str, content: str) -> str:
 def insert_or_replace_section(body: str, section_id: str, title: str, content: str) -> str:
     """Replace an existing section, or append it if not present."""
     new_section = build_section(section_id, title, content)
-    start_tag = f"<!-- section:{section_id} -->"
-    end_tag = f"<!-- /section:{section_id} -->"
+    start = re.escape(f"<!-- section:{section_id} -->")
+    end = re.escape(f"<!-- /section:{section_id} -->")
+    pattern = rf"{start}.*?{end}"
     
-    if start_tag in body:
-        # Surgical replacement using index to avoid regex greedy pitfalls
-        start_idx = body.find(start_tag)
-        end_idx = body.find(end_tag) + len(end_tag)
-        if end_idx < start_idx: # Should not happen with well-formed comments
-             return body.rstrip() + "\n\n" + new_section + "\n"
-        return body[:start_idx] + new_section + body[end_idx:]
+    if re.search(pattern, body, re.DOTALL):
+        return re.sub(pattern, new_section, body, flags=re.DOTALL)
     
     # If adding the first section, ensure we don't just append to the signature
-    if SIG_MARKER in body:
-        parts = body.split(SIG_MARKER, 1)
-        return parts[0].rstrip() + "\n\n" + new_section + "\n\n" + SIG_MARKER + parts[1]
+    if "---" in body:
+        main_content, sep, signature = body.rpartition("---")
+        return main_content.rstrip() + "\n\n" + new_section + "\n\n" + sep + signature
         
     return body.rstrip() + "\n\n" + new_section + "\n"
 
@@ -198,7 +199,7 @@ def main() -> None:
     args = parser.parse_args()
 
     with open(args.content_file, encoding="utf-8") as fh:
-        content = fh.read().strip()
+        content = fh.read()
 
     # Initial check for existing comment
     comment_id, body = find_ovos_comment(args.repo, args.pr)
@@ -206,7 +207,7 @@ def main() -> None:
     if comment_id is None:
         # Race condition mitigation: sleep a random amount and re-check
         # This helps break ties if multiple workflows start at the exact same time.
-        wait_time = random.uniform(1.0, 10.0)
+        wait_time = random.uniform(0.5, 5.0)
         print(f"No existing comment found. Waiting {wait_time:.2f}s to mitigate race conditions...")
         time.sleep(wait_time)
         comment_id, body = find_ovos_comment(args.repo, args.pr)
@@ -221,7 +222,6 @@ def main() -> None:
             f"## {greeting}\n\n"
             f"I've aggregated the results of the automated checks for this PR below.\n\n"
             + build_section(args.section_id, args.title, content) + "\n\n"
-            f"{SIG_MARKER}\n"
             f"---\n"
             f"_{signature}_"
         )
@@ -229,11 +229,12 @@ def main() -> None:
         print(f"Created new OVOS PR Checks comment with section '{args.section_id}'")
     else:
         new_body = insert_or_replace_section(body, args.section_id, args.title, content)
-        if new_body.strip() == body.strip():
+        if new_body == body:
             print(f"Section '{args.section_id}' content unchanged — skipping update")
             return
         github_api("PATCH", f"/repos/{args.repo}/issues/comments/{comment_id}", data={"body": new_body})
         print(f"Updated section '{args.section_id}' in existing OVOS PR Checks comment #{comment_id}")
+
 
 
 if __name__ == "__main__":

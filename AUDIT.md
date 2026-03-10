@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Fully resolve HIGH-001 (pypa pinned + propose_release idempotent); clean up MEDIUM-002 duplicate body; add entry for _version_utils inline-comment fix; add check_skill/check_release entries.
 
 # Audit Report — `gh-automations`
 

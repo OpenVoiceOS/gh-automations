@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add coverage/sync-translations/skill-check/release-preview workflows; add _version_utils/update_pr_comment/check_skill/check_release scripts; fix all line numbers; add test count.
 
 # Quick Facts — `gh-automations`
 
@@ -9,7 +8,7 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add coverage/sync-translatio
 | License | Apache-2.0 |
 | Active branch | `dev` — all new repos should call `@dev` |
 | Python scripts | `scripts/` — checked out at runtime, not installed |
-| Unit tests | `test/test_scripts.py` — 74 tests, run with `uv run pytest` |
+| Unit tests | `test/test_scripts.py` — 123 tests, run with `uv run pytest` |
 | Callers | 209 OVOS repositories |
 
 ---
@@ -28,6 +27,8 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add coverage/sync-translatio
 | `sync-translations.yml` | Skill repos | `branch`, `script_path` |
 | `skill-check.yml` | Skill repos | `locale_dir`, `skip_if_not_skill`, `fail_on_missing_en_us`, `pr_comment` |
 | `release-preview.yml` | All repos | `version_file`, `pr_comment` |
+| `repo-health.yml` | All repos | `version_file`, `pr_comment` |
+| `build-tests.yml` | All repos | `python_versions`, `install_extras`, `package_name`, `test_path`, `plugin_type`, `opm_section`, `opm_require_found`, `opm_validate_interface`, `opm_test_import`, `opm_perf_threshold_ms` |
 
 ---
 
@@ -43,6 +44,15 @@ Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add coverage/sync-translatio
 | `get_version.py` | `get_version(version_file)` | `15` |
 | `check_downstream.py` | `get_downstream(package_name)` | `61` |
 | `check_downstream.py` | `sort_pipdeptree_output(text)` | `53` |
+| `check_opm.py` | `extract_metadata()` | `54` |
+| `check_opm.py` | `extract_system_deps()` | `108` |
+| `check_opm.py` | `validate_plugin_import(module_path, class_name)` | `132` |
+| `check_opm.py` | `check_plugin_interface(plugin_cls, short_type)` | `152` |
+| `check_opm.py` | `validate_config_docs(repo_root)` | `176` |
+| `check_opm.py` | `collect_issues(result)` | `217` |
+| `check_opm.py` | `compute_status(issues)` | `292` |
+| `check_opm.py` | `auto_detect_plugin_types()` | `308` |
+| `check_opm.py` | `check_opm(plugin_type, entry_point, output_json, ...)` | `406` |
 | `update_pr_comment.py` | `find_ovos_comment(repo, pr_number)` | `56` |
 | `update_pr_comment.py` | `insert_or_replace_section(body, section_id, ...)` | `81` |
 | `check_skill.py` | `run_checks(repo_root, locale_dir_override)` | `220` |

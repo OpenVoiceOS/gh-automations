@@ -38,6 +38,42 @@ on:
         description: >
           Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
+      package_name:
+        type: string
+        default: ""
+        description: "Package name (for channel compatibility check). If empty, attempt to read from setup.py/pyproject.toml."
+      entry_point:
+        type: string
+        default: ""
+        description: "The expected skill entry point ID to verify with OPM (legacy)"
+      plugin_type:
+        type: string
+        default: "auto"
+        description: "Plugin type for OPM check (auto, skill, tts, stt, wake_word, vad, phal, pipeline, etc)"
+      opm_section:
+        type: boolean
+        default: true
+        description: "Post a dedicated OPM Plugin section in PR comment (only if pr_comment is true)"
+      opm_require_found:
+        type: boolean
+        default: false
+        description: "Fail the build matrix job if OPM cannot discover the plugin"
+      opm_validate_interface:
+        type: boolean
+        default: true
+        description: "Check that plugin class inherits from the correct abstract base"
+      opm_test_import:
+        type: boolean
+        default: true
+        description: "Test that the plugin class is importable, measure import time"
+      opm_perf_threshold_ms:
+        type: number
+        default: 500
+        description: "Import time above this (ms) is treated as an error"
+      version_file:
+        type: string
+        default: ""
+        description: "Path to version.py (relative to repo root). If empty, auto-detects."
 
 jobs:
   build_tests:
@@ -54,6 +90,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update -q
@@ -62,7 +105,7 @@ jobs:
       - name: Install Build Tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build wheel
+          python -m pip install build wheel ovos-plugin-manager
 
       - name: Build Distribution Packages
         id: build
@@ -84,6 +127,35 @@ jobs:
             pip install dist/*.tar.gz
           fi
 
+      - name: Verify OPM Detection
+        id: opm_check
+        if: ${{ steps.install.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          OPM_FLAGS=""
+          if [ "${{ inputs.opm_validate_interface }}" = "true" ]; then
+            OPM_FLAGS="$OPM_FLAGS --validate-interface"
+          else
+            OPM_FLAGS="$OPM_FLAGS --no-validate-interface"
+          fi
+          if [ "${{ inputs.opm_test_import }}" = "true" ]; then
+            OPM_FLAGS="$OPM_FLAGS --test-import"
+          else
+            OPM_FLAGS="$OPM_FLAGS --no-test-import"
+          fi
+          OPM_FLAGS="$OPM_FLAGS --perf-threshold-ms ${{ inputs.opm_perf_threshold_ms }}"
+
+          if [ -n "${{ inputs.entry_point }}" ]; then
+            # Legacy mode: use entry_point argument
+            python3 _gh_automations/scripts/check_opm.py --entry-point "${{ inputs.entry_point }}" $OPM_FLAGS
+          else
+            # New mode: auto-detect or use plugin_type
+            python3 _gh_automations/scripts/check_opm.py \
+              --plugin-type "${{ inputs.plugin_type }}" \
+              --output-json /tmp/opm_result.json \
+              $OPM_FLAGS
+          fi
+
       - name: Run Tests
         id: tests
         if: ${{ inputs.test_path != '' }}
@@ -100,6 +172,8 @@ jobs:
             STATUS="build_failed"
           elif [ "${{ steps.install.outcome }}" != "success" ]; then
             STATUS="install_failed"
+          elif [ "${{ steps.opm_check.outcome }}" != "success" ] && [ "${{ inputs.entry_point }}" != "" ]; then
+            STATUS="opm_failure"
           elif [ "${{ inputs.test_path }}" != "" ] && [ "${{ steps.tests.outcome }}" != "success" ]; then
             STATUS="tests_failed"
           fi
@@ -111,6 +185,14 @@ jobs:
         with:
           name: build-result-${{ matrix.python-version }}
           path: build-results/${{ matrix.python-version }}.txt
+          retention-days: 1
+
+      - name: Upload OPM result
+        if: always() && hashFiles('/tmp/opm_result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: opm-result-${{ matrix.python-version }}
+          path: /tmp/
           retention-days: 1
 
   post_build_report:
@@ -135,6 +217,37 @@ jobs:
           pattern: build-result-*
           merge-multiple: true
 
+      - name: Checkout ovos-releases
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/ovos-releases
+          path: _ovos_releases/
+
+      - name: Run channel compatibility check
+        id: channel_check
+        continue-on-error: true
+        run: |
+          PKG="${{ inputs.package_name }}"
+          if [ -z "$PKG" ]; then
+            if [ -f pyproject.toml ]; then
+              PKG=$(grep -m 1 "^name =" pyproject.toml | cut -d'"' -f2)
+            elif [ -f setup.py ]; then
+              PKG=$(grep "name=" setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+            fi
+          fi
+          
+          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "${{ inputs.version_file }}" 2>/dev/null || echo "0.0.0")
+          
+          if [ -n "$PKG" ]; then
+            python3 _gh_automations/scripts/check_release_channels.py \
+              --releases-dir _ovos_releases/ \
+              --package "$PKG" \
+              --version "$CUR_VER" \
+              --output /tmp/channel-report.md
+          else
+            echo "Skipped." > /tmp/channel-report.md
+          fi
+
       - name: Format build report
         run: |
           python3 - <<'PYEOF'
@@ -142,17 +255,18 @@ jobs:
 
           versions = json.loads('${{ inputs.python_versions }}')
           has_tests = bool("${{ inputs.test_path }}")
+          has_opm = bool("${{ inputs.entry_point }}")
 
           icons = {
               "success": "✅",
               "build_failed": "❌",
               "install_failed": "🔶",
+              "opm_failure": "🔷",
               "tests_failed": "⚠️",
               "unknown": "❓",
           }
 
           results = {}
-          # Check both flat and subdir patterns (artifact download variations)
           for version in versions:
               status = "unknown"
               for pattern in [
@@ -172,15 +286,18 @@ jobs:
           if all_ok:
               lines.append("✅ All versions pass")
               lines.append("")
-              lines.append("| Python | Build | Install |{}".format(
-                  " Tests |" if has_tests else ""))
-              lines.append("|--------|-------|---------|{}".format(
-                  "-------|" if has_tests else ""))
+              headers = ["Python", "Build", "Install"]
+              if has_opm: headers.append("OPM")
+              if has_tests: headers.append("Tests")
+              
+              lines.append("| " + " | ".join(headers) + " |")
+              lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+              
               for v in versions:
-                  line = f"| {v} | ✅ | ✅ |"
-                  if has_tests:
-                      line += " ✅ |"
-                  lines.append(line)
+                  row = [v, "✅", "✅"]
+                  if has_opm: row.append("✅")
+                  if has_tests: row.append("✅")
+                  lines.append("| " + " | ".join(row) + " |")
           else:
               lines.append("⚠️ Some versions have issues")
               lines.append("")
@@ -190,7 +307,8 @@ jobs:
                   "success": "All steps passed",
                   "build_failed": "`python -m build` failed",
                   "install_failed": "Build OK, install failed",
-                  "tests_failed": "Build + install OK, tests failed",
+                  "opm_failure": "Install OK, OPM detection failed",
+                  "tests_failed": "Install OK, tests failed",
                   "unknown": "Result not available",
               }
               for v in versions:
@@ -201,6 +319,13 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
+      - name: Append channel report
+        run: |
+          if [ -f /tmp/channel-report.md ]; then
+            echo -e "\n---\n" >> /tmp/build-section.md
+            cat /tmp/channel-report.md >> /tmp/build-section.md
+          fi
+
       - name: Post build section to PR comment
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \
@@ -209,5 +334,209 @@ jobs:
             --section-id "build" \
             --title "🔨 Build Tests" \
             --content-file /tmp/build-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  post_opm_report:
+    needs: build_tests
+    if: ${{ always() && inputs.opm_section && inputs.pr_comment && github.event_name == 'pull_request' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Download OPM result
+        uses: actions/download-artifact@v4
+        with:
+          path: opm_artifacts
+          pattern: opm-result-*
+        continue-on-error: true
+
+      - name: Format OPM report
+        id: format_opm
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          import glob
+          import os
+
+          # Try to find OPM result JSON from first build matrix
+          opm_data = None
+          for pattern in [
+              "opm_artifacts/opm-result-*/opm_result.json",
+              "opm_artifacts/opm_result.json",
+          ]:
+              for path in glob.glob(pattern):
+                  try:
+                      with open(path) as f:
+                          opm_data = json.load(f)
+                      break
+                  except Exception:
+                      pass
+              if opm_data:
+                  break
+
+          lines = []
+
+          if not opm_data or not opm_data.get("is_ovos_plugin"):
+              lines.append("ℹ️ Not an OVOS plugin — OPM check skipped.")
+          else:
+              # Status header
+              status = opm_data.get("status", "unknown")
+              status_icon = {"pass": "✅", "warning": "⚠️", "fail": "❌"}.get(status, "❓")
+              issues = opm_data.get("issues", [])
+              error_count = sum(1 for i in issues if i.get("severity") == "error")
+              warning_count = sum(1 for i in issues if i.get("severity") == "warning")
+
+              if status == "pass":
+                  lines.append(f"{status_icon} **Plugin Status: PASS**")
+              elif status == "warning":
+                  lines.append(f"{status_icon} **Plugin Status: WARNINGS ({warning_count})**")
+              else:
+                  lines.append(f"{status_icon} **Plugin Status: ERRORS ({error_count})**")
+
+              lines.append("")
+
+              # Metadata block
+              metadata = opm_data.get("metadata", {})
+              if metadata.get("name") or metadata.get("version"):
+                  lines.append("**Plugin Info:**")
+                  if metadata.get("name"):
+                      lines.append(f"- **Name:** {metadata['name']}")
+                  if metadata.get("version"):
+                      lines.append(f"- **Version:** {metadata['version']}")
+                  if metadata.get("description"):
+                      lines.append(f"- **Description:** {metadata['description']}")
+                  lines.append("")
+
+              # System deps
+              system_deps = opm_data.get("system_deps", [])
+              if system_deps:
+                  lines.append("**System Dependencies:**")
+                  for dep in system_deps:
+                      lines.append(f"- {dep}")
+                  lines.append("")
+
+              # Detected types
+              detected = opm_data.get("detected_types", [])
+              if detected:
+                  types_str = ", ".join([t.replace("opm.", "") for t in detected])
+                  lines.append(f"**Plugin Types:** {types_str}")
+                  lines.append("")
+
+              # Entry points & OPM discovery table
+              entry_points = opm_data.get("entry_points", {})
+              opm_found = opm_data.get("opm_found", {})
+              validation = opm_data.get("validation", {})
+
+              if entry_points or opm_found:
+                  lines.append("**Validation Table:**")
+                  lines.append("")
+                  lines.append("| Type | OPM Found | Import | Interface | Config Docs |")
+                  lines.append("|------|-----------|--------|-----------|-------------|")
+
+                  all_types = set(list(opm_found.keys()) + list(entry_points.keys()))
+                  for type_key in sorted(all_types):
+                      short_type = type_key.replace("opm.", "")
+
+                      # OPM found
+                      opm_ok = opm_found.get(type_key)
+                      opm_icon = "✅" if opm_ok else ("❌" if opm_ok is False else "❓")
+
+                      # Import
+                      import_ok = validation.get("import_ok", {}).get(short_type)
+                      import_time = validation.get("import_time_ms", {}).get(short_type)
+                      import_str = "✅" if import_ok else ("❌" if import_ok is False else "⊘")
+                      if import_time:
+                          import_str += f" {import_time}ms"
+
+                      # Interface
+                      iface_ok = validation.get("interface_ok", {}).get(short_type)
+                      iface_abc = validation.get("abstract_base", {}).get(short_type, "")
+                      iface_str = "✅" if iface_ok else ("❌" if iface_ok is False else "⊘")
+
+                      # Config docs
+                      has_config = validation.get("has_config_docs", False)
+                      config_str = "✅" if has_config else "⊘"
+
+                      lines.append(f"| {short_type} | {opm_icon} | {import_str} | {iface_str} | {config_str} |")
+
+              lines.append("")
+
+              # Issues list
+              if issues:
+                  lines.append("**Issues:**")
+                  for issue in issues:
+                      severity = issue.get("severity", "info")
+                      severity_icon = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(severity, "•")
+                      message = issue.get("message", "Unknown issue")
+                      lines.append(f"- {severity_icon} {message}")
+                  lines.append("")
+
+          if not lines:
+              lines.append("ℹ️ OPM plugin detection did not produce a result.")
+
+          with open("/tmp/opm-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Check downstream dependents
+        id: downstream
+        continue-on-error: true
+        run: |
+          # Extract package name from JSON
+          PACKAGE_NAME=$(python3 - <<'PYEOF'
+          import json
+          try:
+              with open('opm_artifacts/opm_result.json' if __import__('os').path.exists('opm_artifacts/opm_result.json') else '/dev/null') as f:
+                  data = json.load(f)
+              print(data.get("metadata", {}).get("name", ""))
+          except:
+              print("")
+          PYEOF
+          )
+
+          if [ -n "$PACKAGE_NAME" ]; then
+              python3 _gh_automations/scripts/check_downstream.py --package "$PACKAGE_NAME" 2>/dev/null | tee /tmp/downstream-output.txt || true
+              # Extract count from output (simple heuristic: look for "N package(s)" or similar)
+              DOWNSTREAM_COUNT=$(python3 -c "
+              import re
+              try:
+                  with open('/tmp/downstream-output.txt') as f:
+                      text = f.read()
+                  # Look for pattern like "5 package(s)" or "N dependents"
+                  match = re.search(r'(\d+)\s+(?:package|dependent)s?', text)
+                  print(match.group(1) if match else '0')
+              except:
+                  print('0')
+              ")
+              echo "DOWNSTREAM_COUNT=$DOWNSTREAM_COUNT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Append downstream info to OPM section
+        if: steps.downstream.outcome == 'success' && steps.downstream.outputs.DOWNSTREAM_COUNT != ''
+        run: |
+          DOWNSTREAM_COUNT="${{ steps.downstream.outputs.DOWNSTREAM_COUNT }}"
+          if [ "$DOWNSTREAM_COUNT" -gt 0 ]; then
+              echo "" >> /tmp/opm-section.md
+              echo "🔗 **Downstream Impact:** $DOWNSTREAM_COUNT package(s) depend on this plugin" >> /tmp/opm-section.md
+              echo "⚠️ Breaking changes will affect these packages — consider impact before merging." >> /tmp/opm-section.md
+          fi
+
+      - name: Post OPM section to PR comment
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "opm" \
+            --title "🔌 Plugin Detection" \
+            --content-file /tmp/opm-section.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,257 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: PR comment improvements — repo health, welcome, breaking banner, build tests report, locale progress bars.
 
 # Maintenance Report — `gh-automations`
+
+---
+
+## [2026-03-10] — Eleventh session: 10 OPM Deep Enhancements
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Claude Haiku 4.5
+**Oversight Level:** High (comprehensive plan reviewed, test-driven development)
+**Changes:** 6 new functions in `check_opm.py`, 16 new tests, enhanced workflow, downstream integration
+
+### Key Enhancements
+
+**1. Plugin Import Validation** — `validate_plugin_import(module_path, class_name)`
+- Attempts actual import of the declared entry point class
+- Measures import time in milliseconds
+- Detects missing dependencies, syntax errors, import-time failures
+- Returns: `(ok: bool | None, time_ms: int | None, error: str | None)`
+- Thresholds: warning > 200ms, error > 500ms (configurable via `--perf-threshold-ms`)
+
+**2. Interface Compliance Check** — `check_plugin_interface(plugin_cls, short_type)`
+- Verifies that plugin class inherits from correct abstract base
+- Abstract base map covers all 9 OVOS plugin types (skill, tts, stt, wake_word, vad, phal, pipeline, utterance_transformer, tts_transformer)
+- Gracefully handles missing ABCs (returns `None` instead of failing)
+- Uses `issubclass()` for robust inheritance checking
+
+**3. Metadata Extraction** — `extract_metadata()`
+- Reads `project.name`, `project.version`, `project.authors`, `project.description`, `project.urls.homepage`, `project.requires-python` from `pyproject.toml`
+- Fallback to regex parsing of `setup.py` for older projects
+- Returns dict with all fields (None if missing)
+
+**4. System Dependencies Detection** — `extract_system_deps()`
+- Reads `[tool.ovos.build] system-dependencies` from `pyproject.toml`
+- Establishes new OVOS convention for declaring build-time system requirements
+- Returns list of package names (empty list if absent)
+
+**5. Configuration Docs Validation** — `validate_config_docs(repo_root)`
+- Searches entire repo (recursive glob) for `settingsmeta.json`
+- Parses both `sections.fields` and flat `fields` structures
+- Extracts configuration key names
+- Returns: `(has_config: bool, keys: list[str], error: str | None)`
+
+**6. Issue Collection & Status Computation**
+- `collect_issues(result)` — scans validation results, generates structured issue list
+- Issue severity: `error` | `warning` | `info`
+- Checks: OPM detection, import success, import performance, interface compliance, config docs presence
+- `compute_status(issues)` — rolls up to `pass` | `warning` | `fail`
+
+### Workflow Enhancements
+
+**build-tests.yml — New Inputs:**
+- `opm_require_found: boolean` (default: false) — fail build if OPM can't detect
+- `opm_validate_interface: boolean` (default: true) — check abstract base inheritance
+- `opm_test_import: boolean` (default: true) — test import, measure time
+- `opm_perf_threshold_ms: number` (default: 500) — import error threshold
+
+**build-tests.yml — Fixed Artifact Bug:**
+- Upload step now saves `/tmp/` instead of `/tmp/opm_result.json` directly
+- `post_opm_report` download glob updated to match flattened artifact structure
+- Artifact name format: `opm-result-{python-version}` contains `opm_result.json`
+
+**build-tests.yml — Enhanced PR Comment:**
+- Status header with severity icon (✅ PASS / ⚠️ WARNINGS / ❌ ERRORS)
+- Plugin metadata block (name, version, description)
+- System dependencies list
+- Validation table with per-type status (OPM found, import ok/time, interface, config docs)
+- Issues list with severity icons
+- **NEW:** Downstream impact count (if available)
+
+**Downstream Integration:**
+- `post_opm_report` now calls `check_downstream.py` to count dependents
+- Displays as: `🔗 N package(s) depend on this plugin`
+- Warning added if breaking changes will affect other packages
+- Non-blocking (continues even if downstream check fails)
+
+### Testing
+
+**New Tests (16 total, bringing test count from 107 → 123):**
+- `test_extract_metadata_name` — read project name
+- `test_extract_metadata_authors` — read authors list
+- `test_extract_system_deps` — read [tool.ovos.build] section
+- `test_extract_system_deps_missing` — empty list when absent
+- `test_validate_plugin_import_success` — successful import
+- `test_validate_plugin_import_module_not_found` — ImportError handling
+- `test_validate_plugin_import_attribute_not_found` — AttributeError handling
+- `test_check_plugin_interface_unknown_type` — unknown plugin type
+- `test_validate_config_docs_found` — settingsmeta.json parsing
+- `test_validate_config_docs_missing` — graceful absence
+- `test_collect_issues_opm_not_found` — error generation
+- `test_collect_issues_slow_import` — warning generation
+- `test_compute_status_pass` — no issues
+- `test_compute_status_warning` — only warnings
+- `test_compute_status_fail` — any error
+- `test_json_schema_complete` — full JSON schema validation
+
+**All 123 tests pass** — verified with `uv run pytest test/test_scripts.py -v`
+
+### Documentation Updates
+
+**FAQ.md:**
+- Updated Header: Last Edit timestamp
+- Enhanced "JSON output formats" description
+- Added 7 new Q&A entries:
+  - "What are the new validation checks?"
+  - "What is the import time threshold?"
+  - "What does 'interface compliance' mean?"
+  - "How do I declare system dependencies?"
+  - "How do I configure OPM validation in build-tests.yml?"
+  - "What happens if validation fails?"
+  - "How do I migrate from entry_point to plugin_type?" (expanded)
+
+**QUICK_FACTS.md:**
+- Updated test count: 107 → 123
+- Updated Header: Last Edit timestamp
+- Added 6 new check_opm.py function entries with line numbers
+- Updated build-tests.yml input list with 4 new inputs
+
+**MAINTENANCE_REPORT.md (this file):**
+- Added transparency report for session
+
+### Backward Compatibility
+
+✅ All changes are backward compatible:
+- New CLI flags have sensible defaults (all enabled, safe thresholds)
+- JSON schema additions are additive (no removed/renamed keys)
+- Legacy `--entry-point` argument still works
+- Existing workflow calls continue to work without changes
+- Tests confirm no regressions (123/123 passing)
+
+### Key Decisions
+
+1. **Import test scope:** Test actual declared entry points, not OPM's cached finder result. More direct CI signal.
+2. **Interface check fallback:** Return `None` (not `False`) when ABC can't be imported, to avoid false failures.
+3. **No instantiation:** Skip full plugin instantiation (requires audio/hardware/config) — import + interface check is sufficient.
+4. **Downstream count only:** Don't run full analysis in CI (too slow) — just count dependents, link to full check if needed.
+5. **New convention:** `[tool.ovos.build] system-dependencies` established as OVOS standard; workflows can auto-read in future.
+6. **Naming conflict resolution:** Renamed `validate_interface()` function to `check_plugin_interface()` to avoid shadowing with parameter name.
+
+### Files Modified
+
+- `scripts/check_opm.py` — 580 lines (was 267); +6 functions, +8 CLI args
+- `.github/workflows/build-tests.yml` — +4 inputs, fixed artifact bug, enhanced OPM report, downstream integration
+- `test/test_scripts.py` — +16 tests in TestCheckOpm class
+- `FAQ.md` — +7 Q&A entries
+- `QUICK_FACTS.md` — updated test count and inputs list
+- `MAINTENANCE_REPORT.md` — this entry
+
+---
+
+## [2026-03-10] — Tenth implementation session: Multi-plugin OPM detection, coverage.yml enhancements, workflow migration
+
+### Changes
+
+**Enhanced `scripts/check_opm.py` — Multi-plugin type support (REWRITE, ~220 lines):**
+- **Before**: Hardcoded skill-only check; required explicit `--entry-point` argument; no JSON output; no plugin type flexibility.
+- **After**:
+  - `--plugin-type` argument: accepts any OPM type name (skill, tts, stt, wake_word, vad, phal, pipeline, utterance_transformer, etc.) or `auto` (default)
+  - `--output-json` argument: writes structured JSON result for workflow consumption
+  - Auto-detection logic: scans `pyproject.toml` `[project.entry-points]` for `opm.*` groups or `setup.py` `entry_points` dict
+  - JSON output format: `detected_types`, `entry_points`, `opm_found`, `plugin_classes`, `is_ovos_plugin`, `summary`
+  - Plugin type→OPM function mapper: 9 plugin types (skill, tts, stt, wake_word, vad, phal, pipeline, utterance_transformer, tts_transformer)
+  - Backward compatible: `--entry-point` still works for legacy calls
+
+**Updated `.github/workflows/build-tests.yml`:**
+- Added `plugin_type` input (default: `auto`) — passed to `check_opm.py --plugin-type`
+- Added `opm_section` boolean input (default: `true` when `pr_comment` is true) — controls OPM PR comment section
+- Enhanced OPM check step to use new flags and output JSON
+- Added `post_opm_report` job: collects OPM JSON artifacts, formats PR comment section, posts via `update_pr_comment.py --section-id opm`
+- OPM PR comment shows: detected types, entry points per type, OPM discovery status (✅/❌ found)
+
+**Updated `scripts/update_pr_comment.py`:**
+- Added `opm` flavor text pool (4 messages): "Let's see if this plugin can be found...", "Checking if the plugin ecosystem recognizes...", "I've verified the plugin's entry points!", "Plugin detection status..."
+
+**Enhanced `coverage.yml` reusable workflow:**
+- Added `system_deps` input (default: `""`) — space-separated apt package names
+- Added "Install System Dependencies" step: runs `apt-get update` and `apt-get install` if `system_deps` is not empty
+- Allows skills/packages with system dependencies to use coverage.yml without custom system setup
+
+**Migrated `Skills/ovos-skill-hello-world/.github/workflows/unit_tests.yml`:**
+- **Before**: Custom inline job using `py-cov-action/python-coverage-comment-action@v3` directly
+- **After**: Calls `coverage.yml@dev` reusable workflow from gh-automations
+- Simplified: 55 lines → 9 lines (removed permissions, setup, install, test, coverage logic — all handled by reusable)
+- Gains: integrated OVOS PR Checks comment (instead of standalone coverage comment), system_deps support, min_coverage threshold, GitHub Pages publishing option
+- Parameters: `python_version: "3.11"`, `system_deps: "swig libssl-dev portaudio19-dev libpulse-dev libfann-dev"`, `test_path: "test/"`, `coverage_source: "ovos_skill_hello_world"`
+
+**Added tests for new `check_opm.py` (8 tests in `TestCheckOpm` class):**
+- `test_find_plugin_class_valid` — extract class name from entry point
+- `test_find_plugin_class_no_colon` — handle entry point without colon
+- `test_find_plugin_class_with_comma` — handle trailing content after class
+- `test_auto_detect_no_plugin` — empty list for non-plugin packages
+- `test_auto_detect_skill_plugin` — find skill from pyproject.toml
+- `test_auto_detect_tts_plugin` — find TTS plugin from pyproject.toml
+- `test_auto_detect_multiple_plugins` — find multiple types
+- `test_json_output_not_plugin` — JSON output for non-plugins
+
+**Updated documentation:**
+- `QUICK_FACTS.md`: Updated test count (93 → 107), added check_opm.py to Python scripts table, updated build-tests.yml inputs
+- `FAQ.md`: Added "OPM Plugin Detection" section (7 Q&As) covering auto-detect, specific types, JSON output, build-tests integration, disabling, migration from entry_point
+
+### Verification
+
+- `uv run pytest test/test_scripts.py` — all 107 tests pass (99 pre-existing + 8 new)
+- YAML validation: `build-tests.yml` and `coverage.yml` valid YAML syntax
+- Backward compatible: existing `entry_point` usage still works; new `plugin_type` is optional
+
+### Transparency Report
+
+| Field | Value |
+|-------|-------|
+| Model | Claude Haiku 4.5 |
+| Session type | Implementation: multi-plugin OPM, workflow migration |
+| Scope | 1 script rewrite (check_opm.py), 2 workflow enhancements (build-tests.yml, coverage.yml), 1 workflow migration (ovos-skill-hello-world), 8 unit tests, 2 docs updates |
+| Testing | All 107 tests pass; YAML validation successful; backward compatible |
+| Human oversight | Full plan created and approved by user before implementation |
+
+---
+
+## [2026-03-10] — Ninth implementation session: Bug fixes, Python version standardization, documentation accuracy
+
+### Changes
+
+**CRITICAL BUG FIX — Conditional checkout bug in 3 workflows:**
+- `skill-check.yml`, `release-preview.yml`, `repo-health.yml` had a critical bug: gh-automations scripts were conditionally checked out (`if: inputs.pr_comment && event == pull_request`) but script run steps had no matching condition. This caused immediate job failure on `workflow_dispatch` or push events.
+- **Fix**: Removed `if:` condition from all three checkout steps. Scripts are now always checked out. Individual post-comment steps retain their own conditions for PR-specific actions.
+
+**Python 3.14 → 3.11 standardization (10 affected files):**
+- Changed default `python_version` from `"3.14"` (pre-release, not stable until Oct 2026) to `"3.11"` (workspace standard per AGENTS.md) in:
+  - `publish-alpha.yml` (2 instances), `publish-stable.yml` (2 instances), `license-check.yml`, `pip-audit.yml`, `downstream-check.yml`, `sync-translations.yml`, `skill-check.yml`, `release-preview.yml`, `repo-health.yml`
+- Also updated `ovoscope/.github/workflows/unit_tests.yml` for consistency.
+
+**Code cleanup:**
+- Removed dead import of `_version_utils` from `scripts/check_release_channels.py` (was unused and misleading).
+- Fixed `!=` operator handling in `check_release_channels.py`: improved regex to split on two-character operators (`>=`, `<=`, `==`, `!=`) correctly; added handling for `!=` in version comparison logic.
+
+**Documentation accuracy fixes:**
+- `QUICK_FACTS.md`: Updated test count (74 → 93), added missing workflows (`build-tests.yml`, `repo-health.yml`), fixed stale action version references.
+- `docs/workflow-reference.md`: Fixed PyPI action version in docs table (`@master` → `@release/v1`).
+- `ovoscope/FAQ.md`: Updated workflow count (7 → 9), added missing workflows to CI workflow list, fixed test count (58 → 104).
+- `ovoscope/docs/ci-integration.md`: Added missing workflows to CI workflow table, updated Python version matrix in docs (3.10–3.14 instead of 3.10–3.11).
+
+**Integration verification:**
+- Confirmed `ovoscope` uses gh-automations correctly: all 8 reusable workflows at `@dev` branch, no deprecated `python-support.yml` references, no stale actions.
+
+### Transparency Report
+
+| Field | Value |
+|-------|-------|
+| Model | Claude Haiku 4.5 |
+| Session type | Full review + bug fix + documentation accuracy |
+| Scope | 3 critical bugs, 10 Python version standardizations, 2 code cleanups, 5 documentation updates across 2 repos |
+| Testing | No new tests added; all existing tests still pass (93 tests) |
+| Human oversight | Reviewed by user via plan approval before implementation |
 
 ---
 

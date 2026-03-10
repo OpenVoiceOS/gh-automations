@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Remove stale @master branching narrative; fix all script line numbers; fix propose_release diagram (gh pr create); fix scripts-checkout note.
 
 # OVOS Release Flow
 

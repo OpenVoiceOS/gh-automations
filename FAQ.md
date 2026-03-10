@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added PR comment improvements Q&A (repo health, welcome, breaking banner, build tests, locale bars).
 
 # FAQ — `gh-automations`
 
@@ -197,6 +196,24 @@ jobs:
       skip_bot_prs: false
       ...
 ```
+
+---
+
+## Workflow Script Checkout
+
+### Why do some workflows fail with "file not found" on non-PR events?
+
+Prior to 2026-03-10, `skill-check.yml`, `release-preview.yml`, and `repo-health.yml` conditionally checked out the gh-automations scripts **only** when the workflow was triggered by a `pull_request` event. However, the script run steps had no matching condition, so if the workflow fired via `workflow_dispatch` or `push`, the scripts path would not exist → immediate job failure.
+
+**Fix (2026-03-10)**: The checkout step is now unconditional in all three workflows. The scripts are always available. Individual post-comment steps still have their own conditions for PR-specific actions (e.g. posting to the PR comment only on `pull_request` events).
+
+### What workflows were affected?
+
+`skill-check.yml`, `release-preview.yml`, and `repo-health.yml`.
+
+### What was the user impact?
+
+Skill repos or repos using these workflows with `workflow_dispatch` triggers would experience job failures. The fix is transparent to callers.
 
 ---
 
@@ -515,6 +532,142 @@ Runs `python -m build` across a configurable Python version matrix (default: 3.1
 ### How does the PR comment look?
 
 If all versions pass: a compact table with ✅ for Build, Install, Tests columns. If any fail: a detailed table with status icons (❌ build_failed, 🔶 install_failed, ⚠️ tests_failed) and descriptions.
+
+---
+
+## OPM Plugin Detection
+
+### What is the OPM multi-plugin type detection?
+
+Enhanced `check_opm.py` script that auto-detects any OVOS plugin type (skill, TTS, STT, wake word, VAD, PHAL, pipeline, etc.) from `pyproject.toml` or `setup.py` entry points. Previously only skills could be validated.
+
+### How does auto-detection work?
+
+`check_opm.py --plugin-type auto` scans for `[project.entry-points."opm.*"]` sections in `pyproject.toml` or `entry_points` dict in `setup.py`. Returns a list of detected plugin types (e.g., `opm.skill`, `opm.tts`).
+
+### Can I check a specific plugin type?
+
+Yes. `check_opm.py --plugin-type tts` checks if OPM can find TTS plugins, regardless of what entry points are declared. Useful for workflows that target a specific plugin type.
+
+### What output formats does check_opm.py support?
+
+- **Exit code** — 0 if detected, 1 if not detected or error.
+- **Standard output** — Human-readable message (e.g., `✅ OVOS plugin detected: skill, tts`).
+- **JSON output** — `--output-json /tmp/result.json` writes structured data with fields:
+  - Basic: `detected_types`, `entry_points`, `opm_found`, `plugin_classes`, `is_ovos_plugin`, `summary`
+  - Enhanced: `metadata` (name, version, authors, description, homepage, requires_python)
+  - Validation: `import_ok`, `import_time_ms`, `interface_ok`, `abstract_base`, `has_config_docs`, `config_keys`
+  - Issues & Status: `issues` (list of severity/message/check), `status` (pass|warning|fail)
+
+### How does build-tests.yml use OPM detection?
+
+When `plugin_type: auto` (default), the workflow:
+1. Runs `check_opm.py --plugin-type auto --output-json /tmp/opm_result.json`
+2. Uploads the JSON result as an artifact
+3. The `post_opm_report` job collects results and posts a `🔌 Plugin Detection` section to the PR comment
+
+For backward compatibility, if `entry_point` is set, the old skill-only check is used.
+
+### Can I disable the OPM PR comment section?
+
+Yes. Set `opm_section: false` in your `build-tests.yml` call. The OPM check still runs (needed for build matrix status), but the dedicated section is not posted.
+
+### What does the OPM PR comment section show?
+
+The enhanced section includes:
+- **Status header** — overall result (✅ PASS / ⚠️ WARNINGS / ❌ ERRORS) with issue count
+- **Plugin info** — name, version, description (from metadata)
+- **System dependencies** — declared build system packages
+- **Validation table** — per-type status for OPM discovery, import test, interface compliance, config docs
+- **Issues list** — errors/warnings/info with severity icons
+- **Downstream impact** — count of packages that depend on this plugin (if > 0)
+
+If not an OVOS plugin: `ℹ️ Not an OVOS plugin — OPM check skipped.`
+
+### What are the new validation checks?
+
+`check_opm.py` now performs:
+1. **Plugin import test** (`--test-import`) — attempts to import the declared plugin class and measures time
+2. **Interface compliance** (`--validate-interface`) — checks that the class inherits from the correct abstract base
+3. **Metadata extraction** — reads name, version, authors, description from pyproject.toml
+4. **System dependencies detection** — reads `[tool.ovos.build] system-dependencies` from pyproject.toml
+5. **Config docs validation** — checks for `settingsmeta.json` and extracts configuration keys
+
+All flags default to `true` and can be toggled via new CLI args.
+
+### What is the import time threshold?
+
+`--perf-threshold-ms` (default: 500) sets the error threshold. Import times are categorized as:
+- < 200ms: ✅ normal
+- 200-500ms: ⚠️ warning (slow)
+- > 500ms: ❌ error (very slow)
+
+Slow imports can indicate missing dependencies or inefficient module initialization.
+
+### What does "interface compliance" mean?
+
+Each plugin type (skill, tts, stt, etc.) must inherit from a specific abstract base:
+- **skill** — `ovos_workshop.skills.ovos.OVOSSkill`
+- **tts** — `ovos_plugin_manager.templates.tts.TTS`
+- **stt** — `ovos_plugin_manager.templates.stt.STT`
+- (and so on for other types)
+
+If a plugin class doesn't inherit from the correct base, it won't be recognized by OPM at runtime.
+
+### How do I declare system dependencies?
+
+Add a `[tool.ovos.build]` section to `pyproject.toml`:
+```toml
+[tool.ovos.build]
+system-dependencies = ["libespeak-ng-dev", "libportaudio2"]
+```
+
+These are automatically passed to `apt-get install` in CI and can be auto-detected by workflows in the future.
+
+### How do I configure OPM validation in build-tests.yml?
+
+New inputs (all optional, defaults are safe):
+```yaml
+opm_require_found: false          # Fail build if OPM can't find plugin
+opm_validate_interface: true       # Check abstract base inheritance
+opm_test_import: true              # Test import and measure time
+opm_perf_threshold_ms: 500         # Import time error threshold (ms)
+```
+
+Example:
+```yaml
+- uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+  with:
+    plugin_type: "auto"
+    opm_validate_interface: true
+    opm_perf_threshold_ms: 250      # stricter than default
+```
+
+### What happens if validation fails?
+
+The CI build does **not** fail by default. Instead:
+- Errors/warnings are collected and displayed in the PR comment
+- Status is set to `pass` | `warning` | `fail`
+- Only if you set `opm_require_found: true` will OPM detection failure cause the build matrix job to fail
+
+This allows you to monitor plugin health without blocking releases.
+
+### How do I migrate from entry_point to plugin_type?
+
+Old (skill-only):
+```yaml
+entry_point: "ovos-skill-my-skill"
+```
+
+New (multi-type, auto-detect, enhanced validation):
+```yaml
+plugin_type: "auto"
+opm_section: true
+opm_test_import: true
+opm_validate_interface: true
+```
+
+Both work, but `plugin_type: auto` is more flexible and scalable.
 
 ---
 
