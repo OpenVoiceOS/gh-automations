@@ -25,9 +25,13 @@ jobs:
     runs-on: ${{ inputs.runner }}
     steps:
       - name: Send message to Matrix
-        uses: fadenb/matrix-chat-message@v0.0.6
-        with:
-          homeserver: ${{ inputs.homeserver }}
-          token: ${{ secrets.MATRIX_TOKEN }}
-          channel: ${{ inputs.channel }}
-          message: ${{ inputs.message }}
+        env:
+          MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}
+        run: |
+          MSG="${{ inputs.message }}"
+          ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '${{ inputs.channel }}')
+          curl -sf -X PUT \
+            "https://${{ inputs.homeserver }}/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/$(date +%s%N)" \
+            -H "Authorization: Bearer ${MATRIX_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -cn --arg body "$MSG" '{"msgtype":"m.text","body":$body}')"
