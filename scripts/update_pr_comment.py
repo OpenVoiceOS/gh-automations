@@ -177,10 +177,8 @@ def insert_or_replace_section(body: str, section_id: str, title: str, content: s
     
     # If adding the first section, ensure we don't just append to the signature
     if "---" in body:
-        parts = body.split("---")
-        main_content = "---".join(parts[:-1]).rstrip()
-        signature = "---" + parts[-1]
-        return main_content + "\n\n" + new_section + "\n\n" + signature
+        main_content, sep, signature = body.rpartition("---")
+        return main_content.rstrip() + "\n\n" + new_section + "\n\n" + sep + signature
         
     return body.rstrip() + "\n\n" + new_section + "\n"
 
