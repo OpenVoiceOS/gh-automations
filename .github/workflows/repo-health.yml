@@ -10,8 +10,8 @@ on:
         default: "ubuntu-latest"
       version_file:
         type: string
-        default: "version.py"
-        description: "Path to version.py (relative to repo root)"
+        default: ""
+        description: "Path to version.py (relative to repo root). If empty, auto-detects root or pkg/version.py."
       pr_comment:
         type: boolean
         default: true

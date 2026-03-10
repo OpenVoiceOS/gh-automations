@@ -22,8 +22,8 @@ on:
         description: "Package name (for channel compatibility check). If empty, attempt to read from setup.py/pyproject.toml."
       version_file:
         type: string
-        default: "version.py"
-        description: "Path to the version.py file (relative to repo root)"
+        default: ""
+        description: "Path to the version.py file (relative to repo root). If empty, auto-detects."
       pr_comment:
         type: boolean
         default: true

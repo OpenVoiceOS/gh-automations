@@ -18,8 +18,12 @@ on:
         description: "Package name (for OPM verification). If empty, attempt to read from setup.py/pyproject.toml."
       python_versions:
         type: string
-        default: '["3.8", "3.9", "3.10", "3.11", "3.12"]'
+        default: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
         description: "JSON array of Python versions to check"
+      version_file:
+        type: string
+        default: ""
+        description: "Path to version.py (relative to repo root). If empty, auto-detects."
       install_modes:
         type: string
         default: '["regular", "editable"]'
@@ -155,7 +159,7 @@ jobs:
           
           # Use current version for channel check if no PR release report available
           # (Standard release-preview handles the 'next' version, this is for general support info)
-          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file version.py 2>/dev/null || echo "0.0.0")
+          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "${{ inputs.version_file }}" 2>/dev/null || echo "0.0.0")
           
           if [ -n "$PKG" ]; then
             python3 _gh_automations/scripts/check_release_channels.py \

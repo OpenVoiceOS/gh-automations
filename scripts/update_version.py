@@ -16,7 +16,7 @@ import argparse
 import sys
 from os.path import abspath
 
-from _version_utils import format_version, read_version, write_version_block
+from _version_utils import format_version, read_version, write_version_block, find_version_file
 
 
 def update_version(part: str, version_file: str) -> str:
@@ -66,7 +66,13 @@ if __name__ == "__main__":
         choices=["major", "minor", "build", "alpha"],
         help="Part of the version to update",
     )
-    parser.add_argument("--version-file", required=True, help="Path to the version.py file")
+    parser.add_argument("--version-file", default="version.py", help="Path to the version.py file")
 
     args = parser.parse_args()
-    update_version(args.part, abspath(args.version_file))
+    
+    version_file = find_version_file(".", args.version_file)
+    if not version_file:
+        print(f"Could not find version file '{args.version_file}'", file=sys.stderr)
+        sys.exit(1)
+        
+    update_version(args.part, version_file)
