@@ -19,8 +19,8 @@ on:
         description: "Development branch where changes are made"
       base_branch:
         type: string
-        default: ""
-        description: "Target branch for the release PR (e.g. master/main). If empty, detects default branch."
+        default: "master"
+        description: "Target branch for the release PR (e.g. master/main)."
       publish_prerelease:
         type: boolean
         default: false
@@ -255,14 +255,7 @@ jobs:
         run: |
           VERSION="${{needs.bump_version.outputs.version}}"
           BASE="${{ inputs.base_branch }}"
-
-          if [ -z "$BASE" ]; then
-            # Detect default branch dynamically to support both 'master' and 'main'
-            BASE=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
-            echo "Detected default branch: ${BASE}"
-          else
-            echo "Using provided base branch: ${BASE}"
-          fi
+          echo "Target branch for release PR: ${BASE}"
 
           # Check if PR already exists to make this step idempotent on retries
           EXISTING=$(gh pr list --repo "${{ github.repository }}" \
