@@ -141,8 +141,9 @@ def github_api(method: str, path: str, data: dict = None) -> dict | list:
         raise
 
 
-def find_ovos_comment(repo: str, pr_number: int) -> tuple[int | None, str | None]:
-    """Return (comment_id, body) for the existing OVOS PR Checks comment, or (None, None)."""
+def find_ovos_comments(repo: str, pr_number: int) -> list[dict]:
+    """Return all OVOS PR Checks comments (there should be at most one, but handle duplicates)."""
+    found = []
     page = 1
     while True:
         comments = github_api("GET", f"/repos/{repo}/issues/{pr_number}/comments?per_page=100&page={page}")
@@ -150,11 +151,60 @@ def find_ovos_comment(repo: str, pr_number: int) -> tuple[int | None, str | None
             break
         for comment in comments:
             if COMMENT_MARKER in comment.get("body", ""):
-                return comment["id"], comment["body"]
+                found.append(comment)
         if len(comments) < 100:
             break
         page += 1
+    return found
+
+
+def find_ovos_comment(repo: str, pr_number: int) -> tuple[int | None, str | None]:
+    """Return (comment_id, body) for the existing OVOS PR Checks comment, or (None, None)."""
+    comments = find_ovos_comments(repo, pr_number)
+    if comments:
+        return comments[0]["id"], comments[0]["body"]
     return None, None
+
+
+def merge_sections(bodies: list[str]) -> str:
+    """Merge all named sections from multiple comment bodies into a single body."""
+    section_pattern = re.compile(
+        r"<!-- section:(\w+) -->.*?<!-- /section:\1 -->",
+        re.DOTALL,
+    )
+    merged_sections: dict[str, str] = {}
+    # Process in order so later duplicates overwrite earlier ones
+    for body in bodies:
+        for match in section_pattern.finditer(body):
+            section_id = match.group(1)
+            merged_sections[section_id] = match.group(0)
+
+    # Build new body from the first comment's structure, replacing/appending sections
+    base = bodies[0]
+    # Strip all sections out of base
+    base_stripped = section_pattern.sub("", base).rstrip()
+    # Re-append all merged sections
+    sections_text = "\n\n".join(merged_sections.values())
+    # Find the trailing signature (after the last "---")
+    if "---" in base_stripped:
+        main, sep, sig = base_stripped.rpartition("---")
+        return main.rstrip() + "\n\n" + sections_text + "\n\n" + sep + sig
+    return base_stripped + "\n\n" + sections_text + "\n"
+
+
+def deduplicate_comments(repo: str, pr_number: int, all_comments: list[dict]) -> tuple[int, str]:
+    """Merge all OVOS comments into the first one, delete the rest. Returns (id, merged_body)."""
+    bodies = [c["body"] for c in all_comments]
+    merged_body = merge_sections(bodies)
+    primary_id = all_comments[0]["id"]
+    github_api("PATCH", f"/repos/{repo}/issues/comments/{primary_id}", data={"body": merged_body})
+    for extra in all_comments[1:]:
+        try:
+            github_api("DELETE", f"/repos/{repo}/issues/comments/{extra['id']}")
+            print(f"Deleted duplicate OVOS PR Checks comment #{extra['id']}")
+        except Exception as exc:
+            print(f"Warning: could not delete duplicate comment #{extra['id']}: {exc}", file=sys.stderr)
+    return primary_id, merged_body
 
 
 def build_section(section_id: str, title: str, content: str) -> str:
@@ -201,22 +251,32 @@ def main() -> None:
     with open(args.content_file, encoding="utf-8") as fh:
         content = fh.read()
 
-    # Initial check for existing comment
-    comment_id, body = find_ovos_comment(args.repo, args.pr)
-
-    if comment_id is None:
-        # Race condition mitigation: sleep a random amount and re-check
-        # This helps break ties if multiple workflows start at the exact same time.
-        wait_time = random.uniform(0.5, 5.0)
-        print(f"No existing comment found. Waiting {wait_time:.2f}s to mitigate race conditions...")
+    # Retry loop: look for an existing OVOS comment up to 6 times with backoff.
+    # This handles the race condition where multiple workflows all start simultaneously
+    # and none sees a comment on the first check — at least one will win the creation
+    # race and the others will find it on a subsequent attempt.
+    all_comments: list[dict] = []
+    for attempt in range(6):
+        all_comments = find_ovos_comments(args.repo, args.pr)
+        if all_comments:
+            break
+        wait_time = random.uniform(1.0, 3.0) * (attempt + 1)
+        print(f"No existing comment found (attempt {attempt + 1}/6). Waiting {wait_time:.2f}s...")
         time.sleep(wait_time)
-        comment_id, body = find_ovos_comment(args.repo, args.pr)
+
+    # Deduplicate if multiple comments were created simultaneously
+    if len(all_comments) > 1:
+        print(f"Found {len(all_comments)} duplicate OVOS PR Checks comments — merging...")
+        comment_id, body = deduplicate_comments(args.repo, args.pr, all_comments)
+    elif len(all_comments) == 1:
+        comment_id, body = all_comments[0]["id"], all_comments[0]["body"]
+    else:
+        comment_id, body = None, None
 
     if comment_id is None:
-        # Still none? Create it.
+        # No comment exists yet — create one.
         greeting = random.choice(GREETINGS)
         signature = random.choice(SIGNATURES)
-        
         new_body = (
             f"{COMMENT_MARKER}\n"
             f"## {greeting}\n\n"
