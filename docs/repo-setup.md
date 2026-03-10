@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Replace inline publish_pypi jobs with workflow inputs; add skill-check/release-preview/coverage optional workflows; remove @master migration section; fix license example.
 
 # Setting Up a New OVOS Repo
 

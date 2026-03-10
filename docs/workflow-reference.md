@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added skill-check.yml and release-preview.yml sections; extended PR Checks Comment example; added check_skill.py and check_release.py script references.
 
 # Reusable Workflow Reference
 

@@ -25,6 +25,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
-        run: pip install pytest
+        run: |
+          pip install pytest
+          python -c "import tomllib" 2>/dev/null || pip install tomli
       - name: Run script tests
         run: pytest test/test_scripts.py -v

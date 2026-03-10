@@ -16,7 +16,10 @@ import importlib
 import json
 import sys
 import time
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore[no-redef]  # Python < 3.11
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 

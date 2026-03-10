@@ -1,4 +1,3 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Add new workflows and scripts; fix all line numbers; remove stale @master branching narrative; update scripts-checkout note.
 
 # gh-automations
 
