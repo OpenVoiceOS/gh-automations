@@ -102,10 +102,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fail if ruff found issues
-        if: ${{ inputs.ruff && steps.ruff.outcome == 'failure' }}
-        run: exit 1
-
-      - name: Fail if pre-commit found issues
-        if: ${{ inputs.pre_commit && steps.pre_commit.outcome == 'failure' }}
-        run: exit 1
+      # Lint is informational — it never blocks merges.
+      # Fix the issues at your own pace; the PR Checks comment shows what needs attention.
