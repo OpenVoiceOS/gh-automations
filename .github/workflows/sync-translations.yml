@@ -25,7 +25,7 @@ on:
         description: "Branch to checkout, run the script on, and commit back to"
       python_version:
         type: string
-        default: "3.11"
+        default: "3.14"
         description: "Python version to use"
       runner:
         type: string
