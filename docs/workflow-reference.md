@@ -236,9 +236,9 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 | `python_version` | string | `3.11` | Python version to use (OPM detection does not vary by Python version) |
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated) |
 | `install_extras` | string | `""` | pip extras appended when installing the built package, e.g. `dev` |
-| `plugin_type` | string | `auto` | Plugin type to detect: `auto` (reads from entry points), `skill`, `tts`, `stt`, `wake_word`, `vad`, `phal`, `pipeline`, `utterance_transformer`, `tts_transformer` |
+| `plugin_type` | string | `auto` | Plugin type to detect: `auto` (reads from entry points), `skill`, `tts`, `stt`, `wake_word`, `vad`, `phal`, `pipeline`, `utterance_transformer`, `tts_transformer`, `g2p` |
 | `entry_point` | string | `""` | Legacy: specific entry point ID to verify (bypasses `plugin_type` auto-detection) |
-| `opm_require_found` | boolean | `false` | Fail the job if OPM cannot discover the plugin |
+| `opm_require_found` | boolean | `true` | Fail the job if OPM cannot discover the plugin |
 | `opm_validate_interface` | boolean | `true` | Check that the plugin class inherits from the correct abstract base class |
 | `opm_test_import` | boolean | `true` | Test that the plugin class is importable and measure import time in ms |
 | `opm_perf_threshold_ms` | number | `500` | Import time above this value (ms) is reported as an error |
@@ -253,6 +253,10 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 
 ### PR comment content
 
+The report is split into two tables:
+
+**OPM Detection** — one row per plugin type (e.g. `skill`, `tts`):
+
 ```
 ✅ Plugin Status: PASS
 
@@ -260,14 +264,24 @@ Plugin Info:
 - Name: ovos-tts-plugin-example
 - Version: 1.2.3a4
 - Description: Example TTS plugin for OVOS
+- Requires Python: >=3.10
 
-Plugin Types: tts
+OPM Detection:
 
-Validation Table:
+| Type | Wheel OPM | Editable OPM | Requires Python |
+|------|-----------|--------------|-----------------|
+| tts  | ✅        | ✅           | ✅ >=3.10       |
+```
 
-| Type | Wheel OPM | Editable OPM | Import | Interface | Config Docs |
-|------|-----------|--------------|--------|-----------|-------------|
-| tts  | ✅        | ✅           | ✅ 42ms | ✅       | ✅          |
+**Entry Point Validation** — one row per named entry point (supports packages that register multiple entry points per type, e.g. a multi-voice TTS):
+
+```
+Entry Point Validation:
+
+| Entry Point | Import | Interface | Config Docs |
+|-------------|--------|-----------|-------------|
+| ovos-tts-plugin-example | ✅ 42ms | ✅ | ✅ |
+| ovos-tts-plugin-example-neural | ✅ 38ms | ✅ | ✅ |
 
 🔗 Downstream Impact: 3 package(s) depend on this plugin
 ```
@@ -295,9 +309,112 @@ jobs:
 
 ### Notes
 
-- `opm_require_found: false` (default) means the job passes even if OPM cannot find the plugin. This is the safe default for repos that may not be OVOS plugins. Set `opm_require_found: true` to enforce discoverability.
+- `opm_require_found: true` (default) means the job fails if OPM cannot find the plugin. Set `opm_require_found: false` for repos that may not be OVOS plugins (e.g. utility libraries) where the check should pass silently.
 - The editable OPM check runs only when the wheel check confirms `is_ovos_plugin: true` in the JSON output, avoiding unnecessary editable install for non-plugin repos.
 - `plugin_type: auto` reads `[project.entry-points."opm.*"]` sections from `pyproject.toml` (or equivalent in `setup.py`) to detect all plugin types the package declares.
+- Entry point validation is keyed by `ep_name` (the entry point identifier), not by `short_type`. A package registering two TTS voices under different entry point names gets both validated independently.
+- `requires-python` from `pyproject.toml` is checked against the running Python version. A mismatch is reported as an error in the issues list.
+
+---
+
+## `ovoscope.yml`
+
+Runs ovoscope end-to-end skill tests on a **single Python version**. Installs the skill with its test extras (which must include `ovoscope`), executes pytest against the end-to-end test directory, and posts a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment.
+
+**Source:** `.github/workflows/ovoscope.yml`
+
+### Pipeline plugin strategy
+
+| Pipeline | Package | Always available? |
+|----------|---------|-------------------|
+| `PADACIOSO_PIPELINE` | `ovos-workshop` (bundled) | ✅ Yes |
+| `ADAPT_PIPELINE` | `ovos-adapt-pipeline-plugin` | Add to `[test]` deps |
+| `PADATIOUS_PIPELINE` | `ovos-padatious-pipeline-plugin` | Add to `[test]` deps (requires `swig`) |
+| `M2V_PIPELINE` | `ovos-m2v-pipeline` | Add to `[test]` deps |
+
+Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`). Use `require_adapt`/`require_padatious`/`require_m2v` to fail CI if those pipelines are absent instead of silently skipping.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version to use |
+| `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
+| `install_extras` | string | `test` | pip extras used when installing the package. The extras must pull in `ovoscope`. |
+| `test_path` | string | `test/end2end/` | Path passed to pytest — should point at the end2end directory |
+| `require_adapt` | boolean | `false` | Fail CI if `ovos-adapt-pipeline-plugin` is not installed. When `false`, Adapt tests are skipped if the plugin is absent. |
+| `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
+| `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
+| `pr_comment` | boolean | `true` | Post a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+
+### Jobs
+
+| Job | Description |
+|-----|-------------|
+| `ovoscope` | Installs system deps, installs the package with test extras plus `ovoscope` and `pytest-json-report`, runs a pipeline availability check (fails fast if `require_*` inputs are true and the plugin is absent), executes pytest with `--json-report`, formats the results, and posts the PR comment section. |
+
+### Steps
+
+| Step | Description |
+|------|-------------|
+| Checkout | Checks out the calling repo |
+| Checkout gh-automations scripts | Checks out `OpenVoiceOS/gh-automations@dev` into `_gh_automations/` (PR events only) |
+| Setup Python | `actions/setup-python@v5` |
+| Install System Dependencies | `apt-get install` the `system_deps` list (skipped if empty) |
+| Install Package with Test Extras | `pip install ".[test]"` (or the configured extras) plus `pytest pytest-json-report ovoscope` |
+| Check required pipeline availability | Inline Python reads `opm.pipeline` entry points and exits 1 if any `require_*` pipeline is absent |
+| Run ovoscope tests | `pytest --json-report` with `continue-on-error: true` so the PR comment step always runs |
+| Format ovoscope section for PR comment | Inline Python reads the JSON report and generates `ovoscope-section.md` grouped by test class |
+| Post ovoscope section to PR comment | Calls `update_pr_comment.py` with `--section-id ovoscope` |
+| Fail job if tests failed | Re-raises the pytest failure after the PR comment is posted |
+
+### PR comment content
+
+```
+✅ 9/9 passed
+
+✅ **TestConfuciusAdaptEN** — 5/5
+✅ **TestConfuciusPadaciosaEN** — 2/2
+✅ **TestConfuciusFixtures** — 2/2
+```
+
+On failure, failing classes expand to a per-test table with `longrepr` for the first 3 failures.
+
+### Typical usage
+
+```yaml
+name: Ovoscope End-to-End Tests
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  ovoscope:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
+    secrets: inherit
+    with:
+      test_path: "test/end2end/"
+      require_adapt: true
+```
+
+To require Padatious (C extension — add `swig` to system_deps):
+
+```yaml
+    with:
+      test_path: "test/end2end/"
+      system_deps: "swig"
+      require_adapt: true
+      require_padatious: true
+```
+
+### Notes
+
+- The `require_*` inputs trigger a **pre-test** pipeline availability check. If the required plugin is absent the job fails immediately with a clear error message, without running any tests.
+- The pipeline check reads the `opm.pipeline` entry point group using `importlib.metadata` — no import of the plugin itself is required.
+- `PADACIOSO_PIPELINE` (pure Python padacioso) is always available via `ovos-workshop`; there is no `require_padacioso` input.
+- Set `require_adapt: true` in skill repos that test Adapt intents so CI fails explicitly if the Adapt plugin is missing from `[test]` deps rather than silently skipping those tests.
 
 ---
 
@@ -938,6 +1055,12 @@ The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its bo
 ...
 <!-- /section:opm -->
 
+<!-- section:ovoscope -->
+### 🔌 Skill Tests (ovoscope)
+✅ 9/9 passed
+...
+<!-- /section:ovoscope -->
+
 <!-- section:coverage -->
 ### 📊 Coverage
 ✅ **87.3%** total coverage
@@ -1077,7 +1200,7 @@ Detects and validates OVOS plugins via OPM. Supports multi-plugin-type repos. Ou
 **Key functions:**
 - `auto_detect_plugin_types()` — `scripts/check_opm.py:308` — scans `[project.entry-points."opm.*"]` in `pyproject.toml` or `setup.py`
 - `validate_plugin_import(module_path, class_name)` — `scripts/check_opm.py:132` — imports the class, measures time in ms, detects missing dependencies
-- `check_plugin_interface(plugin_cls, short_type)` — `scripts/check_opm.py:152` — verifies `issubclass()` against the correct abstract base (9 types)
+- `check_plugin_interface(plugin_cls, short_type)` — `scripts/check_opm.py:152` — verifies `issubclass()` against the correct abstract base (10 types including `g2p`)
 - `extract_metadata()` — `scripts/check_opm.py:54` — reads name, version, authors, description, homepage, requires_python
 - `extract_system_deps()` — `scripts/check_opm.py:108` — reads `[tool.ovos.build] system-dependencies`
 - `validate_config_docs(repo_root)` — `scripts/check_opm.py:176` — searches for `settingsmeta.json`
@@ -1087,7 +1210,7 @@ Detects and validates OVOS plugins via OPM. Supports multi-plugin-type repos. Ou
 
 ```
 usage: check_opm.py \
-    [--plugin-type auto|skill|tts|stt|wake_word|vad|phal|pipeline|utterance_transformer|tts_transformer] \
+    [--plugin-type auto|skill|tts|stt|wake_word|vad|phal|pipeline|utterance_transformer|tts_transformer|g2p] \
     [--entry-point <id>] \
     [--output-json <path>] \
     [--validate-interface | --no-validate-interface] \

@@ -720,6 +720,52 @@ In the `🏷️ Release Preview` section, a `[!CAUTION]` alert appears when the 
 
 ---
 
+## ovoscope.yml — Pipeline Inputs
+
+### What are `require_adapt`, `require_padatious`, and `require_m2v`?
+
+Boolean inputs to `ovoscope.yml` that control what happens when a pipeline plugin is absent.
+
+- `false` (default): tests that use the missing pipeline are **skipped** silently via `is_pipeline_available()`.
+- `true`: CI **fails before running any tests** with a clear error message listing which package to add to `[test]` deps.
+
+Use `require_adapt: true` in skills that test Adapt intents so CI fails explicitly if `ovos-adapt-pipeline-plugin` is missing from test dependencies.
+
+### Which pipelines are always available in ovoscope.yml?
+
+`PADACIOSO_PIPELINE` (pure-Python padacioso, bundled with `ovos-workshop`) is always available. No `require_padacioso` input is needed. The three optional pipelines (`ADAPT`, `PADATIOUS`, `M2V`) require separate packages.
+
+### How does the pipeline availability check work?
+
+An inline Python step reads the `opm.pipeline` entry point group using `importlib.metadata.entry_points()` and checks whether the expected plugin name is present. If it is absent and the corresponding `require_*` input is `true`, the step exits with code 1 before pytest runs.
+
+---
+
+## opm-check.yml — g2p Plugin Support
+
+### Does opm-check.yml support g2p plugins?
+
+Yes. `g2p` was added as a supported plugin type in `check_opm.py` (`PLUGIN_TYPE_FINDERS` and `ABSTRACT_BASES`). Use `plugin_type: g2p` or `plugin_type: auto` (which auto-detects `opm.g2p` entry points from `pyproject.toml`).
+
+### What changed in the OPM detection PR table?
+
+The PR comment now uses two separate tables:
+
+1. **OPM Detection** — one row per detected plugin *type* (e.g. `skill`, `tts`), showing Wheel OPM, Editable OPM, and `requires-python` compliance.
+2. **Entry Point Validation** — one row per named *entry point* (e.g. `ovos-tts-plugin-example`), showing import time, interface compliance, and config docs.
+
+This allows packages that register multiple entry points per type (e.g. a multi-voice TTS) to have each entry point validated independently.
+
+### What does `opm_require_found` default to now?
+
+`true`. The default changed from `false` to `true` in the OPM check improvements commit. Jobs now fail by default if OPM cannot discover the plugin. Set `opm_require_found: false` for repos that are not OVOS plugins and should pass silently.
+
+### What is `requires-python` validation in opm-check?
+
+`check_opm.py` reads `requires-python` from `pyproject.toml` and checks it against the running Python version using the `packaging` library (if installed). The result is reported as `requires_python_ok` in the JSON output and displayed in the OPM Detection table. A mismatch is reported as an error in the issues list.
+
+---
+
 ## Locale Progress Bars
 
 ### What changed in the Skill Check translation table?

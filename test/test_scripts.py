@@ -680,6 +680,154 @@ class TestCheckOpm:
 
 
 # ---------------------------------------------------------------------------
+# check_opm.py — new feature tests (g2p, multi-ep, requires_python)
+# ---------------------------------------------------------------------------
+
+class TestCheckOpmNewFeatures:
+    """Tests for features added in the OPM check improvements commit."""
+
+    def test_g2p_in_plugin_type_finders(self) -> None:
+        """g2p plugin type must be registered in PLUGIN_TYPE_FINDERS."""
+        from check_opm import PLUGIN_TYPE_FINDERS
+        assert "g2p" in PLUGIN_TYPE_FINDERS
+        assert "find_g2p_plugins" in PLUGIN_TYPE_FINDERS["g2p"]
+
+    def test_g2p_in_abstract_bases(self) -> None:
+        """g2p plugin type must have a registered abstract base class."""
+        from check_opm import ABSTRACT_BASES
+        assert "g2p" in ABSTRACT_BASES
+        module, cls = ABSTRACT_BASES["g2p"]
+        assert "g2p" in module
+        assert cls  # non-empty class name
+
+    def test_auto_detect_g2p_plugin(self, tmp_path: Path) -> None:
+        """auto_detect_plugin_types should discover a g2p plugin from pyproject.toml."""
+        import os
+        from check_opm import auto_detect_plugin_types
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[project]\n"
+            "name = \"ovos-g2p-plugin-example\"\n"
+            "\n"
+            "[project.entry-points.\"opm.g2p\"]\n"
+            "\"ovos-g2p-plugin-example\" = \"ovos_g2p_example:MyG2PPlugin\"\n"
+        )
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = auto_detect_plugin_types()
+        finally:
+            os.chdir(original_dir)
+        # auto_detect_plugin_types returns a list of full group names like ['opm.g2p']
+        assert "opm.g2p" in result
+
+    def test_multi_entry_point_keyed_by_ep_name(self, tmp_path: Path) -> None:
+        """A TTS plugin with two entry points must produce two separate import_ok keys."""
+        import os
+        import json
+        from check_opm import check_opm
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[project]\n"
+            "name = \"ovos-tts-multi-voice\"\n"
+            "\n"
+            "[project.entry-points.\"opm.tts\"]\n"
+            "\"ovos-tts-multi-voice-standard\" = \"os:getcwd\"\n"
+            "\"ovos-tts-multi-voice-neural\" = \"os:getenv\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm(
+                "auto",
+                output_json=str(json_file),
+                test_import=True,
+                validate_interface=False,
+            )
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        import_ok = result["validation"]["import_ok"]
+        # Both entry point names must appear as separate keys
+        assert "ovos-tts-multi-voice-standard" in import_ok
+        assert "ovos-tts-multi-voice-neural" in import_ok
+
+    def test_requires_python_valid(self, tmp_path: Path) -> None:
+        """requires_python_ok should be True when running Python satisfies the constraint."""
+        import os
+        import json
+        import sys
+        from check_opm import check_opm
+        major, minor = sys.version_info.major, sys.version_info.minor
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[project]\n"
+            f"name = \"my-plugin\"\n"
+            f"requires-python = \">={major}.{minor}\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm("auto", output_json=str(json_file))
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        assert result["validation"]["requires_python_declared"] == f">={major}.{minor}"
+        assert result["validation"]["requires_python_running"] == f"{major}.{minor}"
+        # With the packaging library present requires_python_ok is True; without it, None
+        assert result["validation"]["requires_python_ok"] in (True, None)
+
+    def test_requires_python_violation_reported(self, tmp_path: Path) -> None:
+        """requires_python_ok should be False for an impossible constraint."""
+        import os
+        import json
+        from check_opm import check_opm
+        pyproject = tmp_path / "pyproject.toml"
+        # Require Python 99.0 — no running interpreter can satisfy this
+        pyproject.write_text(
+            "[project]\n"
+            "name = \"my-plugin\"\n"
+            "requires-python = \">=99.0\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm("auto", output_json=str(json_file))
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        # packaging absent → None (skip); packaging present → False
+        assert result["validation"]["requires_python_ok"] in (False, None)
+        if result["validation"]["requires_python_ok"] is False:
+            issues = result["issues"]
+            assert any("requires_python" in i.get("check", "") for i in issues)
+
+    def test_requires_python_missing(self, tmp_path: Path) -> None:
+        """requires_python_ok should be None when no requires-python is declared."""
+        import os
+        import json
+        from check_opm import check_opm
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[project]\n"
+            "name = \"my-plugin\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm("auto", output_json=str(json_file))
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        assert result["validation"]["requires_python_ok"] is None
+        assert result["validation"]["requires_python_declared"] is None
+
+
+# ---------------------------------------------------------------------------
 # aggregate_python_results.py
 # ---------------------------------------------------------------------------
 

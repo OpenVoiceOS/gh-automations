@@ -3,6 +3,25 @@
 
 ---
 
+## [2026-03-10] — Thirteenth session: Docs, tests, and ovoscope.yml section
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Claude Sonnet 4.6
+**Actions Taken:**
+- Added `## ovoscope.yml` section to `docs/workflow-reference.md` (inputs, steps, pipeline strategy, PR comment content, typical usage, notes)
+- Fixed `opm_require_found` documented default `false→true` in `docs/workflow-reference.md`
+- Added `g2p` to the `plugin_type` allowed values list in `docs/workflow-reference.md` and the scripts reference
+- Updated opm-check PR comment content description to document the split table (OPM Detection + Entry Point Validation)
+- Added notes on `ep_name` keying and `requires-python` validation
+- Added section `<!-- section:ovoscope -->` to the OVOS PR Checks example block in docs
+- Added 7 new tests to `test/test_scripts.py` (class `TestCheckOpmNewFeatures`): g2p in PLUGIN_TYPE_FINDERS, g2p in ABSTRACT_BASES, g2p auto-detection from pyproject.toml, multi-entry-point keying by ep_name, requires_python valid/violated/missing
+- Updated `FAQ.md` with Q&A for ovoscope.yml pipeline inputs, g2p support, split PR table, opm_require_found default change, requires-python validation
+
+**Human Oversight Level:** Medium — user directed which items were missing; implementation autonomously verified with `pytest` (156 passed)
+
+---
+
 ## [2026-03-10] — Twelfth session: Coverage Pages workflow + CI/CD fixes
 
 ### AI-Assisted Implementation Summary
