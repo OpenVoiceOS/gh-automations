@@ -8,6 +8,10 @@ on:
       python_version:
         type: string
         default: "3.11"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages to install before testing (space-separated)"
       install_extras:
         type: string
         default: ""
@@ -85,6 +89,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python_version }}
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ${{ inputs.system_deps }}
 
       - name: Install Dependencies
         run: |

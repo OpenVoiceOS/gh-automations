@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 4.6 - 2026-03-09 - Motive: Added PR comment improvements Q&A (repo health, welcome, breaking banner, build tests, locale bars).
+Last Edit: Claude Haiku 4.5 - 2026-03-10 - Motive: Add multi-plugin type OPM detection, coverage.yml system_deps, migrate ovos-skill-hello-world to reusable workflows.
 
 # FAQ — `gh-automations`
 
@@ -197,6 +197,24 @@ jobs:
       skip_bot_prs: false
       ...
 ```
+
+---
+
+## Workflow Script Checkout
+
+### Why do some workflows fail with "file not found" on non-PR events?
+
+Prior to 2026-03-10, `skill-check.yml`, `release-preview.yml`, and `repo-health.yml` conditionally checked out the gh-automations scripts **only** when the workflow was triggered by a `pull_request` event. However, the script run steps had no matching condition, so if the workflow fired via `workflow_dispatch` or `push`, the scripts path would not exist → immediate job failure.
+
+**Fix (2026-03-10)**: The checkout step is now unconditional in all three workflows. The scripts are always available. Individual post-comment steps still have their own conditions for PR-specific actions (e.g. posting to the PR comment only on `pull_request` events).
+
+### What workflows were affected?
+
+`skill-check.yml`, `release-preview.yml`, and `repo-health.yml`.
+
+### What was the user impact?
+
+Skill repos or repos using these workflows with `workflow_dispatch` triggers would experience job failures. The fix is transparent to callers.
 
 ---
 
@@ -515,6 +533,65 @@ Runs `python -m build` across a configurable Python version matrix (default: 3.1
 ### How does the PR comment look?
 
 If all versions pass: a compact table with ✅ for Build, Install, Tests columns. If any fail: a detailed table with status icons (❌ build_failed, 🔶 install_failed, ⚠️ tests_failed) and descriptions.
+
+---
+
+## OPM Plugin Detection
+
+### What is the OPM multi-plugin type detection?
+
+Enhanced `check_opm.py` script that auto-detects any OVOS plugin type (skill, TTS, STT, wake word, VAD, PHAL, pipeline, etc.) from `pyproject.toml` or `setup.py` entry points. Previously only skills could be validated.
+
+### How does auto-detection work?
+
+`check_opm.py --plugin-type auto` scans for `[project.entry-points."opm.*"]` sections in `pyproject.toml` or `entry_points` dict in `setup.py`. Returns a list of detected plugin types (e.g., `opm.skill`, `opm.tts`).
+
+### Can I check a specific plugin type?
+
+Yes. `check_opm.py --plugin-type tts` checks if OPM can find TTS plugins, regardless of what entry points are declared. Useful for workflows that target a specific plugin type.
+
+### What output formats does check_opm.py support?
+
+- **Exit code** — 0 if detected, 1 if not detected or error.
+- **Standard output** — Human-readable message (e.g., `✅ OVOS plugin detected: skill, tts`).
+- **JSON output** — `--output-json /tmp/result.json` writes structured data with fields: `detected_types`, `entry_points`, `opm_found`, `plugin_classes`, `is_ovos_plugin`, `summary`.
+
+### How does build-tests.yml use OPM detection?
+
+When `plugin_type: auto` (default), the workflow:
+1. Runs `check_opm.py --plugin-type auto --output-json /tmp/opm_result.json`
+2. Uploads the JSON result as an artifact
+3. The `post_opm_report` job collects results and posts a `🔌 Plugin Detection` section to the PR comment
+
+For backward compatibility, if `entry_point` is set, the old skill-only check is used.
+
+### Can I disable the OPM PR comment section?
+
+Yes. Set `opm_section: false` in your `build-tests.yml` call. The OPM check still runs (needed for build matrix status), but the dedicated section is not posted.
+
+### What does the OPM PR comment section show?
+
+If the repo is an OVOS plugin:
+- ✅ **Plugin Types Detected** — list of detected OPM types
+- **Entry Points** — count per plugin type
+- **OPM Discovery** — whether OPM found each plugin type (✅ Found / ❌ Not detected)
+
+If not an OVOS plugin: `ℹ️ Not an OVOS plugin — OPM check skipped.`
+
+### How do I migrate from entry_point to plugin_type?
+
+Old (skill-only):
+```yaml
+entry_point: "ovos-skill-my-skill"
+```
+
+New (multi-type, auto-detect):
+```yaml
+plugin_type: "auto"
+opm_section: true
+```
+
+Both work, but `plugin_type: auto` is more flexible and scalable.
 
 ---
 

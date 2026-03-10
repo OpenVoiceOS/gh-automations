@@ -38,6 +38,26 @@ on:
         description: >
           Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
+      package_name:
+        type: string
+        default: ""
+        description: "Package name (for channel compatibility check). If empty, attempt to read from setup.py/pyproject.toml."
+      entry_point:
+        type: string
+        default: ""
+        description: "The expected skill entry point ID to verify with OPM (legacy)"
+      plugin_type:
+        type: string
+        default: "auto"
+        description: "Plugin type for OPM check (auto, skill, tts, stt, wake_word, vad, phal, pipeline, etc)"
+      opm_section:
+        type: boolean
+        default: true
+        description: "Post a dedicated OPM Plugin section in PR comment (only if pr_comment is true)"
+      version_file:
+        type: string
+        default: ""
+        description: "Path to version.py (relative to repo root). If empty, auto-detects."
 
 jobs:
   build_tests:
@@ -54,6 +74,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update -q
@@ -62,7 +89,7 @@ jobs:
       - name: Install Build Tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build wheel
+          python -m pip install build wheel ovos-plugin-manager
 
       - name: Build Distribution Packages
         id: build
@@ -84,6 +111,21 @@ jobs:
             pip install dist/*.tar.gz
           fi
 
+      - name: Verify OPM Detection
+        id: opm_check
+        if: ${{ steps.install.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          if [ -n "${{ inputs.entry_point }}" ]; then
+            # Legacy mode: use entry_point argument
+            python3 _gh_automations/scripts/check_opm.py --entry-point "${{ inputs.entry_point }}"
+          else
+            # New mode: auto-detect or use plugin_type
+            python3 _gh_automations/scripts/check_opm.py \
+              --plugin-type "${{ inputs.plugin_type }}" \
+              --output-json /tmp/opm_result.json
+          fi
+
       - name: Run Tests
         id: tests
         if: ${{ inputs.test_path != '' }}
@@ -100,6 +142,8 @@ jobs:
             STATUS="build_failed"
           elif [ "${{ steps.install.outcome }}" != "success" ]; then
             STATUS="install_failed"
+          elif [ "${{ steps.opm_check.outcome }}" != "success" ] && [ "${{ inputs.entry_point }}" != "" ]; then
+            STATUS="opm_failure"
           elif [ "${{ inputs.test_path }}" != "" ] && [ "${{ steps.tests.outcome }}" != "success" ]; then
             STATUS="tests_failed"
           fi
@@ -111,6 +155,14 @@ jobs:
         with:
           name: build-result-${{ matrix.python-version }}
           path: build-results/${{ matrix.python-version }}.txt
+          retention-days: 1
+
+      - name: Upload OPM result
+        if: always() && hashFiles('/tmp/opm_result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: opm-result-${{ matrix.python-version }}
+          path: /tmp/opm_result.json
           retention-days: 1
 
   post_build_report:
@@ -135,6 +187,37 @@ jobs:
           pattern: build-result-*
           merge-multiple: true
 
+      - name: Checkout ovos-releases
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/ovos-releases
+          path: _ovos_releases/
+
+      - name: Run channel compatibility check
+        id: channel_check
+        continue-on-error: true
+        run: |
+          PKG="${{ inputs.package_name }}"
+          if [ -z "$PKG" ]; then
+            if [ -f pyproject.toml ]; then
+              PKG=$(grep -m 1 "^name =" pyproject.toml | cut -d'"' -f2)
+            elif [ -f setup.py ]; then
+              PKG=$(grep "name=" setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+            fi
+          fi
+          
+          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "${{ inputs.version_file }}" 2>/dev/null || echo "0.0.0")
+          
+          if [ -n "$PKG" ]; then
+            python3 _gh_automations/scripts/check_release_channels.py \
+              --releases-dir _ovos_releases/ \
+              --package "$PKG" \
+              --version "$CUR_VER" \
+              --output /tmp/channel-report.md
+          else
+            echo "Skipped." > /tmp/channel-report.md
+          fi
+
       - name: Format build report
         run: |
           python3 - <<'PYEOF'
@@ -142,17 +225,18 @@ jobs:
 
           versions = json.loads('${{ inputs.python_versions }}')
           has_tests = bool("${{ inputs.test_path }}")
+          has_opm = bool("${{ inputs.entry_point }}")
 
           icons = {
               "success": "✅",
               "build_failed": "❌",
               "install_failed": "🔶",
+              "opm_failure": "🔷",
               "tests_failed": "⚠️",
               "unknown": "❓",
           }
 
           results = {}
-          # Check both flat and subdir patterns (artifact download variations)
           for version in versions:
               status = "unknown"
               for pattern in [
@@ -172,15 +256,18 @@ jobs:
           if all_ok:
               lines.append("✅ All versions pass")
               lines.append("")
-              lines.append("| Python | Build | Install |{}".format(
-                  " Tests |" if has_tests else ""))
-              lines.append("|--------|-------|---------|{}".format(
-                  "-------|" if has_tests else ""))
+              headers = ["Python", "Build", "Install"]
+              if has_opm: headers.append("OPM")
+              if has_tests: headers.append("Tests")
+              
+              lines.append("| " + " | ".join(headers) + " |")
+              lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+              
               for v in versions:
-                  line = f"| {v} | ✅ | ✅ |"
-                  if has_tests:
-                      line += " ✅ |"
-                  lines.append(line)
+                  row = [v, "✅", "✅"]
+                  if has_opm: row.append("✅")
+                  if has_tests: row.append("✅")
+                  lines.append("| " + " | ".join(row) + " |")
           else:
               lines.append("⚠️ Some versions have issues")
               lines.append("")
@@ -190,7 +277,8 @@ jobs:
                   "success": "All steps passed",
                   "build_failed": "`python -m build` failed",
                   "install_failed": "Build OK, install failed",
-                  "tests_failed": "Build + install OK, tests failed",
+                  "opm_failure": "Install OK, OPM detection failed",
+                  "tests_failed": "Install OK, tests failed",
                   "unknown": "Result not available",
               }
               for v in versions:
@@ -201,6 +289,13 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
+      - name: Append channel report
+        run: |
+          if [ -f /tmp/channel-report.md ]; then
+            echo -e "\n---\n" >> /tmp/build-section.md
+            cat /tmp/channel-report.md >> /tmp/build-section.md
+          fi
+
       - name: Post build section to PR comment
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \
@@ -209,5 +304,94 @@ jobs:
             --section-id "build" \
             --title "🔨 Build Tests" \
             --content-file /tmp/build-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  post_opm_report:
+    needs: build_tests
+    if: ${{ always() && inputs.opm_section && inputs.pr_comment && github.event_name == 'pull_request' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Download OPM result
+        uses: actions/download-artifact@v4
+        with:
+          path: opm_artifacts
+          pattern: opm-result-*
+        continue-on-error: true
+
+      - name: Format OPM report
+        id: format_opm
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          import glob
+          import os
+
+          # Try to find OPM result JSON from first build matrix
+          opm_data = None
+          for pattern in [
+              "opm_artifacts/opm-result-*/result.json",
+              "opm_artifacts/result.json",
+          ]:
+              for path in glob.glob(pattern):
+                  try:
+                      with open(path) as f:
+                          opm_data = json.load(f)
+                      break
+                  except Exception:
+                      pass
+              if opm_data:
+                  break
+
+          lines = []
+
+          if not opm_data or not opm_data.get("is_ovos_plugin"):
+              lines.append("ℹ️ Not an OVOS plugin — OPM check skipped.")
+          else:
+              detected = opm_data.get("detected_types", [])
+              if detected:
+                  types_str = ", ".join([t.replace("opm.", "") for t in detected])
+                  lines.append(f"✅ **Plugin Types Detected:** {types_str}\n")
+
+              entry_points = opm_data.get("entry_points", {})
+              if entry_points:
+                  lines.append("**Entry Points:**\n")
+                  for group, entries in entry_points.items():
+                      short = group.replace("opm.", "")
+                      lines.append(f"- **{short}:** {len(entries)} entry point(s)")
+
+              opm_found = opm_data.get("opm_found", {})
+              if opm_found:
+                  lines.append("\n**OPM Discovery:**\n")
+                  for group, found in opm_found.items():
+                      icon = "✅" if found else "❌"
+                      short = group.replace("opm.", "")
+                      lines.append(f"- {icon} {short}: {'Found' if found else 'Not detected'}")
+
+          if not lines:
+              lines.append("ℹ️ OPM plugin detection did not produce a result.")
+
+          with open("/tmp/opm-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Post OPM section to PR comment
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "opm" \
+            --title "🔌 Plugin Detection" \
+            --content-file /tmp/opm-section.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

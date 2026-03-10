@@ -105,6 +105,12 @@ FLAVOR_TEXTS = {
         "Thanks for joining us! 🤝",
         "We're glad to have you here! 🌈",
     ],
+    "opm": [
+        "Let's see if this plugin can be found by the plugin manager! 🔌",
+        "Checking if the plugin ecosystem recognizes this contribution... 🌐",
+        "I've verified the plugin's entry points! 🎯",
+        "Plugin detection status — let's see what OPM found! 🔍",
+    ],
     "generic": [
         "I've got some results for you! 📝",
         "Here's the latest update on this check. 🗞️",

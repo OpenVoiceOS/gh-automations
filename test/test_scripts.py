@@ -7,6 +7,7 @@ Tests all public functions in:
   - scripts/get_version.py     (get_version)
   - scripts/remove_alpha.py    (update_alpha)
   - scripts/update_pr_comment.py (build_section, insert_or_replace_section)
+  - scripts/check_opm.py (auto_detect_plugin_types, check_opm, find_plugin_class)
   - scripts/aggregate_python_results.py (main)
   - scripts/check_release_channels.py (parse_constraints, check_version_against_constraint)
 
@@ -30,6 +31,7 @@ from get_version import get_version  # noqa: E402
 from remove_alpha import update_alpha  # noqa: E402
 from update_version import update_version  # noqa: E402
 from update_pr_comment import build_section, insert_or_replace_section  # noqa: E402
+from check_opm import auto_detect_plugin_types, check_opm, find_plugin_class  # noqa: E402
 from aggregate_python_results import main as aggregate_main  # noqa: E402
 from check_release_channels import parse_constraints, check_version_against_constraint # noqa: E402
 
@@ -318,6 +320,121 @@ class TestUpdatePrComment:
         # Content match (whitespace stripped)
         updated = insert_or_replace_section(initial, "test", "Title", "  Content  ")
         assert "Content" in updated
+
+
+# ---------------------------------------------------------------------------
+# check_opm.py
+# ---------------------------------------------------------------------------
+
+class TestCheckOpm:
+    def test_find_plugin_class_valid(self) -> None:
+        """Extract class name from entry point string."""
+        result = find_plugin_class("skill", "my-skill = mypackage.skills:MySkillClass")
+        assert result == "MySkillClass"
+
+    def test_find_plugin_class_no_colon(self) -> None:
+        """Handle entry point without colon."""
+        result = find_plugin_class("skill", "my-skill")
+        assert result is None
+
+    def test_find_plugin_class_with_comma(self) -> None:
+        """Handle entry point with trailing content after class."""
+        result = find_plugin_class("skill", "my-skill = pkg:MyClass, other")
+        assert result == "MyClass"
+
+    def test_auto_detect_no_plugin(self, tmp_path: Path) -> None:
+        """Auto-detect should return empty list for non-plugin packages."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            # Create a pyproject.toml without any opm.* entry points
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"my-package\"\n"
+            )
+            result = auto_detect_plugin_types()
+            assert result == []
+        finally:
+            os.chdir(original_dir)
+
+    def test_auto_detect_skill_plugin(self, tmp_path: Path) -> None:
+        """Auto-detect should find skill plugin from pyproject.toml."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"ovos-skill-hello-world\"\n"
+                "\n"
+                "[project.entry-points.\"opm.skill\"]\n"
+                "\"ovos-skill-hello-world\" = \"ovos_skill_hello_world:HelloWorldSkill\"\n"
+            )
+            result = auto_detect_plugin_types()
+            assert "opm.skill" in result
+        finally:
+            os.chdir(original_dir)
+
+    def test_auto_detect_tts_plugin(self, tmp_path: Path) -> None:
+        """Auto-detect should find TTS plugin from pyproject.toml."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"ovos-tts-plugin-espeak\"\n"
+                "\n"
+                "[project.entry-points.\"opm.tts\"]\n"
+                "\"espeak-tts\" = \"ovos_tts_plugin_espeak:EspeakTTSPlugin\"\n"
+            )
+            result = auto_detect_plugin_types()
+            assert "opm.tts" in result
+        finally:
+            os.chdir(original_dir)
+
+    def test_auto_detect_multiple_plugins(self, tmp_path: Path) -> None:
+        """Auto-detect should find multiple plugin types."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"ovos-multi-plugin\"\n"
+                "\n"
+                "[project.entry-points.\"opm.skill\"]\n"
+                "\"my-skill\" = \"mypkg:MySkill\"\n"
+                "\n"
+                "[project.entry-points.\"opm.tts\"]\n"
+                "\"my-tts\" = \"mypkg:MyTTS\"\n"
+            )
+            result = auto_detect_plugin_types()
+            assert "opm.skill" in result
+            assert "opm.tts" in result
+        finally:
+            os.chdir(original_dir)
+
+    def test_json_output_not_plugin(self, tmp_path: Path) -> None:
+        """JSON output should indicate non-plugin package."""
+        import os
+        import json
+
+        original_dir = os.getcwd()
+        json_file = tmp_path / "result.json"
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"regular-package\"\n"
+            )
+            check_opm("auto", output_json=str(json_file))
+            result = json.loads(json_file.read_text())
+            assert result["is_ovos_plugin"] is False
+            assert result["detected_types"] == []
+        finally:
+            os.chdir(original_dir)
 
 
 # ---------------------------------------------------------------------------
