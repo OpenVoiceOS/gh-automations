@@ -1,9 +1,12 @@
 name: Python Support
-# Reusable workflow for checking Python version compatibility and OPM detection.
+# DEPRECATED — use build-tests.yml instead.
 #
-# Runs a matrix of Python versions AND install modes (regular, editable),
-# attempts to install the package, verifies OPM detection,
-# and generates a report section for the aggregated OVOS PR Checks comment.
+# build-tests.yml covers multi-version build + install + test and posts an
+# equivalent PR comment section. The editable-install matrix this workflow
+# adds rarely catches anything that build-tests.yml misses in practice.
+#
+# This file is kept for backwards compatibility with existing callers.
+# New repos should not use it. Existing callers can migrate opportunistically.
 #
 on:
   workflow_call:

@@ -13,7 +13,7 @@
 
 ## ~~2. Pin third-party action refs~~ — DONE 2026-03-09
 
-`pypa/gh-action-pypi-publish` → `@release/v1`; `pozetroninc/github-action-get-latest-release` → `@v0.7.0`. Remaining: `fadenb/matrix-chat-message@v0.0.6` is pinned to a tag but unmaintained since 2021 — replace when opportunity arises.
+`pypa/gh-action-pypi-publish` → `@release/v1`; `pozetroninc/github-action-get-latest-release` → `@v0.7.0`. `fadenb/matrix-chat-message@v0.0.6` replaced with inline `curl` to Matrix CS API v3 (2026-03-10).
 
 ---
 
@@ -97,3 +97,49 @@ Default settings are safe for all repos: `skip_if_not_skill: true` means non-ski
 **Do NOT** do a bulk migration wave.
 
 **Estimated impact:** Trivial per repo (~5 minutes). Gives maintainers locale coverage at a glance on every PR and nudges them toward better gitlocalize integration.
+
+---
+
+## ~~10. Retire `python-support.yml`~~ — DONE 2026-03-10
+
+Marked deprecated. `build-tests.yml` covers multi-version build + install + test with a PR comment section. The editable-install matrix in `python-support.yml` rarely catches anything additional in practice. Existing callers continue to work; new repos should use `build-tests.yml`.
+
+---
+
+## ~~11. Replace dead `fadenb/matrix-chat-message` action~~ — DONE 2026-03-10
+
+`publish-alpha.yml` and `publish-stable.yml` now use inline `curl` to the Matrix Client-Server API v3. No third-party action dependency.
+
+---
+
+## ~~12. Add stale release branch cleanup~~ — DONE 2026-03-10
+
+`publish-stable.yml` now has a `cleanup` job that deletes the `release-X.Y.Z` branch after the stable tag is created.
+
+---
+
+## ~~13. Tests for `update_pr_comment.py`~~ — DONE 2026-03-10
+
+`test/test_update_pr_comment.py` added with 26 tests covering `github_api`, `find_ovos_comments`, `merge_sections`, `deduplicate_comments`, and the `main()` end-to-end flow.
+
+---
+
+## ~~14. Merge `coverage.yml` + `coverage-pages.yml`~~ — DONE 2026-03-10
+
+`coverage.yml` now accepts `deploy_pages: true` to push HTML to the gh-pages branch. `coverage-pages.yml` marked deprecated.
+
+---
+
+## ~~15. Add `lint.yml` reusable workflow~~ — DONE 2026-03-10
+
+`lint.yml` added: runs ruff and/or pre-commit, posts `🔍 Lint` section to the OVOS PR Checks comment. Informational only — never blocks merges.
+
+---
+
+## 16. `pyproject.toml` native version support
+
+**Problem:** All 209 repos must maintain a `version.py` with `START_VERSION_BLOCK` / `END_VERSION_BLOCK`. As the ecosystem moves to PEP 517/518, new repos increasingly want `[project] version = "x.y.z"` in `pyproject.toml` directly.
+
+**Note:** The `version.py` specification remains **mandatory** for all OVOS org repos. This suggestion is about supporting it as an **additional** read/write path in `_version_utils.py` for non-OVOS repos or future migration — `version.py` is never going away for OVOS.
+
+**Proposed fix:** Extend `_version_utils.py` to detect and read/write `pyproject.toml` `[project] version` when `version.py` is absent. The OVOS version block format stays primary.
