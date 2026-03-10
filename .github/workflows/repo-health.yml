@@ -63,26 +63,44 @@ jobs:
               sys.exit(0)
 
           files = r.get("files", [])
-          version = r.get("version", {})
+          version_info = r.get("version", {})
+          version_str = r.get("version_str", "Unknown")
 
           lines = []
           all_ok = True
 
+          lines.append(f"**Latest Version:** `{version_str}`")
+          lines.append("")
+
           for item in files:
-              icon = "✅" if item["exists"] else ("❌" if item["required"] else "⚠️")
-              if not item["exists"] and item["required"]:
+              # Special icon logic: 
+              # - Required & Missing = ❌
+              # - Required & Present = ✅
+              # - Optional & Missing = ℹ️ (if no other group satisfied) or skip
+              # - Optional & Present = ✅
+              
+              if item["exists"]:
+                  icon = "✅"
+              elif item["required"]:
+                  icon = "❌"
                   all_ok = False
-              # Group check for setup files
-              if item.get("group") == "setup" and not item.get("group_satisfied"):
+              elif item.get("group") == "setup" and not item.get("group_satisfied"):
+                  icon = "❌"
                   all_ok = False
+              else:
+                  # Truly optional or satisfied by another file in group
+                  if item["file"] == "setup.py" and any(f["file"] == "pyproject.toml" and f["exists"] for f in files):
+                      continue # Hide setup.py if pyproject.toml exists
+                  icon = "⚠️"
+
               lines.append(f"{icon} `{item['file']}` — {item['label']}")
 
           # Version block markers
-          if version.get("exists"):
-              if version.get("has_start_marker") and version.get("has_end_marker"):
-                  lines.append(f"✅ `{version['path']}` has valid version block markers")
+          if version_info.get("exists"):
+              if version_info.get("has_start_marker") and version_info.get("has_end_marker"):
+                  lines.append(f"✅ `{version_info['path']}` has valid version block markers")
               else:
-                  lines.append(f"⚠️ `{version['path']}` missing START/END_VERSION_BLOCK markers")
+                  lines.append(f"⚠️ `{version_info['path']}` missing START/END_VERSION_BLOCK markers")
                   all_ok = False
 
           # Setup file group note

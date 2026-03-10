@@ -29,14 +29,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-dir", required=True, help="Directory containing result files")
     parser.add_argument("--output", required=True, help="Path to write the Markdown report")
-    parser.add_argument("--versions", default="3.8,3.9,3.10,3.11,3.12", help="Comma-separated list of expected versions")
+    parser.add_argument("--versions", default="3.10,3.11,3.12,3.13,3.14", help="Comma-separated list of expected versions")
     parser.add_argument("--modes", default="regular,editable", help="Comma-separated list of expected modes")
+    parser.add_argument("--version", default="0.0.0", help="Predicted next version string")
     args = parser.parse_args()
 
     expected_versions = [v.strip() for v in args.versions.split(",")]
-    expected_modes = [m.strip() for v in args.modes.split(",") for m in [v]] # fix splitting logic
-    # Re-eval splitting logic for modes
     expected_modes = [m.strip() for m in args.modes.split(",")]
+
     
     results = {}
 

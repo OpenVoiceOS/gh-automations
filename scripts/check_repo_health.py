@@ -18,7 +18,6 @@ from _version_utils import find_version_file
 
 
 REQUIRED_FILES = [
-    ("version.py", "Version file"),
     ("README.md", "README"),
     ("LICENSE", "License file"),
 ]
@@ -38,40 +37,47 @@ def check_required_files(repo_root: str, version_file: str = "version.py") -> li
     """Check for required and optional files in the repo root."""
     results: list[dict] = []
 
+    # Handle version.py separately to avoid root-only confusion
+    v_path = os.path.join(repo_root, version_file)
+    results.append({
+        "file": version_file,
+        "label": "Version file",
+        "exists": os.path.isfile(v_path),
+        "required": True
+    })
+
     for filename, label in REQUIRED_FILES:
-        # If a custom version_file is provided that isn't root version.py,
-        # we don't require root version.py
-        is_version = filename == "version.py"
-        custom_version = version_file != "version.py"
-        
         path = os.path.join(repo_root, filename)
         exists = os.path.isfile(path)
-        
         results.append({
             "file": filename,
             "label": label,
             "exists": exists,
-            "required": True if not (is_version and custom_version) else False,
+            "required": True,
         })
 
     # At least one setup file must exist
-    has_setup = False
+    has_pyproject = os.path.isfile(os.path.join(repo_root, "pyproject.toml"))
+    has_setup_py = os.path.isfile(os.path.join(repo_root, "setup.py"))
+    
     for filename, label in SETUP_FILES:
-        path = os.path.join(repo_root, filename)
-        exists = os.path.isfile(path)
-        if exists:
-            has_setup = True
+        exists = os.path.isfile(os.path.join(repo_root, filename))
+        is_required = False
+        
+        # If neither exists, they are BOTH required (group failure)
+        # If pyproject exists, setup.py is truly optional (no warning)
+        # If ONLY setup.py exists, it's satisfied but we might suggest pyproject later
+        if filename == "pyproject.toml" and not has_setup_py:
+            is_required = True
+        
         results.append({
             "file": filename,
             "label": label,
             "exists": exists,
-            "required": False,
+            "required": is_required,
             "group": "setup",
+            "group_satisfied": (has_pyproject or has_setup_py)
         })
-    # Mark setup as required-group
-    for r in results:
-        if r.get("group") == "setup":
-            r["group_satisfied"] = has_setup
 
     for filename, label in OPTIONAL_FILES:
         path = os.path.join(repo_root, filename)
@@ -111,11 +117,25 @@ def check_version_file(repo_root: str, version_file: str = "version.py") -> dict
 def run_checks(repo_root: str, version_file: str = "version.py") -> dict:
     """Run all repo health checks and return the full report."""
     repo_root = os.path.abspath(repo_root)
+
+    # Get current version for the report if possible
+    version_str = "Unknown"
+    v_abs_path = os.path.join(repo_root, version_file)
+    if os.path.isfile(v_abs_path):
+        try:
+            from _version_utils import read_version, format_version
+            major, minor, build, alpha = read_version(v_abs_path)
+            version_str = format_version(major, minor, build, alpha)
+        except Exception:
+            pass
+
     return {
         "repo_root": repo_root,
+        "version_str": version_str,
         "files": check_required_files(repo_root, version_file),
         "version": check_version_file(repo_root, version_file),
     }
+
 
 
 def main() -> None:
