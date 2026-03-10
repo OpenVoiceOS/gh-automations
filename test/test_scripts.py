@@ -25,7 +25,7 @@ import pytest
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from _version_utils import format_version, read_version, write_version_block  # noqa: E402
+from _version_utils import format_version, read_version, write_version_block, find_version_file  # noqa: E402
 from get_version import get_version  # noqa: E402
 from remove_alpha import update_alpha  # noqa: E402
 from update_version import update_version  # noqa: E402
@@ -818,3 +818,73 @@ class TestHealthRunChecks:
         assert report["version"]["exists"] is False
         required = [f for f in report["files"] if f["required"]]
         assert all(not f["exists"] for f in required)
+
+
+# ---------------------------------------------------------------------------
+# _version_utils.find_version_file
+# ---------------------------------------------------------------------------
+
+class TestFindVersionFile:
+    def test_finds_hint(self, tmp_path: Path) -> None:
+        pkg_dir = tmp_path / "custom_pkg"
+        pkg_dir.mkdir()
+        v_file = pkg_dir / "version.py"
+        v_file.write_text("VERSION = 1")
+        
+        result = find_version_file(str(tmp_path), "custom_pkg/version.py")
+        assert result is not None
+        assert Path(result) == v_file
+
+    def test_finds_root(self, tmp_path: Path) -> None:
+        v_file = tmp_path / "version.py"
+        v_file.write_text("VERSION = 1")
+        
+        result = find_version_file(str(tmp_path))
+        assert result is not None
+        assert Path(result) == v_file
+
+    def test_finds_in_package_dir(self, tmp_path: Path) -> None:
+        pkg_dir = tmp_path / "my_package"
+        pkg_dir.mkdir()
+        v_file = pkg_dir / "version.py"
+        v_file.write_text("VERSION = 1")
+        
+        result = find_version_file(str(tmp_path))
+        assert result is not None
+        assert Path(result) == v_file
+
+    def test_ignores_common_dirs(self, tmp_path: Path) -> None:
+        # Create version.py in an ignored dir
+        test_dir = tmp_path / "test"
+        test_dir.mkdir()
+        (test_dir / "version.py").write_text("VERSION = 1")
+        
+        # Should not find it
+        assert find_version_file(str(tmp_path)) is None
+        
+        # Create in a real package dir
+        pkg_dir = tmp_path / "real_pkg"
+        pkg_dir.mkdir()
+        v_file = pkg_dir / "version.py"
+        v_file.write_text("VERSION = 1")
+        
+        result = find_version_file(str(tmp_path))
+        assert result is not None
+        assert Path(result) == v_file
+
+    def test_finds_via_pyproject_toml(self, tmp_path: Path) -> None:
+        # Setup pyproject.toml with a package name
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "my-cool-package"')
+        
+        # Create version.py in the mapped package dir (dashes to underscores)
+        pkg_dir = tmp_path / "my_cool_package"
+        pkg_dir.mkdir()
+        v_file = pkg_dir / "version.py"
+        v_file.write_text("VERSION = 1")
+        
+        result = find_version_file(str(tmp_path))
+        assert result is not None
+        assert Path(result) == v_file
+
+    def test_returns_none_if_not_found(self, tmp_path: Path) -> None:
+        assert find_version_file(str(tmp_path)) is None
