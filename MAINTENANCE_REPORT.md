@@ -670,3 +670,21 @@ Establishing the required file set mandated by `AGENTS.md` for all active worksp
 - **AI Model**: Claude Sonnet 4.6
 - **Actions Taken**: Generated boilerplate compliance scaffold (QUICK_FACTS, FAQ, MAINTENANCE_REPORT, SUGGESTIONS, docs/index).
 - **Oversight**: Files were stubs — human review and enrichment required before treating as authoritative.
+
+---
+
+## 2026-03-10 — Fix downstream-check.yml Python 3.14 default
+
+### Change
+- `downstream-check.yml`: Changed default `python_version` from `"3.14"` to `"3.11"`
+
+### Root Cause
+Python 3.14 is a pre-release. Packages with C-extension wheels (e.g. `onnxruntime`, depended on by `ovos-stt-plugin-citrinet` and `ovos-tts-plugin-matxa-multispeaker-cat`) have no 3.14 wheels on PyPI. The constraints install step fails with `ResolutionImpossible`, causing daily downstream checks to fail for every repo using this workflow.
+
+### Verification
+Confirmed via `gh run view 22884585763 --log` on ovos-bus-client — error was `Cannot install ... because these package versions have conflicting dependencies` with `onnxruntime` as the conflict root.
+
+### AI Transparency Report
+- **AI Model**: Claude Sonnet 4.6
+- **Actions Taken**: Analysed CI logs; identified Python version as root cause; changed default from 3.14 to 3.11
+- **Oversight**: Human should verify next scheduled downstream run passes

@@ -771,3 +771,11 @@ This allows packages that register multiple entry points per type (e.g. a multi-
 ### What changed in the Skill Check translation table?
 
 The `🎙️ Skill` section now shows progress bars for each language's translation coverage. Each bar is 10 characters wide (█ filled, ░ empty) with a percentage and file count. A summary line at the top shows how many languages are complete/partial/incomplete.
+
+## Downstream Check Failures
+
+### Why does the "Track Downstream Dependencies" workflow fail with `ResolutionImpossible`?
+
+The `downstream-check.yml` reusable workflow installs the full OVOS constraints stack. Some downstream packages (e.g. `ovos-stt-plugin-citrinet`, `ovos-tts-plugin-matxa-multispeaker-cat`) depend on `onnxruntime`, which only publishes pre-built wheels for stable CPython versions. If `python_version` is set to a pre-release (e.g. `3.14`), pip cannot find compatible onnxruntime wheels and fails with a dependency conflict.
+
+**Fix**: The default `python_version` was changed from `"3.14"` to `"3.11"` (2026-03-10). Callers can still override with `python_version: "3.12"` etc., but should not use pre-release versions unless all downstream packages support them.
