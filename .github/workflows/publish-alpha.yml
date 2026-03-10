@@ -324,9 +324,13 @@ jobs:
           echo "MSGEOF" >> $GITHUB_OUTPUT
 
       - name: Send to Matrix
-        uses: fadenb/matrix-chat-message@v0.0.6
-        with:
-          homeserver: ${{ inputs.matrix_homeserver }}
-          token: ${{ secrets.MATRIX_TOKEN }}
-          channel: ${{ inputs.matrix_channel }}
-          message: ${{ steps.msg.outputs.message }}
+        env:
+          MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}
+        run: |
+          MSG="${{ steps.msg.outputs.message }}"
+          ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '${{ inputs.matrix_channel }}')
+          curl -sf -X PUT \
+            "https://${{ inputs.matrix_homeserver }}/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/$(date +%s%N)" \
+            -H "Authorization: Bearer ${MATRIX_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -cn --arg body "$MSG" '{"msgtype":"m.text","body":$body}')"

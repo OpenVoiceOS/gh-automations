@@ -145,9 +145,6 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_pypi }}
     runs-on: ${{inputs.runner}}
-    permissions:
-      id-token: write          # OIDC for PyPI trusted publishing
-      contents: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -166,6 +163,26 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
+
+  cleanup:
+    needs:
+      - tag_release
+      - bump_version
+    if: ${{ always() && needs.tag_release.result == 'success' }}
+    runs-on: ${{inputs.runner}}
+    steps:
+      - name: Delete release branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.bump_version.outputs.version }}"
+          BRANCH="release-${VERSION}"
+          if gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" --silent 2>/dev/null; then
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${BRANCH}"
+            echo "Deleted stale branch ${BRANCH}"
+          else
+            echo "Branch ${BRANCH} not found — nothing to clean up"
+          fi
 
   sync_dev:
     needs:
@@ -210,9 +227,13 @@ jobs:
           echo "MSGEOF" >> $GITHUB_OUTPUT
 
       - name: Send to Matrix
-        uses: fadenb/matrix-chat-message@v0.0.6
-        with:
-          homeserver: ${{ inputs.matrix_homeserver }}
-          token: ${{ secrets.MATRIX_TOKEN }}
-          channel: ${{ inputs.matrix_channel }}
-          message: ${{ steps.msg.outputs.message }}
+        env:
+          MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}
+        run: |
+          MSG="${{ steps.msg.outputs.message }}"
+          ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '${{ inputs.matrix_channel }}')
+          curl -sf -X PUT \
+            "https://${{ inputs.matrix_homeserver }}/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/$(date +%s%N)" \
+            -H "Authorization: Bearer ${MATRIX_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -cn --arg body "$MSG" '{"msgtype":"m.text","body":$body}')"
