@@ -14,7 +14,7 @@ on:
         description: "Runner label"
       python_version:
         type: string
-        default: "3.11"
+        default: "3.14"
         description: "Python version"
       package_name:
         type: string

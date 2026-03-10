@@ -13,7 +13,7 @@ on:
         default: "ubuntu-latest"
       python_version:
         type: string
-        default: "3.11"
+        default: "3.14"
         description: "Python version to use for the audit"
       install_extras:
         type: string
