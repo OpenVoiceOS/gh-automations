@@ -35,7 +35,7 @@ on:
         description: "Legacy: entry point ID to verify"
       opm_require_found:
         type: boolean
-        default: false
+        default: true
         description: "Fail if OPM cannot discover the plugin"
       opm_validate_interface:
         type: boolean
@@ -272,41 +272,61 @@ jobs:
               validation = opm_data.get("validation", {})
               editable_found = opm_editable.get("opm_found", {}) if opm_editable else {}
 
-              if entry_points or opm_found:
-                  has_editable_data = bool(editable_found)
-                  lines.append("**Validation Table:**")
+              # OPM detection summary (one row per plugin type)
+              if opm_found:
+                  lines.append("**OPM Detection:**")
                   lines.append("")
+                  has_editable_data = bool(editable_found)
                   if has_editable_data:
-                      lines.append("| Type | Wheel OPM | Editable OPM | Import | Interface | Config Docs |")
-                      lines.append("|------|-----------|--------------|--------|-----------|-------------|")
+                      lines.append("| Plugin Type | Wheel | Editable |")
+                      lines.append("|-------------|-------|----------|")
                   else:
-                      lines.append("| Type | OPM Found | Import | Interface | Config Docs |")
-                      lines.append("|------|-----------|--------|-----------|-------------|")
-
-                  for type_key in sorted(set(list(opm_found.keys()) + list(entry_points.keys()))):
+                      lines.append("| Plugin Type | Found |")
+                      lines.append("|-------------|-------|")
+                  for type_key in sorted(opm_found.keys()):
                       short_type = type_key.replace("opm.", "")
-
-                      opm_ok = opm_found.get(type_key)
-                      opm_icon = "✅" if opm_ok else ("❌" if opm_ok is False else "❓")
-
-                      import_ok = validation.get("import_ok", {}).get(short_type)
-                      import_time = validation.get("import_time_ms", {}).get(short_type)
-                      import_str = "✅" if import_ok else ("❌" if import_ok is False else "⊘")
-                      if import_time:
-                          import_str += f" {import_time}ms"
-
-                      iface_ok = validation.get("interface_ok", {}).get(short_type)
-                      iface_str = "✅" if iface_ok else ("❌" if iface_ok is False else "⊘")
-
-                      has_config = validation.get("has_config_docs", False)
-                      config_str = "✅" if has_config else "⊘"
-
+                      opm_icon = "✅" if opm_found.get(type_key) else "❌"
                       if has_editable_data:
                           ed_ok = editable_found.get(type_key)
                           ed_icon = "✅" if ed_ok else ("❌" if ed_ok is False else "❓")
-                          lines.append(f"| {short_type} | {opm_icon} | {ed_icon} | {import_str} | {iface_str} | {config_str} |")
+                          lines.append(f"| {short_type} | {opm_icon} | {ed_icon} |")
                       else:
-                          lines.append(f"| {short_type} | {opm_icon} | {import_str} | {iface_str} | {config_str} |")
+                          lines.append(f"| {short_type} | {opm_icon} |")
+                  lines.append("")
+
+              # Per-entry-point validation (one row per registered entry point)
+              ep_type_map = validation.get("ep_type", {})
+              import_ok_map = validation.get("import_ok", {})
+              import_time_map = validation.get("import_time_ms", {})
+              interface_ok_map = validation.get("interface_ok", {})
+              has_config = validation.get("has_config_docs", False)
+
+              if ep_type_map:
+                  lines.append("**Entry Point Validation:**")
+                  lines.append("")
+                  lines.append("| Entry Point | Type | Import | Interface |")
+                  lines.append("|-------------|------|--------|-----------|")
+                  for ep_name in sorted(ep_type_map.keys()):
+                      short_type = ep_type_map[ep_name]
+                      import_ok = import_ok_map.get(ep_name)
+                      import_time = import_time_map.get(ep_name)
+                      import_str = "✅" if import_ok else ("❌" if import_ok is False else "⊘")
+                      if import_time:
+                          import_str += f" {import_time}ms"
+                      iface_ok = interface_ok_map.get(ep_name)
+                      iface_str = "✅" if iface_ok else ("❌" if iface_ok is False else "⊘")
+                      lines.append(f"| `{ep_name}` | {short_type} | {import_str} | {iface_str} |")
+                  lines.append("")
+                  config_str = "✅ `settingsmeta.json` found" if has_config else "⊘ No `settingsmeta.json`"
+                  lines.append(config_str)
+
+              # requires-python check
+              req_ok = validation.get("requires_python_ok")
+              req_declared = validation.get("requires_python_declared")
+              req_running = validation.get("requires_python_running")
+              if req_declared:
+                  req_icon = "✅" if req_ok else ("❌" if req_ok is False else "⊘")
+                  lines.append(f"{req_icon} `requires-python {req_declared}` — running Python {req_running}")
               lines.append("")
 
               if issues:

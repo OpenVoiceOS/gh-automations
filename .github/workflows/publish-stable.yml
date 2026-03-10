@@ -172,6 +172,7 @@ jobs:
     runs-on: ${{inputs.runner}}
     steps:
       - name: Delete release branch
+        continue-on-error: true   # branch may already be deleted by GitHub or manually
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

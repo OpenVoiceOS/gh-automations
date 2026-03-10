@@ -35,6 +35,7 @@ PLUGIN_TYPE_FINDERS = {
     "pipeline": "ovos_plugin_manager.pipeline:find_pipeline_plugins",
     "utterance_transformer": "ovos_plugin_manager.transformers:find_utterance_transformer_plugins",
     "tts_transformer": "ovos_plugin_manager.transformers:find_tts_transformer_plugins",
+    "g2p": "ovos_plugin_manager.g2p:find_g2p_plugins",
 }
 
 # Mapping of plugin types to their abstract base classes
@@ -48,6 +49,7 @@ ABSTRACT_BASES = {
     "pipeline": ("ovos_plugin_manager.templates.pipeline", "IntentHandlerPlugin"),
     "utterance_transformer": ("ovos_plugin_manager.templates.transformers", "UtteranceTransformer"),
     "tts_transformer": ("ovos_plugin_manager.templates.transformers", "TTSTransformer"),
+    "g2p": ("ovos_plugin_manager.templates.g2p", "Grapheme2PhonemePlugin"),
 }
 
 
@@ -245,41 +247,42 @@ def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
                 "check": "opm_detection"
             })
 
-    # Check import times and results
+    # Check import times and results (keyed by ep_name)
     validation = result.get("validation", {})
     import_ok = validation.get("import_ok", {})
     import_time_ms = validation.get("import_time_ms", {})
 
-    for plugin_type, ok in import_ok.items():
+    for ep_name, ok in import_ok.items():
         if ok is False:
             issues.append({
                 "severity": "error",
-                "message": f"Could not import plugin class for {plugin_type}",
+                "message": f"Could not import plugin class for {ep_name}",
                 "check": "plugin_import"
             })
-        elif ok is True and plugin_type in import_time_ms:
-            time_val = import_time_ms[plugin_type]
+        elif ok is True and ep_name in import_time_ms:
+            time_val = import_time_ms[ep_name]
             if time_val and time_val > 500:
                 issues.append({
                     "severity": "error",
-                    "message": f"Import time for {plugin_type} exceeds 500ms ({time_val}ms)",
+                    "message": f"Import time for {ep_name} exceeds 500ms ({time_val}ms)",
                     "check": "import_perf"
                 })
             elif time_val and time_val > 200:
                 issues.append({
                     "severity": "warning",
-                    "message": f"Import time for {plugin_type} is slow ({time_val}ms)",
+                    "message": f"Import time for {ep_name} is slow ({time_val}ms)",
                     "check": "import_perf"
                 })
 
-    # Check interface compliance
+    # Check interface compliance (keyed by ep_name)
     interface_ok = validation.get("interface_ok", {})
-    for plugin_type, ok in interface_ok.items():
+    for ep_name, ok in interface_ok.items():
         if ok is False:
-            abstract_base = validation.get("abstract_base", {}).get(plugin_type)
+            abstract_base = validation.get("abstract_base", {}).get(ep_name)
+            ep_type = validation.get("ep_type", {}).get(ep_name, ep_name)
             issues.append({
                 "severity": "error",
-                "message": f"Plugin for {plugin_type} does not inherit from {abstract_base}",
+                "message": f"Plugin {ep_name} does not inherit from {abstract_base} ({ep_type})",
                 "check": "interface_compliance"
             })
 
@@ -289,6 +292,17 @@ def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
             "severity": "warning",
             "message": "No settingsmeta.json found",
             "check": "config_docs"
+        })
+
+    # Check requires-python
+    req_ok = validation.get("requires_python_ok")
+    if req_ok is False:
+        declared = validation.get("requires_python_declared", "")
+        running = validation.get("requires_python_running", "")
+        issues.append({
+            "severity": "error",
+            "message": f"Running Python {running} does not satisfy declared requires-python {declared!r}",
+            "check": "requires_python"
         })
 
     return issues
@@ -389,6 +403,7 @@ def check_opm(
     Returns:
         0 if detected, 1 if not detected or error
     """
+    metadata = extract_metadata()
     result = {
         "detected_types": [],
         "entry_points": {},
@@ -396,15 +411,22 @@ def check_opm(
         "plugin_classes": {},
         "is_ovos_plugin": False,
         "summary": "",
-        "metadata": extract_metadata(),
+        "metadata": metadata,
         "system_deps": extract_system_deps(),
         "validation": {
+            # Keyed by entry-point name (e.g. "ovos-tts-plugin-piper-jenny"), not plugin type.
+            # This correctly handles packages that register multiple entry points per type
+            # (e.g. a TTS plugin with multiple voices as separate entry points).
             "import_ok": {},
             "import_time_ms": {},
             "interface_ok": {},
             "abstract_base": {},
+            "ep_type": {},          # maps ep_name -> short_type for table rendering
             "has_config_docs": False,
             "config_keys": [],
+            "requires_python_ok": None,   # True/False/None
+            "requires_python_declared": metadata.get("requires_python"),
+            "requires_python_running": f"{sys.version_info.major}.{sys.version_info.minor}",
         },
         "issues": [],
         "status": "pass",
@@ -456,6 +478,17 @@ def check_opm(
     result["validation"]["has_config_docs"] = has_config_docs
     result["validation"]["config_keys"] = config_keys
 
+    # Step 3c: Check requires-python compatibility
+    req_py = result["metadata"].get("requires_python")
+    if req_py:
+        try:
+            import packaging.specifiers
+            spec = packaging.specifiers.SpecifierSet(req_py)
+            running = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            result["validation"]["requires_python_ok"] = running in spec
+        except Exception:
+            result["validation"]["requires_python_ok"] = None  # packaging not available
+
     found_any = False
     for ptype in plugin_types_to_check:
         full_type = f"opm.{ptype}" if not ptype.startswith("opm.") else ptype
@@ -506,27 +539,31 @@ def check_opm(
                             module_path = module_path.strip()
                             class_name = class_name.split(",")[0].strip()
 
+                            # Key by ep_name (not short_type) so multiple entry points
+                            # in the same group (e.g. multiple TTS voices) are all tracked.
+                            result["validation"]["ep_type"][ep_name] = short_type
+
                             # Test import
                             if test_import:
                                 ok, time_ms, error = validate_plugin_import(module_path, class_name)
-                                result["validation"]["import_ok"][short_type] = ok
+                                result["validation"]["import_ok"][ep_name] = ok
                                 if time_ms is not None:
-                                    result["validation"]["import_time_ms"][short_type] = time_ms
+                                    result["validation"]["import_time_ms"][ep_name] = time_ms
                                 if error and ok is False:
-                                    print(f"⚠️  Import failed for {short_type}: {error}", file=sys.stderr)
+                                    print(f"⚠️  Import failed for {ep_name}: {error}", file=sys.stderr)
 
                                 # Validate interface if import was successful
                                 if ok and validate_interface:
                                     try:
                                         plugin_cls = getattr(importlib.import_module(module_path), class_name)
                                         iface_ok, abc_name, iface_error = check_plugin_interface(plugin_cls, short_type)
-                                        result["validation"]["interface_ok"][short_type] = iface_ok
+                                        result["validation"]["interface_ok"][ep_name] = iface_ok
                                         if abc_name:
-                                            result["validation"]["abstract_base"][short_type] = abc_name
+                                            result["validation"]["abstract_base"][ep_name] = abc_name
                                         if iface_error and iface_ok is not None:
-                                            print(f"⚠️  Interface check result for {short_type}: {iface_error}", file=sys.stderr)
+                                            print(f"⚠️  Interface check result for {ep_name}: {iface_error}", file=sys.stderr)
                                     except Exception as e:
-                                        print(f"⚠️  Could not validate interface for {short_type}: {e}", file=sys.stderr)
+                                        print(f"⚠️  Could not validate interface for {ep_name}: {e}", file=sys.stderr)
             except Exception as e:
                 print(f"⚠️  Error extracting entry points for validation: {e}", file=sys.stderr)
 
