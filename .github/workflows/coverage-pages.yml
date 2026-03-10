@@ -1,0 +1,108 @@
+name: Coverage Pages
+# Reusable workflow that runs tests with coverage and deploys the HTML
+# report to GitHub Pages.  Triggered on push to dev (not PRs).
+#
+# Callers must grant:  pages: write, id-token: write, contents: read
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages to install before testing (space-separated)"
+      install_extras:
+        type: string
+        default: ""
+        description: >
+          Extra pip install arguments run before tests. Example: '.[dev]' or
+          '-r requirements/test.txt'. If empty, the package itself is installed
+          via 'pip install -e .[dev]' (falling back to bare install).
+      test_path:
+        type: string
+        default: "test/"
+        description: "Path passed to pytest (file, directory, or glob)"
+      coverage_source:
+        type: string
+        default: "."
+        description: >
+          Value of --cov= passed to pytest. Set to your package directory (e.g.
+          'ovos_core') to measure only your own code rather than the full repo.
+      gh_pages_subdir:
+        type: string
+        default: "coverage"
+        description: >
+          Sub-directory within the Pages site where the HTML report is published,
+          e.g. 'coverage' → https://org.github.io/repo/coverage/.
+          Use an empty string to deploy at the root.
+
+jobs:
+  coverage_pages:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov coverage[toml] ovoscope
+          if python -m pip install -e ".[dev]" 2>/dev/null; then
+            echo "Installed package with [dev] extras"
+          elif python -m pip install -e . 2>/dev/null; then
+            echo "Installed package (no [dev] extras)"
+          else
+            echo "No installable package found at repo root — continuing without install"
+          fi
+          if [ -n "${{ inputs.install_extras }}" ]; then
+            python -m pip install ${{ inputs.install_extras }}
+          fi
+
+      - name: Run Tests with Coverage
+        run: |
+          python -m pytest \
+            ${{ inputs.test_path }} \
+            --cov=${{ inputs.coverage_source }} \
+            --cov-report=html:htmlcov \
+            -v
+        continue-on-error: true
+
+      - name: Prepare HTML report for GitHub Pages
+        run: |
+          SUBDIR="${{ inputs.gh_pages_subdir }}"
+          if [ -n "$SUBDIR" ]; then
+            mkdir -p "_pages_output/${SUBDIR}"
+            cp -r htmlcov/. "_pages_output/${SUBDIR}/"
+          else
+            mkdir -p _pages_output
+            cp -r htmlcov/. _pages_output/
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _pages_output
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

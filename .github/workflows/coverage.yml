@@ -50,20 +50,6 @@ on:
         type: number
         default: 14
         description: "Days to retain the coverage XML artifact"
-      publish_to_gh_pages:
-        type: boolean
-        default: false
-        description: >
-          Publish an HTML coverage report to GitHub Pages.
-          Requires Pages enabled with source set to 'GitHub Actions'.
-          Only deploys when triggered by a push event (not PRs).
-      gh_pages_subdir:
-        type: string
-        default: "coverage"
-        description: >
-          Sub-directory within the Pages site where the HTML report is published,
-          e.g. 'coverage' → https://org.github.io/repo/coverage/.
-          Use an empty string to deploy at the root.
 
 jobs:
   coverage:
@@ -71,8 +57,9 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
-      pages: write
-      id-token: write
+      # Callers that set publish_to_gh_pages: true must grant pages: write
+      # and id-token: write at their workflow level.  These are NOT set
+      # here to avoid startup_failure in repos that don't enable Pages.
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -120,7 +107,7 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             --cov-report=json:coverage.json \
-            --cov-report=html:htmlcov \
+            --cov-report=html \
             -v
         # Generate the report even if some tests fail so the PR comment is always posted.
         continue-on-error: true
@@ -244,28 +231,6 @@ jobs:
           path: coverage.xml
           retention-days: ${{ inputs.artifact_retention_days }}
           if-no-files-found: warn
-
-      - name: Prepare HTML report for GitHub Pages
-        if: ${{ inputs.publish_to_gh_pages && github.event_name == 'push' }}
-        run: |
-          SUBDIR="${{ inputs.gh_pages_subdir }}"
-          if [ -n "$SUBDIR" ]; then
-            mkdir -p "_pages_output/${SUBDIR}"
-            cp -r htmlcov/. "_pages_output/${SUBDIR}/"
-          else
-            mkdir -p _pages_output
-            cp -r htmlcov/. _pages_output/
-          fi
-
-      - name: Upload Pages artifact
-        if: ${{ inputs.publish_to_gh_pages && github.event_name == 'push' }}
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _pages_output
-
-      - name: Deploy to GitHub Pages
-        if: ${{ inputs.publish_to_gh_pages && github.event_name == 'push' }}
-        uses: actions/deploy-pages@v4
 
       - name: Enforce Minimum Coverage Threshold
         if: ${{ inputs.min_coverage > 0 }}
