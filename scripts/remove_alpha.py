@@ -9,9 +9,10 @@ safely scoped within START_VERSION_BLOCK / END_VERSION_BLOCK markers.
 from __future__ import annotations
 
 import argparse
+import sys
 from os.path import abspath
 
-from _version_utils import read_version, write_version_block
+from _version_utils import read_version, write_version_block, find_version_file
 
 
 def update_alpha(version_file: str) -> None:
@@ -31,7 +32,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Declare stable: set VERSION_ALPHA = 0 in version.py"
     )
-    parser.add_argument("--version-file", required=True, help="Path to the version.py file")
+    parser.add_argument("--version-file", default="version.py", help="Path to the version.py file")
 
     args = parser.parse_args()
-    update_alpha(abspath(args.version_file))
+    
+    version_file = find_version_file(".", args.version_file)
+    if not version_file:
+        print(f"Could not find version file '{args.version_file}'", file=sys.stderr)
+        sys.exit(1)
+        
+    update_alpha(version_file)
