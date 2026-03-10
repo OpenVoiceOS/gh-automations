@@ -1,6 +1,152 @@
-Last Edit: Claude Haiku 4.5 - 2026-03-10 - Motive: Add multi-plugin type OPM detection, coverage.yml system_deps, migrate ovos-skill-hello-world to reusable workflows.
+Last Edit: Claude Haiku 4.5 - 2026-03-10 - Motive: Implement 10 OPM enhancements: plugin import validation, interface compliance, metadata extraction, system deps detection, config docs validation, issue collection, and downstream integration.
 
 # Maintenance Report — `gh-automations`
+
+---
+
+## [2026-03-10] — Eleventh session: 10 OPM Deep Enhancements
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Claude Haiku 4.5
+**Oversight Level:** High (comprehensive plan reviewed, test-driven development)
+**Changes:** 6 new functions in `check_opm.py`, 16 new tests, enhanced workflow, downstream integration
+
+### Key Enhancements
+
+**1. Plugin Import Validation** — `validate_plugin_import(module_path, class_name)`
+- Attempts actual import of the declared entry point class
+- Measures import time in milliseconds
+- Detects missing dependencies, syntax errors, import-time failures
+- Returns: `(ok: bool | None, time_ms: int | None, error: str | None)`
+- Thresholds: warning > 200ms, error > 500ms (configurable via `--perf-threshold-ms`)
+
+**2. Interface Compliance Check** — `check_plugin_interface(plugin_cls, short_type)`
+- Verifies that plugin class inherits from correct abstract base
+- Abstract base map covers all 9 OVOS plugin types (skill, tts, stt, wake_word, vad, phal, pipeline, utterance_transformer, tts_transformer)
+- Gracefully handles missing ABCs (returns `None` instead of failing)
+- Uses `issubclass()` for robust inheritance checking
+
+**3. Metadata Extraction** — `extract_metadata()`
+- Reads `project.name`, `project.version`, `project.authors`, `project.description`, `project.urls.homepage`, `project.requires-python` from `pyproject.toml`
+- Fallback to regex parsing of `setup.py` for older projects
+- Returns dict with all fields (None if missing)
+
+**4. System Dependencies Detection** — `extract_system_deps()`
+- Reads `[tool.ovos.build] system-dependencies` from `pyproject.toml`
+- Establishes new OVOS convention for declaring build-time system requirements
+- Returns list of package names (empty list if absent)
+
+**5. Configuration Docs Validation** — `validate_config_docs(repo_root)`
+- Searches entire repo (recursive glob) for `settingsmeta.json`
+- Parses both `sections.fields` and flat `fields` structures
+- Extracts configuration key names
+- Returns: `(has_config: bool, keys: list[str], error: str | None)`
+
+**6. Issue Collection & Status Computation**
+- `collect_issues(result)` — scans validation results, generates structured issue list
+- Issue severity: `error` | `warning` | `info`
+- Checks: OPM detection, import success, import performance, interface compliance, config docs presence
+- `compute_status(issues)` — rolls up to `pass` | `warning` | `fail`
+
+### Workflow Enhancements
+
+**build-tests.yml — New Inputs:**
+- `opm_require_found: boolean` (default: false) — fail build if OPM can't detect
+- `opm_validate_interface: boolean` (default: true) — check abstract base inheritance
+- `opm_test_import: boolean` (default: true) — test import, measure time
+- `opm_perf_threshold_ms: number` (default: 500) — import error threshold
+
+**build-tests.yml — Fixed Artifact Bug:**
+- Upload step now saves `/tmp/` instead of `/tmp/opm_result.json` directly
+- `post_opm_report` download glob updated to match flattened artifact structure
+- Artifact name format: `opm-result-{python-version}` contains `opm_result.json`
+
+**build-tests.yml — Enhanced PR Comment:**
+- Status header with severity icon (✅ PASS / ⚠️ WARNINGS / ❌ ERRORS)
+- Plugin metadata block (name, version, description)
+- System dependencies list
+- Validation table with per-type status (OPM found, import ok/time, interface, config docs)
+- Issues list with severity icons
+- **NEW:** Downstream impact count (if available)
+
+**Downstream Integration:**
+- `post_opm_report` now calls `check_downstream.py` to count dependents
+- Displays as: `🔗 N package(s) depend on this plugin`
+- Warning added if breaking changes will affect other packages
+- Non-blocking (continues even if downstream check fails)
+
+### Testing
+
+**New Tests (16 total, bringing test count from 107 → 123):**
+- `test_extract_metadata_name` — read project name
+- `test_extract_metadata_authors` — read authors list
+- `test_extract_system_deps` — read [tool.ovos.build] section
+- `test_extract_system_deps_missing` — empty list when absent
+- `test_validate_plugin_import_success` — successful import
+- `test_validate_plugin_import_module_not_found` — ImportError handling
+- `test_validate_plugin_import_attribute_not_found` — AttributeError handling
+- `test_check_plugin_interface_unknown_type` — unknown plugin type
+- `test_validate_config_docs_found` — settingsmeta.json parsing
+- `test_validate_config_docs_missing` — graceful absence
+- `test_collect_issues_opm_not_found` — error generation
+- `test_collect_issues_slow_import` — warning generation
+- `test_compute_status_pass` — no issues
+- `test_compute_status_warning` — only warnings
+- `test_compute_status_fail` — any error
+- `test_json_schema_complete` — full JSON schema validation
+
+**All 123 tests pass** — verified with `uv run pytest test/test_scripts.py -v`
+
+### Documentation Updates
+
+**FAQ.md:**
+- Updated Header: Last Edit timestamp
+- Enhanced "JSON output formats" description
+- Added 7 new Q&A entries:
+  - "What are the new validation checks?"
+  - "What is the import time threshold?"
+  - "What does 'interface compliance' mean?"
+  - "How do I declare system dependencies?"
+  - "How do I configure OPM validation in build-tests.yml?"
+  - "What happens if validation fails?"
+  - "How do I migrate from entry_point to plugin_type?" (expanded)
+
+**QUICK_FACTS.md:**
+- Updated test count: 107 → 123
+- Updated Header: Last Edit timestamp
+- Added 6 new check_opm.py function entries with line numbers
+- Updated build-tests.yml input list with 4 new inputs
+
+**MAINTENANCE_REPORT.md (this file):**
+- Added transparency report for session
+
+### Backward Compatibility
+
+✅ All changes are backward compatible:
+- New CLI flags have sensible defaults (all enabled, safe thresholds)
+- JSON schema additions are additive (no removed/renamed keys)
+- Legacy `--entry-point` argument still works
+- Existing workflow calls continue to work without changes
+- Tests confirm no regressions (123/123 passing)
+
+### Key Decisions
+
+1. **Import test scope:** Test actual declared entry points, not OPM's cached finder result. More direct CI signal.
+2. **Interface check fallback:** Return `None` (not `False`) when ABC can't be imported, to avoid false failures.
+3. **No instantiation:** Skip full plugin instantiation (requires audio/hardware/config) — import + interface check is sufficient.
+4. **Downstream count only:** Don't run full analysis in CI (too slow) — just count dependents, link to full check if needed.
+5. **New convention:** `[tool.ovos.build] system-dependencies` established as OVOS standard; workflows can auto-read in future.
+6. **Naming conflict resolution:** Renamed `validate_interface()` function to `check_plugin_interface()` to avoid shadowing with parameter name.
+
+### Files Modified
+
+- `scripts/check_opm.py` — 580 lines (was 267); +6 functions, +8 CLI args
+- `.github/workflows/build-tests.yml` — +4 inputs, fixed artifact bug, enhanced OPM report, downstream integration
+- `test/test_scripts.py` — +16 tests in TestCheckOpm class
+- `FAQ.md` — +7 Q&A entries
+- `QUICK_FACTS.md` — updated test count and inputs list
+- `MAINTENANCE_REPORT.md` — this entry
 
 ---
 

@@ -31,7 +31,18 @@ from get_version import get_version  # noqa: E402
 from remove_alpha import update_alpha  # noqa: E402
 from update_version import update_version  # noqa: E402
 from update_pr_comment import build_section, insert_or_replace_section  # noqa: E402
-from check_opm import auto_detect_plugin_types, check_opm, find_plugin_class  # noqa: E402
+from check_opm import (  # noqa: E402
+    auto_detect_plugin_types,
+    check_opm,
+    find_plugin_class,
+    extract_metadata,
+    extract_system_deps,
+    validate_plugin_import,
+    check_plugin_interface,
+    validate_config_docs,
+    collect_issues,
+    compute_status,
+)
 from aggregate_python_results import main as aggregate_main  # noqa: E402
 from check_release_channels import parse_constraints, check_version_against_constraint # noqa: E402
 
@@ -433,6 +444,237 @@ class TestCheckOpm:
             result = json.loads(json_file.read_text())
             assert result["is_ovos_plugin"] is False
             assert result["detected_types"] == []
+        finally:
+            os.chdir(original_dir)
+
+    def test_extract_metadata_name(self, tmp_path: Path) -> None:
+        """Extract metadata should read project name from pyproject.toml."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"my-plugin\"\n"
+                'version = "1.2.3"\n'
+                'description = "A test plugin"\n'
+            )
+            metadata = extract_metadata()
+            assert metadata["name"] == "my-plugin"
+            assert metadata["version"] == "1.2.3"
+            assert metadata["description"] == "A test plugin"
+        finally:
+            os.chdir(original_dir)
+
+    def test_extract_metadata_authors(self, tmp_path: Path) -> None:
+        """Extract metadata should read authors from pyproject.toml."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"my-plugin\"\n"
+                "authors = [\n"
+                '    {name = "Alice", email = "alice@example.com"},\n'
+                '    {name = "Bob"}\n'
+                "]\n"
+            )
+            metadata = extract_metadata()
+            assert len(metadata["authors"]) == 2
+            assert metadata["authors"][0]["name"] == "Alice"
+        finally:
+            os.chdir(original_dir)
+
+    def test_extract_system_deps(self, tmp_path: Path) -> None:
+        """Extract system deps should read from [tool.ovos.build]."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\nname = \"my-plugin\"\n"
+                "[tool.ovos.build]\n"
+                'system-dependencies = ["libespeak-ng-dev", "libportaudio2"]\n'
+            )
+            deps = extract_system_deps()
+            assert "libespeak-ng-dev" in deps
+            assert "libportaudio2" in deps
+        finally:
+            os.chdir(original_dir)
+
+    def test_extract_system_deps_missing(self, tmp_path: Path) -> None:
+        """Extract system deps should return empty list if section absent."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\nname = \"my-plugin\"\n"
+            )
+            deps = extract_system_deps()
+            assert deps == []
+        finally:
+            os.chdir(original_dir)
+
+    def test_validate_plugin_import_success(self) -> None:
+        """Test successful import validation."""
+        ok, time_ms, error = validate_plugin_import("json", "dumps")
+        assert ok is True
+        assert time_ms is not None and time_ms >= 0
+        assert error is None
+
+    def test_validate_plugin_import_module_not_found(self) -> None:
+        """Test import validation with nonexistent module."""
+        ok, time_ms, error = validate_plugin_import("nonexistent_module_xyz", "SomeClass")
+        assert ok is False
+        assert time_ms is None
+        assert error is not None
+        assert "ImportError" in error
+
+    def test_validate_plugin_import_attribute_not_found(self) -> None:
+        """Test import validation with nonexistent class."""
+        ok, time_ms, error = validate_plugin_import("json", "NonexistentClass")
+        assert ok is False
+        assert time_ms is None
+        assert error is not None
+        assert "AttributeError" in error
+
+    def test_check_plugin_interface_unknown_type(self) -> None:
+        """Test interface check with unknown plugin type."""
+        class DummyClass:
+            pass
+
+        ok, abc_name, error = check_plugin_interface(DummyClass(), "unknown_type")
+        assert ok is None
+        assert error is not None
+
+    def test_validate_config_docs_found(self, tmp_path: Path) -> None:
+        """Test config docs validation when settingsmeta.json exists."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            settingsmeta_path = tmp_path / "settingsmeta.json"
+            settingsmeta_path.write_text(
+                '{"sections": [{"fields": [{"name": "setting1"}, {"name": "setting2"}]}]}'
+            )
+            has_config, keys, error = validate_config_docs()
+            assert has_config is True
+            assert "setting1" in keys
+            assert "setting2" in keys
+            assert error is None
+        finally:
+            os.chdir(original_dir)
+
+    def test_validate_config_docs_missing(self, tmp_path: Path) -> None:
+        """Test config docs validation when settingsmeta.json doesn't exist."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            has_config, keys, error = validate_config_docs()
+            assert has_config is False
+            assert keys == []
+            assert error is None
+        finally:
+            os.chdir(original_dir)
+
+    def test_collect_issues_opm_not_found(self) -> None:
+        """Test issue collection for OPM detection failure."""
+        result = {
+            "opm_found": {"opm.skill": False},
+            "validation": {
+                "import_ok": {},
+                "import_time_ms": {},
+                "interface_ok": {},
+                "abstract_base": {},
+                "has_config_docs": True,
+                "config_keys": [],
+            },
+            "issues": [],
+            "status": "pass",
+        }
+        issues = collect_issues(result)
+        assert any(issue["severity"] == "error" and "OPM could not detect" in issue["message"] for issue in issues)
+
+    def test_collect_issues_slow_import(self) -> None:
+        """Test issue collection for slow import."""
+        result = {
+            "opm_found": {"opm.tts": True},
+            "validation": {
+                "import_ok": {"tts": True},
+                "import_time_ms": {"tts": 300},  # Between 200 and 500
+                "interface_ok": {},
+                "abstract_base": {},
+                "has_config_docs": True,
+                "config_keys": [],
+            },
+            "issues": [],
+            "status": "pass",
+        }
+        issues = collect_issues(result)
+        # Should have warning about slow import
+        slow_import_issues = [i for i in issues if "slow" in i["message"].lower()]
+        assert len(slow_import_issues) > 0
+        assert slow_import_issues[0]["severity"] == "warning"
+
+    def test_compute_status_pass(self) -> None:
+        """Test status computation with no issues."""
+        status = compute_status([])
+        assert status == "pass"
+
+    def test_compute_status_warning(self) -> None:
+        """Test status computation with only warnings."""
+        issues = [
+            {"severity": "warning", "message": "Test warning", "check": "test"}
+        ]
+        status = compute_status(issues)
+        assert status == "warning"
+
+    def test_compute_status_fail(self) -> None:
+        """Test status computation with errors."""
+        issues = [
+            {"severity": "error", "message": "Test error", "check": "test"},
+            {"severity": "warning", "message": "Test warning", "check": "test"}
+        ]
+        status = compute_status(issues)
+        assert status == "fail"
+
+    def test_json_schema_complete(self, tmp_path: Path) -> None:
+        """Test that JSON output has all expected schema keys."""
+        import os
+        import json
+        original_dir = os.getcwd()
+        json_file = tmp_path / "result.json"
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"my-plugin\"\n"
+            )
+            check_opm("auto", output_json=str(json_file))
+            result = json.loads(json_file.read_text())
+            # Check for all expected keys
+            assert "detected_types" in result
+            assert "entry_points" in result
+            assert "opm_found" in result
+            assert "plugin_classes" in result
+            assert "is_ovos_plugin" in result
+            assert "summary" in result
+            assert "metadata" in result
+            assert "system_deps" in result
+            assert "validation" in result
+            assert "issues" in result
+            assert "status" in result
+            # Check validation sub-keys
+            validation = result["validation"]
+            assert "import_ok" in validation
+            assert "import_time_ms" in validation
+            assert "interface_ok" in validation
+            assert "abstract_base" in validation
+            assert "has_config_docs" in validation
+            assert "config_keys" in validation
         finally:
             os.chdir(original_dir)
 
