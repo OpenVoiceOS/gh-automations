@@ -26,7 +26,7 @@ from pathlib import Path
 
 # Allow importing _version_utils regardless of CWD
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _version_utils import format_version, read_version  # noqa: E402
+from _version_utils import format_version, read_version, find_version_file  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ def run_checks(version_file: str, pr_labels_json: str = "[]", pr_title: str = ""
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--version-file", required=True, help="Path to the version.py file")
+    parser.add_argument("--version-file", default="version.py", help="Path to the version.py file")
     parser.add_argument("--pr-labels-json", default="", help="JSON array of PR label objects")
     parser.add_argument("--pr-title", default="", help="PR title string")
     parser.add_argument("--output-json", default="/tmp/release-report.json", help="Output JSON report path")
@@ -264,7 +264,14 @@ def main() -> None:
     pr_labels_json = os.environ.get("PR_LABELS_JSON", args.pr_labels_json) or "[]"
     pr_title = os.environ.get("PR_TITLE", args.pr_title) or ""
 
-    report = run_checks(args.version_file, pr_labels_json, pr_title)
+    # Find the version file using auto-detection if hint fails
+    version_file = find_version_file(".", args.version_file)
+    checked_version_file = version_file if version_file else args.version_file
+    # Convert back to relative path for report consistency if it was found
+    if version_file and os.path.isabs(version_file):
+        checked_version_file = os.path.relpath(version_file, os.path.abspath("."))
+
+    report = run_checks(checked_version_file, pr_labels_json, pr_title)
 
     with open(args.output_json, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2)

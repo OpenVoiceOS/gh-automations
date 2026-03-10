@@ -14,6 +14,8 @@ import json
 import os
 import sys
 
+from _version_utils import find_version_file
+
 
 REQUIRED_FILES = [
     ("version.py", "Version file"),
@@ -32,18 +34,24 @@ OPTIONAL_FILES = [
 ]
 
 
-def check_required_files(repo_root: str) -> list[dict]:
+def check_required_files(repo_root: str, version_file: str = "version.py") -> list[dict]:
     """Check for required and optional files in the repo root."""
     results: list[dict] = []
 
     for filename, label in REQUIRED_FILES:
+        # If a custom version_file is provided that isn't root version.py,
+        # we don't require root version.py
+        is_version = filename == "version.py"
+        custom_version = version_file != "version.py"
+        
         path = os.path.join(repo_root, filename)
         exists = os.path.isfile(path)
+        
         results.append({
             "file": filename,
             "label": label,
             "exists": exists,
-            "required": True,
+            "required": True if not (is_version and custom_version) else False,
         })
 
     # At least one setup file must exist
@@ -105,7 +113,7 @@ def run_checks(repo_root: str, version_file: str = "version.py") -> dict:
     repo_root = os.path.abspath(repo_root)
     return {
         "repo_root": repo_root,
-        "files": check_required_files(repo_root),
+        "files": check_required_files(repo_root, version_file),
         "version": check_version_file(repo_root, version_file),
     }
 
@@ -119,7 +127,15 @@ def main() -> None:
                         help="Output JSON report path")
     args = parser.parse_args()
 
-    report = run_checks(args.repo_root, args.version_file)
+    # Find the version file using auto-detection if hint fails
+    version_file = find_version_file(args.repo_root, args.version_file)
+    # Even if not found, we want to know what it TRIED to check for the report
+    checked_version_file = version_file if version_file else args.version_file
+    # Convert back to relative path for report consistency if it was found
+    if version_file and os.path.isabs(version_file):
+        checked_version_file = os.path.relpath(version_file, os.path.abspath(args.repo_root))
+
+    report = run_checks(args.repo_root, checked_version_file)
 
     with open(args.output_json, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2)

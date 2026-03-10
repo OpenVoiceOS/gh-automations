@@ -14,6 +14,70 @@ All three scripts operate on the START_VERSION_BLOCK / END_VERSION_BLOCK format:
 from __future__ import annotations
 
 
+import os
+import re
+
+
+def find_version_file(repo_root: str, hint: str | None = None) -> str | None:
+    """Locate the version.py file in the repository.
+
+    Checks in the following order:
+    1. The hint (if provided and exists).
+    2. Directly in the repo_root (version.py).
+    3. Inside any top-level directory (pkg/version.py).
+    4. Derived from package name in pyproject.toml or setup.py.
+
+    Args:
+        repo_root: Root directory of the repository.
+        hint: Optional explicit path to version.py.
+
+    Returns:
+        Absolute path to version.py if found, else None.
+    """
+    if hint:
+        path = os.path.join(repo_root, hint)
+        if os.path.isfile(path):
+            return os.path.abspath(path)
+
+    # Check root
+    root_version = os.path.join(repo_root, "version.py")
+    if os.path.isfile(root_version):
+        return os.path.abspath(root_version)
+
+    # Check one level deep (standard for many OVOS repos: pkg/version.py)
+    # We skip hidden directories and common non-package directories
+    ignored = {".git", ".github", "test", "tests", "docs", "scripts", "requirements", ".venv", "venv"}
+    try:
+        for entry in os.listdir(repo_root):
+            if entry in ignored:
+                continue
+            full_path = os.path.join(repo_root, entry)
+            if os.path.isdir(full_path):
+                pkg_version = os.path.join(full_path, "version.py")
+                if os.path.isfile(pkg_version):
+                    return os.path.abspath(pkg_version)
+    except OSError:
+        pass
+
+    # Try parsing pyproject.toml for package name
+    pyproject = os.path.join(repo_root, "pyproject.toml")
+    if os.path.isfile(pyproject):
+        try:
+            with open(pyproject, "r", encoding="utf-8") as f:
+                content = f.read()
+                # Simple regex to find name = "package_name"
+                match = re.search(r'^name\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
+                if match:
+                    pkg_name = match.group(1).replace("-", "_")
+                    pkg_version = os.path.join(repo_root, pkg_name, "version.py")
+                    if os.path.isfile(pkg_version):
+                        return os.path.abspath(pkg_version)
+        except OSError:
+            pass
+
+    return None
+
+
 def read_version(version_file: str) -> tuple[int, int, int, int]:
     """Parse VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_ALPHA from a version.py file.
 

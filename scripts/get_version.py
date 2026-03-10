@@ -7,9 +7,10 @@ update_version.py or remove_alpha.py has run.
 from __future__ import annotations
 
 import argparse
+import sys
 from os.path import abspath
 
-from _version_utils import format_version, read_version
+from _version_utils import format_version, read_version, find_version_file
 
 
 def get_version(version_file: str) -> str:
@@ -27,6 +28,12 @@ def get_version(version_file: str) -> str:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Get version string from version.py file")
-    parser.add_argument("--version-file", required=True, help="Path to version.py file")
+    parser.add_argument("--version-file", default="version.py", help="Path to version.py file")
     args = parser.parse_args()
-    print(get_version(abspath(args.version_file)))
+    
+    version_file = find_version_file(".", args.version_file)
+    if not version_file:
+        print(f"Could not find version file '{args.version_file}'", file=sys.stderr)
+        sys.exit(1)
+        
+    print(get_version(version_file))
