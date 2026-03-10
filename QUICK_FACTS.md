@@ -13,22 +13,43 @@
 
 ---
 
-## Reusable Workflows
+## Reusable Workflows (14 total)
 
 | Workflow | Callers | Key inputs |
 |----------|---------|-----------|
 | `publish-alpha.yml` | 209 repos | `version_file`, `propose_release`, `update_changelog`, `publish_pypi`, `notify_matrix` |
 | `publish-stable.yml` | 209 repos | `version_file`, `publish_release`, `sync_dev`, `publish_pypi`, `notify_matrix` |
-| `license-check.yml` | 126 repos | `install_extras`, `system_deps`, `exclude_packages`, `fail_licenses` |
-| `notify-matrix.yml` | 209 repos | `message`, `channel`, `homeserver` |
-| `pip-audit.yml` | Selected repos | `install_extras`, `ignore_vulns`, `pr_comment` |
-| `downstream-check.yml` | 13 repos | `package_name`, `constraints_url` |
-| `coverage.yml` | Selected repos | `coverage_source`, `min_coverage`, `pr_comment` |
-| `sync-translations.yml` | Skill repos | `branch`, `script_path` |
-| `skill-check.yml` | Skill repos | `locale_dir`, `skip_if_not_skill`, `fail_on_missing_en_us`, `pr_comment` |
-| `release-preview.yml` | All repos | `version_file`, `pr_comment` |
+| `build-tests.yml` | All repos | `python_versions`, `install_extras`, `system_deps`, `test_path`, `package_name`, `version_file` |
+| `opm-check.yml` | Plugin repos | `plugin_type`, `entry_point`, `opm_require_found`, `opm_validate_interface`, `opm_test_import`, `opm_perf_threshold_ms` |
+| `coverage.yml` | Selected repos | `coverage_source`, `min_coverage`, `system_deps`, `publish_to_gh_pages`, `pr_comment` |
+| `license-check.yml` | 126 repos | `install_extras`, `system_deps`, `exclude_packages`, `fail_licenses`, `warn_only` |
+| `pip-audit.yml` | Selected repos | `install_extras`, `ignore_vulns`, `warn_only`, `upload_sarif`, `pr_comment` |
+| `release-preview.yml` | All repos | `version_file`, `package_name`, `pr_comment` |
 | `repo-health.yml` | All repos | `version_file`, `pr_comment` |
-| `build-tests.yml` | All repos | `python_versions`, `install_extras`, `package_name`, `test_path`, `plugin_type`, `opm_section`, `opm_require_found`, `opm_validate_interface`, `opm_test_import`, `opm_perf_threshold_ms` |
+| `skill-check.yml` | Skill repos | `locale_dir`, `skip_if_not_skill`, `fail_on_missing_en_us`, `pr_comment` |
+| `downstream-check.yml` | 13 repos | `package_name`, `constraints_url` |
+| `python-support.yml` | Legacy | `python_versions`, `install_modes`, `entry_point`, `package_name`, `version_file` |
+| `sync-translations.yml` | Skill repos | `branch`, `script_path` |
+| `notify-matrix.yml` | 209 repos | `message`, `channel`, `homeserver` |
+
+---
+
+## PR Checks Comment Sections
+
+Each workflow that posts to the shared OVOS PR Checks comment uses a unique section ID:
+
+| Section ID | Title | Posted by |
+|-----------|-------|-----------|
+| `health` | `📋 Repo Health` | `repo-health.yml` |
+| `welcome` | `👋 Welcome` | `repo-health.yml` (first-time contributors only) |
+| `release` | `🏷️ Release Preview` | `release-preview.yml` |
+| `security` | `🔒 Security (pip-audit)` | `pip-audit.yml` |
+| `license` | `⚖️ License Check` | `license-check.yml` |
+| `python_support` | `🐍 Python Support` | `python-support.yml` *(legacy)* |
+| `build` | `🔨 Build Tests` | `build-tests.yml` |
+| `opm` | `🔌 Plugin Detection` | `opm-check.yml` |
+| `coverage` | `📊 Coverage` | `coverage.yml` |
+| `skill` | `🎙️ Skill` | `skill-check.yml` |
 
 ---
 

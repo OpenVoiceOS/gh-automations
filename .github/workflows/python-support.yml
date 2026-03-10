@@ -85,7 +85,7 @@ jobs:
           fi
           
           if [ -f setup.py ] || [ -f pyproject.toml ]; then
-            $INSTALL_CMD .${{ inputs.install_extras }}
+            "$INSTALL_CMD" ".${{ inputs.install_extras }}"
           else
              echo "No setup.py or pyproject.toml found — check your repo root."
              exit 1
@@ -114,6 +114,7 @@ jobs:
         with:
           name: python-result-${{ matrix.python-version }}-${{ matrix.install-mode }}
           path: results/${{ matrix.python-version }}-${{ matrix.install-mode }}.txt
+          if-no-files-found: ignore
           retention-days: 1
 
   post_report:
@@ -130,7 +131,12 @@ jobs:
           repository: OpenVoiceOS/gh-automations
           ref: dev
           path: _gh_automations/
-      
+
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          path: _calling_repo/
+
       - name: Download all results
         uses: actions/download-artifact@v4
         with:
@@ -150,46 +156,43 @@ jobs:
         run: |
           PKG="${{ inputs.package_name }}"
           if [ -z "$PKG" ]; then
-            if [ -f pyproject.toml ]; then
-              PKG=$(grep -m 1 "^name =" pyproject.toml | cut -d'"' -f2)
-            elif [ -f setup.py ]; then
-              PKG=$(grep "name=" setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+            if [ -f _calling_repo/pyproject.toml ]; then
+              PKG=$(grep -m 1 "^name =" _calling_repo/pyproject.toml | cut -d'"' -f2)
+            elif [ -f _calling_repo/setup.py ]; then
+              PKG=$(grep "name=" _calling_repo/setup.py | cut -d"'" -f2 | cut -d'"' -f2)
             fi
           fi
-          
-          # Use current version for channel check if no PR release report available
-          # (Standard release-preview handles the 'next' version, this is for general support info)
-          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "${{ inputs.version_file }}" 2>/dev/null || echo "0.0.0")
-          
-          if [ -n "$PKG" ]; then
+
+          VERSION_FILE="${{ inputs.version_file }}"
+          if [ -n "$VERSION_FILE" ]; then
+            VERSION_FILE="_calling_repo/$VERSION_FILE"
+          fi
+          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "$VERSION_FILE" 2>/dev/null || echo "")
+
+          if [ -n "$PKG" ] && [ -n "$CUR_VER" ]; then
             python3 _gh_automations/scripts/check_release_channels.py \
               --releases-dir _ovos_releases/ \
               --package "$PKG" \
               --version "$CUR_VER" \
               --output /tmp/channel-report.md
-          else
-            echo "Skipped." > /tmp/channel-report.md
           fi
 
       - name: Aggregate results
         run: |
           VERSIONS=$(echo '${{ inputs.python_versions }}' | jq -r '. | join(",")')
           MODES=$(echo '${{ inputs.install_modes }}' | jq -r '. | join(",")')
-          CUR_VER=$(python3 _gh_automations/scripts/get_version.py --version-file "${{ inputs.version_file }}" 2>/dev/null || echo "0.0.0")
-          
+
           python3 _gh_automations/scripts/aggregate_python_results.py \
             --results-dir results_download \
             --output /tmp/python-report.md \
             --versions "$VERSIONS" \
-            --modes "$MODES" \
-            --version "$CUR_VER"
-          
-          # Append channel report
+            --modes "$MODES"
+
           if [ -f /tmp/channel-report.md ]; then
             echo -e "\n---\n" >> /tmp/python-report.md
             cat /tmp/channel-report.md >> /tmp/python-report.md
           fi
-      
+
       - name: Post PR comment section
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \

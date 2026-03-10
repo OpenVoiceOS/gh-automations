@@ -44,6 +44,12 @@ on:
           Valid values: StrongCopyleft, NetworkCopyleft, WeakCopyleft, Copyleft (all three),
           Permissive, Other, Error.
           Default enforces the OVOS universal donor policy (Apache 2.0).
+      warn_only:
+        type: boolean
+        default: false
+        description: >
+          When true, report license violations in the PR comment but do NOT fail the job.
+          Useful for repos in transition or where a violation needs review before fixing.
       pr_comment:
         type: boolean
         default: true
@@ -74,7 +80,7 @@ jobs:
           python-version: ${{ inputs.python_version }}
 
       - name: Install Build Tools
-        run: python -m pip install build wheel
+        run: python -m pip install build wheel pip-licenses
 
       - name: Install System Dependencies
         run: |
@@ -82,7 +88,7 @@ jobs:
           sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
 
       - name: Install package
-        run: pip install .${{ inputs.install_extras }}
+        run: pip install ".${{ inputs.install_extras }}"
 
       - name: Collect transitive dependencies
         run: pip freeze > requirements-all.txt
@@ -91,7 +97,7 @@ jobs:
         id: license_check_report
         uses: pilosus/action-pip-license-checker@v3
         # continue-on-error so the PR comment step always runs, even when licenses fail.
-        # The job still fails at the end via the outcome check below.
+        # The job still fails at the end via the outcome check below (unless warn_only).
         continue-on-error: true
         with:
           requirements: 'requirements-all.txt'
@@ -102,6 +108,35 @@ jobs:
           exclude: ${{ inputs.exclude_packages }}
           exclude-license: ${{ inputs.exclude_licenses }}
 
+      - name: Generate full license breakdown
+        id: license_breakdown
+        run: |
+          # Run pip-licenses to get the full per-package breakdown as JSON
+          EXCLUDE_ARGS=""
+          if [ -n "${{ inputs.exclude_packages }}" ]; then
+            # Convert PCRE regex to a plain list best-effort; pip-licenses uses --ignore-packages
+            # We pass the raw regex as a single ignore pattern using --filter-strings
+            EXCLUDE_ARGS="--ignore-packages ${{ inputs.exclude_packages }}"
+          fi
+          pip-licenses \
+            --format=json \
+            --with-urls \
+            --order=license \
+            $EXCLUDE_ARGS \
+            > /tmp/pip-licenses.json 2>/dev/null || echo "[]" > /tmp/pip-licenses.json
+          # Summarize license distribution for the step output
+          DIST=$(python3 -c "
+          import json, collections
+          try:
+              data = json.load(open('/tmp/pip-licenses.json'))
+              counts = collections.Counter(p['License'] for p in data)
+              total = len(data)
+              print(total)
+          except Exception:
+              print(0)
+          ")
+          echo "total_packages=$DIST" >> $GITHUB_OUTPUT
+
       - name: Print report
         if: always()
         run: echo "${{ steps.license_check_report.outputs.report }}"
@@ -110,34 +145,83 @@ jobs:
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
           python3 - <<'PYEOF'
-          import os
+          import json, os, collections
 
           outcome = os.environ["OUTCOME"]
           report = os.environ["REPORT"].strip()
+          total_packages = int(os.environ.get("TOTAL_PACKAGES", "0"))
 
+          # Load full license breakdown from pip-licenses
+          try:
+              with open("/tmp/pip-licenses.json") as f:
+                  all_pkgs = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              all_pkgs = []
+
+          if total_packages == 0:
+              total_packages = len(all_pkgs)
+
+          pkg_note = f" ({total_packages} packages)" if total_packages > 0 else ""
+
+          lines = []
+
+          # Status header
           if outcome == "success":
-              status = "✅ No license violations found."
-              body = status
+              lines.append(f"✅ No license violations found{pkg_note}.")
           else:
-              status = "❌ License violations detected — review required before merging."
+              lines.append(f"❌ License violations detected{pkg_note} — review required before merging.")
               if report:
-                  body = f"{status}\n\n```\n{report}\n```"
-              else:
-                  body = status
+                  lines.append(f"\n```\n{report}\n```")
 
-          body += (
-              "\n\n"
-              "_Policy: Apache 2.0 (universal donor). "
+          # License distribution summary (always shown)
+          if all_pkgs:
+              dist = collections.Counter(p.get("License", "Unknown") for p in all_pkgs)
+              top = sorted(dist.items(), key=lambda x: -x[1])
+              dist_parts = ", ".join(f"{count}× {lic}" for lic, count in top[:8])
+              if len(top) > 8:
+                  dist_parts += f", +{len(top)-8} more"
+              lines.append(f"\n**License distribution:** {dist_parts}")
+
+          # Full per-package breakdown in a collapsible section
+          if all_pkgs:
+              # Identify failing packages (those in the violations report) for highlighting
+              failing_names = set()
+              if report:
+                  for line in report.splitlines():
+                      parts = line.split()
+                      if parts:
+                          failing_names.add(parts[0].lower())
+
+              lines.append("")
+              lines.append(f"<details><summary>Full breakdown — {total_packages} packages</summary>")
+              lines.append("")
+              lines.append("| Package | Version | License | URL |")
+              lines.append("|---------|---------|---------|-----|")
+              for pkg in sorted(all_pkgs, key=lambda p: p.get("Name", "").lower()):
+                  name = pkg.get("Name", "?")
+                  version = pkg.get("Version", "?")
+                  lic = pkg.get("License", "Unknown")
+                  url = pkg.get("URL", "")
+                  url_cell = f"[link]({url})" if url and url != "UNKNOWN" else ""
+                  # Highlight failing packages
+                  flag = " ⚠️" if name.lower() in failing_names else ""
+                  lines.append(f"| `{name}`{flag} | {version} | {lic} | {url_cell} |")
+              lines.append("")
+              lines.append("</details>")
+
+          lines.append(
+              "\n_Policy: Apache 2.0 (universal donor). "
               "StrongCopyleft / NetworkCopyleft / WeakCopyleft / Other / Error categories fail. "
               "MPL allowed._"
           )
 
           with open("/tmp/license-section.md", "w") as f:
-              f.write(body)
+              f.write("\n".join(lines))
           PYEOF
         env:
           OUTCOME: ${{ steps.license_check_report.outcome }}
           REPORT: ${{ steps.license_check_report.outputs.report }}
+          TOTAL_PACKAGES: ${{ steps.license_breakdown.outputs.total_packages }}
 
       - name: Post license section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -152,8 +236,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so the check status is correct.
+      # Skipped when warn_only is true — violations are reported but don't block the merge.
       - name: Fail job if license check failed
-        if: ${{ steps.license_check_report.outcome == 'failure' }}
+        if: ${{ steps.license_check_report.outcome == 'failure' && !inputs.warn_only }}
         run: |
           echo "License check failed — see report above."
           exit 1
+
+      - name: Warn about license violations (warn_only mode)
+        if: ${{ steps.license_check_report.outcome == 'failure' && inputs.warn_only }}
+        run: |
+          echo "::warning::License violations found (warn_only=true — job not failed). See PR comment for details."

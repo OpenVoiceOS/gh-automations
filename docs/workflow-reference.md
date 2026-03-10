@@ -162,9 +162,220 @@ jobs:
 
 ---
 
+## `build-tests.yml`
+
+Runs build, install, and optionally tests across a configurable matrix of Python versions. Posts a `🔨 Build Tests` section to the PR comment. Also performs a **channel compatibility check** when `package_name` and `version_file` are provided.
+
+**Source:** `.github/workflows/build-tests.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_versions` | string | `'["3.10", "3.11", "3.12", "3.13", "3.14"]'` | JSON array of Python versions to test against |
+| `system_deps` | string | `""` | Extra apt packages to install before building (space-separated). Base packages `python3-dev libssl-dev` are always installed. |
+| `install_extras` | string | `""` | pip extras appended when installing the built wheel, e.g. `test` or `dev,test` |
+| `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). |
+| `pr_comment` | boolean | `true` | Post a `🔨 Build Tests` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `package_name` | string | `""` | Package name for the channel compatibility check. If empty, auto-reads from `pyproject.toml`/`setup.py`. Both `package_name` and `version_file` must resolve for the channel check to run. |
+| `version_file` | string | `""` | Path to `version.py` in the calling repo (relative to repo root). If empty, auto-detects. Needed for the channel compatibility check. |
+
+### Jobs
+
+| Job | Description |
+|-----|-------------|
+| `build_tests` | Matrix job. Runs `python -m build`, installs the resulting wheel (with extras if specified), optionally runs `pytest`. Saves per-version result as an artifact. |
+| `post_build_report` | Runs after the matrix, only on PR events with `pr_comment: true`. Downloads all result artifacts, runs the channel compatibility check, formats and posts the `section:build` PR comment. |
+
+### Channel compatibility check
+
+The `post_build_report` job checks out [OpenVoiceOS/ovos-releases](https://github.com/OpenVoiceOS/ovos-releases) and calls `scripts/check_release_channels.py` to verify whether the current version of the package is already pinned or constrained in the alpha/testing/stable channel files. This check only runs when both `package_name` and a readable `version_file` can be resolved. If either is missing or the version cannot be parsed, the channel check is silently skipped and the rest of the PR comment is still posted.
+
+### Typical usage
+
+```yaml
+name: Run Build Tests
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  build_tests:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+    secrets: inherit
+    with:
+      python_versions: '["3.10", "3.11", "3.12"]'
+      install_extras: 'test'
+      test_path: 'test/'
+      package_name: 'my-package'
+      version_file: 'my_package/version.py'
+```
+
+### Notes
+
+- OPM (plugin detection) inputs were removed from this workflow. Use [`opm-check.yml`](#opm-checkyml) for OPM validation.
+- The matrix uses `fail-fast: false` so all versions are tested even if one fails.
+
+---
+
+## `opm-check.yml`
+
+Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Python version**. Verifies the plugin is discoverable after wheel install, and optionally after editable install (to catch entry-point registration issues). Posts a `🔌 Plugin Detection` section to the PR comment.
+
+**Source:** `.github/workflows/opm-check.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version to use (OPM detection does not vary by Python version) |
+| `system_deps` | string | `""` | Extra apt packages to install before building (space-separated) |
+| `install_extras` | string | `""` | pip extras appended when installing the built package, e.g. `dev` |
+| `plugin_type` | string | `auto` | Plugin type to detect: `auto` (reads from entry points), `skill`, `tts`, `stt`, `wake_word`, `vad`, `phal`, `pipeline`, `utterance_transformer`, `tts_transformer` |
+| `entry_point` | string | `""` | Legacy: specific entry point ID to verify (bypasses `plugin_type` auto-detection) |
+| `opm_require_found` | boolean | `false` | Fail the job if OPM cannot discover the plugin |
+| `opm_validate_interface` | boolean | `true` | Check that the plugin class inherits from the correct abstract base class |
+| `opm_test_import` | boolean | `true` | Test that the plugin class is importable and measure import time in ms |
+| `opm_perf_threshold_ms` | number | `500` | Import time above this value (ms) is reported as an error |
+| `pr_comment` | boolean | `true` | Post a `🔌 Plugin Detection` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+
+### Jobs
+
+| Job | Description |
+|-----|-------------|
+| `opm_check` | Installs `ovos-plugin-manager`, builds the wheel, installs it, then runs `check_opm.py` with `--validate-interface`/`--test-import` flags as configured. If the package is confirmed as an OVOS plugin, re-installs in editable mode and runs a detection-only check (no interface validation, no import test) to catch entry-point registration differences. Uploads `opm_result.json` and `opm_result_editable.json` as artifacts. |
+| `post_opm_report` | Downloads the JSON artifacts, formats a PR comment section with status, plugin metadata, system deps, detected types, a validation table (wheel vs editable, import time, interface, config docs), and issues list. Also calls `check_downstream.py` to count dependents and appends the downstream impact note if count > 0. |
+
+### PR comment content
+
+```
+✅ Plugin Status: PASS
+
+Plugin Info:
+- Name: ovos-tts-plugin-example
+- Version: 1.2.3a4
+- Description: Example TTS plugin for OVOS
+
+Plugin Types: tts
+
+Validation Table:
+
+| Type | Wheel OPM | Editable OPM | Import | Interface | Config Docs |
+|------|-----------|--------------|--------|-----------|-------------|
+| tts  | ✅        | ✅           | ✅ 42ms | ✅       | ✅          |
+
+🔗 Downstream Impact: 3 package(s) depend on this plugin
+```
+
+Non-plugin repos: `ℹ️ Not an OVOS plugin — OPM check skipped.`
+
+### Typical usage
+
+```yaml
+name: OPM Check
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  opm_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/opm-check.yml@dev
+    secrets: inherit
+    with:
+      plugin_type: auto
+      opm_require_found: true
+      opm_perf_threshold_ms: 500
+```
+
+### Notes
+
+- `opm_require_found: false` (default) means the job passes even if OPM cannot find the plugin. This is the safe default for repos that may not be OVOS plugins. Set `opm_require_found: true` to enforce discoverability.
+- The editable OPM check runs only when the wheel check confirms `is_ovos_plugin: true` in the JSON output, avoiding unnecessary editable install for non-plugin repos.
+- `plugin_type: auto` reads `[project.entry-points."opm.*"]` sections from `pyproject.toml` (or equivalent in `setup.py`) to detect all plugin types the package declares.
+
+---
+
+## `coverage.yml`
+
+Runs `pytest --cov`, generates a coverage report, posts it to the job summary, uploads the XML as an artifact, and (on pull requests) posts a `📊 Coverage` section in the shared OVOS PR Checks comment. Optionally publishes an HTML report to GitHub Pages.
+
+**Source:** `.github/workflows/coverage.yml`
+
+### Design choices
+
+- No codecov bot, no external accounts, no `CODECOV_TOKEN`.
+- PR comment shows total coverage %, threshold pass/fail, and a collapsible table of under-covered files (files below 80%, or all files if ≤ 10). The `coverage.xml` artifact is available for deep inspection.
+- PR comment is a section in the shared [OVOS PR Checks comment](#pr-checks-comment-pattern) — one comment per PR, not a separate coverage comment.
+- Job summary is always written (push, dispatch, and PR events alike).
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version to run tests under |
+| `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
+| `install_extras` | string | `""` | Extra pip install arguments run before tests, e.g. `.[dev]` or `-r requirements/test.txt`. If empty, the package is installed via `pip install -e .[dev]` (falling back to bare install). |
+| `test_path` | string | `test/` | Path passed to pytest |
+| `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
+| `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
+| `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |
+| `artifact_retention_days` | number | `14` | Days to retain the artifact |
+| `publish_to_gh_pages` | boolean | `false` | Publish an HTML coverage report to GitHub Pages. Requires Pages enabled with source set to `GitHub Actions`. Only deploys on `push` events, not PRs. |
+| `gh_pages_subdir` | string | `coverage` | Sub-directory within the Pages site for the HTML report, e.g. `coverage` → `https://org.github.io/repo/coverage/`. Empty string = deploy at root. |
+
+### Jobs
+
+| Job step | Description |
+|----------|-------------|
+| Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
+| Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, and the package itself |
+| Run Tests with Coverage | `pytest --cov --cov-report=xml --cov-report=json --cov-report=html --cov-report=term-missing`. `continue-on-error: true` so the PR comment posts even when tests fail. |
+| Extract Coverage Percentage | Reads `coverage.json` for `totals.percent_covered` |
+| Write Job Summary | Coverage table written to `$GITHUB_STEP_SUMMARY` |
+| Format coverage section | Generates the PR comment content from `coverage.json` |
+| Post coverage section to PR comment | Calls `scripts/update_pr_comment.py` to find-or-create-and-update the OVOS PR Checks comment |
+| Upload Coverage XML Artifact | Uploads `coverage.xml` as a workflow artifact |
+| Prepare HTML report for GitHub Pages | Only when `publish_to_gh_pages: true` and event is `push` |
+| Deploy to GitHub Pages | Uses `actions/deploy-pages@v4` |
+| Enforce Minimum Coverage Threshold | Fails if `min_coverage > 0` and total is below threshold |
+| Fail job if tests failed | Re-raises test failure after the PR comment has been posted |
+
+### Typical usage
+
+```yaml
+name: Coverage
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'
+      min_coverage: 80
+```
+
+### Known issues
+
+- `pr_comment` only fires on `pull_request` events — job summary is written for all events.
+- If all tests are skipped and `coverage.xml` is never generated, the PR comment will note that coverage data is unavailable rather than failing.
+
+---
+
 ## `license-check.yml`
 
-Checks all installed dependencies for licenses incompatible with the **OVOS universal donor policy** (Apache 2.0). Uses [`pilosus/action-pip-license-checker@v3`](https://github.com/pilosus/action-pip-license-checker).
+Checks all installed dependencies for licenses incompatible with the **OVOS universal donor policy** (Apache 2.0). Uses [`pilosus/action-pip-license-checker@v3`](https://github.com/pilosus/action-pip-license-checker). Also runs `pip-licenses` to generate a full per-package breakdown shown in a collapsible table in the PR comment.
 
 **Source:** `.github/workflows/license-check.yml`
 
@@ -185,14 +396,24 @@ OVOS packages are Apache 2.0. To preserve this as a universal donor license:
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.14` | Python version |
 | `install_extras` | string | `""` | pip extras to install alongside the package, e.g. `[extras,linux]` |
 | `system_deps` | string | `""` | Extra `apt-get` packages beyond the base `python3-dev libssl-dev` |
 | `exclude_packages` | string | `""` | PCRE regex of package names to exclude from the check |
 | `exclude_licenses` | string | `^Mozilla Public License.*` | PCRE regex of license identifiers to exclude. Default allows MPL. |
 | `fail_licenses` | string | `StrongCopyleft,NetworkCopyleft,WeakCopyleft,Other,Error` | Comma-separated license categories that cause failure. See policy table above. |
-| `python_version` | string | `3.11` | Python version |
+| `warn_only` | boolean | `false` | When true, report violations in the PR comment but do NOT fail the job. Useful for repos in transition. |
 | `pr_comment` | boolean | `true` | Post a `⚖️ License Check` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
-| `runner` | string | `ubuntu-latest` | Runner label |
+
+### PR comment content
+
+The comment includes:
+- Status header (pass/fail + package count)
+- Violations report (if any) in a code block
+- License distribution summary (e.g. `42× MIT, 18× Apache Software License, ...`)
+- Full per-package breakdown in a collapsible `<details>` table with columns: Package, Version, License, URL. Packages with violations are flagged with ⚠️.
+- Policy footnote
 
 ### Typical usage
 
@@ -216,43 +437,9 @@ jobs:
 
 ---
 
-## `notify-matrix.yml`
-
-Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](https://github.com/fadenb/matrix-chat-message).
-
-**Source:** `.github/workflows/notify-matrix.yml`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `message` | string | _(required)_ | Message text to send |
-| `homeserver` | string | `matrix.org` | Matrix homeserver URL |
-| `channel` | string | `!WjxEKjjINpyBRPFgxl:krbel.duckdns.org` | Matrix room ID |
-
-### Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `MATRIX_TOKEN` | Matrix access token (inherited via `secrets: inherit`) |
-
-### Typical usage
-
-```yaml
-  notify:
-    if: github.event.pull_request.merged == true
-    needs: publish_alpha
-    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
-    secrets: inherit
-    with:
-      message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
-```
-
----
-
 ## `pip-audit.yml`
 
-Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](https://github.com/pypa/gh-action-pip-audit).
+Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](https://github.com/pypa/gh-action-pip-audit). Optionally uploads a SARIF report to GitHub's Security tab.
 
 **Source:** `.github/workflows/pip-audit.yml`
 
@@ -260,12 +447,14 @@ Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](h
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.14` | Python version to audit against |
 | `install_extras` | string | `""` | pip extras to install |
 | `system_deps` | string | `""` | Extra `apt-get` packages beyond `python3-dev` |
-| `python_version` | string | `3.11` | Python version to audit against |
 | `ignore_vulns` | string | `GHSA-r9hx-vwmv-q579` | Newline-separated GHSA IDs to ignore. Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal — dev-only, not exploitable at OVOS runtime). |
-| `pr_comment` | boolean | `true` | Post a `🔒 Security` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
-| `runner` | string | `ubuntu-latest` | Runner label |
+| `warn_only` | boolean | `false` | When true, report vulnerabilities in the PR comment but do NOT fail the job. Useful for repos that want visibility without blocking merges. |
+| `pr_comment` | boolean | `true` | Post a `🔒 Security (pip-audit)` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `upload_sarif` | boolean | `true` | Upload a SARIF report to GitHub's Security tab (Code scanning alerts). Requires the repo to have GitHub Advanced Security enabled, or be public. Uses `github/codeql-action/upload-sarif@v3`. `continue-on-error: true` so the job does not fail for private repos without GHAS. |
 
 ### Typical usage
 
@@ -285,265 +474,9 @@ jobs:
 
 ---
 
-## `downstream-check.yml`
-
-Reports which packages in the ovos-releases alpha constraints depend on a given package. Uses `pipdeptree` and commits the sorted report to the repo, so repeated runs only generate a new commit when the actual dependency tree changes.
-
-**Source:** `.github/workflows/downstream-check.yml`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package_name` | string | _(required)_ | PyPI package name to track (e.g. `ovos-utils`) |
-| `constraints_url` | string | `https://raw.githubusercontent.com/OpenVoiceOS/ovos-releases/refs/heads/main/constraints-alpha.txt` | Constraints file URL to install from |
-| `output_file` | string | `downstream_report.txt` | Report output path (relative to repo root) |
-| `commit_branch` | string | `dev` | Branch to commit the report to |
-| `python_version` | string | `3.11` | Python version |
-| `runner` | string | `ubuntu-latest` | Runner label |
-
-### Typical usage
-
-```yaml
-name: Track Downstream Dependencies
-on:
-  push:
-    branches: [dev]
-  schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
-
-jobs:
-  check_downstream:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
-    secrets: inherit
-    with:
-      package_name: 'ovos-utils'
-```
-
----
-
-## `sync-translations.yml`
-
-Synchronises [gitlocalize-app](https://gitlocalize.com/) translation commits. Runs `scripts/sync_translations.py` in the calling repo when triggered by a push from `gitlocalize-app[bot]` or by manual `workflow_dispatch`.
-
-Standardises the per-repo `sync_tx.yml` pattern found across all OVOS skill repos. Issues fixed over the per-repo pattern:
-- Old repos used `actions/checkout@v2` and `actions/setup-python@v1` — updated to `@v4`/`@v5`
-- `github.actor` is the correct field for bot detection (some repos incorrectly used `github.event.head_commit.author.username`)
-- `stefanzweifel/git-auto-commit-action` standardised to `@v5`
-- Commit message normalised to `chore: sync translations`
-
-**Source:** `.github/workflows/sync-translations.yml`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `branch` | string | `dev` | Branch to checkout, run the script on, and commit back to |
-| `python_version` | string | `3.11` | Python version |
-| `runner` | string | `ubuntu-latest` | Runner label |
-| `script_path` | string | `scripts/sync_translations.py` | Relative path to the sync script in the calling repo |
-
-### Typical usage
-
-Replace the per-repo `sync_tx.yml` with:
-
-```yaml
-name: Sync Translations
-on:
-  workflow_dispatch:
-  push:
-    branches: [dev]
-
-jobs:
-  sync_translations:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
-    secrets: inherit
-    with:
-      branch: dev
-      # script_path: scripts/sync_translations.py  # default
-```
-
-### Known issues
-
-Some existing `sync_tx.yml` files use `github.event.head_commit.author.username == 'gitlocalize-app[bot]'` for bot detection. This field is not reliable for filtering. The reusable workflow uses `github.actor == 'gitlocalize-app[bot]'` which is the correct field. When migrating, remove the old per-repo `sync_tx.yml` and replace with a call to this reusable workflow.
-
----
-
-## `coverage.yml`
-
-Runs `pytest --cov`, generates a coverage report, posts it to the job summary, uploads the XML as an artifact, and (on pull requests) posts a **`📊 Coverage` section** in the shared OVOS PR Checks comment. Uses **no external services** — only `GITHUB_TOKEN`.
-
-**Source:** `.github/workflows/coverage.yml`
-
-### Design choices
-
-- No codecov bot, no external accounts, no `CODECOV_TOKEN`.
-- PR comment shows total coverage %, threshold pass/fail, and a collapsible table of under-covered files (files below 80%, or all files if ≤ 10). The `coverage.xml` artifact is available for deep inspection.
-- PR comment is a section in the shared [OVOS PR Checks comment](#pr-checks-comment-pattern) — one comment per PR, not a separate coverage comment.
-- Job summary is always written (push, dispatch, and PR events alike).
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `python_version` | string | `3.11` | Python version to run tests under |
-| `install_extras` | string | `""` | Extra `pip install` arguments (e.g. `.[dev]` or `-r requirements/test.txt`). Falls back to `pip install -e .` if empty. |
-| `test_path` | string | `test/` | Path passed to pytest |
-| `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
-| `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
-| `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
-| `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |
-| `artifact_retention_days` | number | `14` | Days to retain the artifact |
-| `runner` | string | `ubuntu-latest` | Runner label |
-
-### Jobs
-
-| Job step | Description |
-|----------|-------------|
-| Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
-| Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, and the package itself |
-| Run Tests with Coverage | `pytest --cov --cov-report=xml --cov-report=json --cov-report=term-missing`. `continue-on-error: true` so the PR comment posts even when tests fail. |
-| Extract Coverage Percentage | Reads `coverage.json` for `totals.percent_covered` |
-| Write Job Summary | Coverage table written to `$GITHUB_STEP_SUMMARY` |
-| Format coverage section | Generates the PR comment content from `coverage.json` |
-| Post coverage section to PR comment | Calls `scripts/update_pr_comment.py` to find-or-create-and-update the OVOS PR Checks comment |
-| Upload Coverage XML Artifact | Uploads `coverage.xml` as a workflow artifact |
-| Enforce Minimum Coverage Threshold | Fails if `min_coverage > 0` and total is below threshold |
-| Fail job if tests failed | Re-raises test failure after the PR comment has been posted |
-
-### Typical usage
-
-```yaml
-name: Coverage
-on:
-  pull_request:
-    branches: [dev]
-  workflow_dispatch:
-
-jobs:
-  coverage:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
-    secrets: inherit
-    with:
-      coverage_source: 'my_package'
-      min_coverage: 80
-```
-
-### Migrating from codecov
-
-Replace:
-```yaml
-- name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v3
-  with:
-    token: ${{ secrets.CODECOV_TOKEN }}
-    file: coverage.xml
-```
-
-With:
-```yaml
-jobs:
-  coverage:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
-    secrets: inherit
-    with:
-      coverage_source: 'my_package'
-```
-
-Remove `CODECOV_TOKEN` from repo/org secrets if it was only used for coverage upload.
-
-### Known issues
-
-- `pr_comment` only fires on `pull_request` events — job summary is written for all events.
-- If all tests are skipped and `coverage.xml` is never generated, the PR comment will note that coverage data is unavailable rather than failing.
-
----
-
-## `skill-check.yml`
-
-Analyses an OVOS skill repository for locale structure, language coverage, skill.json validity, and gitlocalize readiness. Silently passes for non-skill repos by default.
-
-**Source:** `.github/workflows/skill-check.yml`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `runner` | string | `ubuntu-latest` | Runner label |
-| `python_version` | string | `3.11` | Python version |
-| `locale_dir` | string | `""` | Locale root path. Empty = auto-detect. |
-| `skip_if_not_skill` | boolean | `true` | Silently pass if no `ovos.plugin.skill` entry point found |
-| `fail_on_missing_en_us` | boolean | `true` | Fail if en-us locale directory is absent |
-| `fail_on_invalid_skill_json` | boolean | `false` | Fail if en-us skill.json is invalid or missing required fields |
-| `pr_comment` | boolean | `true` | Post `🎙️ Skill` section to OVOS PR Checks comment |
-
-### Permissions
-
-`pull-requests: write`, `contents: read`
-
-### Steps
-
-Follows the canonical 3-phase pattern (`continue-on-error` → format → post → re-raise):
-
-| Step | Description |
-|------|-------------|
-| Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
-| Setup Python | `actions/setup-python@v5` |
-| Run skill check | `check_skill.py --repo-root . --locale-dir … --output-json /tmp/skill-report.json`. `continue-on-error: true`. |
-| Format skill section | Inline Python reads `skill-report.json` → `skill-section.md` |
-| Post skill section to PR comment | Calls `update_pr_comment.py` with `--section-id skill` |
-| Skip if not an OVOS skill repo | Exits 0 if `is_skill: false` and `skip_if_not_skill: true` |
-| Fail if en-us locale is missing | Exits 1 if `has_en_us: false` and `fail_on_missing_en_us: true` |
-| Fail if skill.json is invalid | Exits 1 if JSON malformed or required fields missing and `fail_on_invalid_skill_json: true` |
-| Fail job if skill check failed | Re-raises error after comment is posted |
-
-### PR comment content
-
-```
-🎙️ **ovos-skill-hello-world.openvoiceos** — 14 languages
-
-**en-us:** 2 intents · 4 dialogs · skill.json ✅
-
-<details><summary>Translation coverage (13 languages)</summary>
-
-| Language | Coverage |
-|----------|----------|
-| ca-es | ✅ 100% (6/6) |
-| de-de | ⚠️ 83.3% (5/6) |
-
-</details>
-
-**Gitlocalize:** ✅ sync script · ✅ translations/ · ✅ sync workflow
-```
-
-Coverage icons: ✅ ≥95% · ⚠️ 50–94% · ❌ <50%. Non-skill repos: `ℹ️ Not an OVOS skill repo — check skipped.`
-
-### Typical usage
-
-```yaml
-name: Skill Check
-
-on:
-  pull_request:
-    branches: [dev]
-  workflow_dispatch:
-
-jobs:
-  skill_check:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
-    secrets: inherit
-```
-
-### Skill repos with gitlocalize
-
-To also enforce gitlocalize readiness, set `fail_on_invalid_skill_json: true` and ensure your repo has a `scripts/sync_translations.py` and `translations/` directory before enabling the check.
-
----
-
 ## `release-preview.yml`
 
-Reads `version.py`, predicts the next version from PR labels and/or title using conventional commit prefixes, and posts a `🏷️ Release Preview` section to the OVOS PR Checks comment.
+Reads `version.py`, predicts the next version from PR labels and/or title using conventional commit prefixes, and posts a `🏷️ Release Preview` section to the OVOS PR Checks comment. Also performs a channel compatibility check when a package name is resolvable.
 
 **Source:** `.github/workflows/release-preview.yml`
 
@@ -552,8 +485,9 @@ Reads `version.py`, predicts the next version from PR labels and/or title using 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `runner` | string | `ubuntu-latest` | Runner label |
-| `python_version` | string | `3.11` | Python version |
-| `version_file` | string | `version.py` | Path to `version.py` (relative to repo root) |
+| `python_version` | string | `3.14` | Python version |
+| `package_name` | string | `""` | Package name for the channel compatibility check. If empty, auto-reads from `pyproject.toml`/`setup.py`. |
+| `version_file` | string | `""` | Path to `version.py` (relative to repo root). If empty, auto-detects. |
 | `pr_comment` | boolean | `true` | Post `🏷️ Release Preview` section to OVOS PR Checks comment |
 
 ### Permissions
@@ -638,15 +572,304 @@ jobs:
 
 ---
 
+## `repo-health.yml`
+
+Checks that a repo contains the required files (`README`, `LICENSE`, `pyproject.toml`/`setup.py`, `version.py` with valid block markers) and greets first-time contributors.
+
+**Source:** `.github/workflows/repo-health.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `version_file` | string | `""` | Path to `version.py` (relative to repo root). If empty, auto-detects root or `pkg/version.py`. |
+| `pr_comment` | boolean | `true` | Post a `📋 Repo Health` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+
+### PR comment content
+
+- Current version from `version.py`
+- Per-file status: ✅ present / ❌ required and missing / ⚠️ optional and missing
+- Version block marker validation (START/END_VERSION_BLOCK)
+- First-time contributor greeting (separate `👋 Welcome` section posted in the same PR comment when `author_association` is `FIRST_TIME_CONTRIBUTOR` or `FIRST_TIMER`)
+
+### Typical usage
+
+```yaml
+name: Repo Health
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  repo_health:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/repo-health.yml@dev
+    secrets: inherit
+    with:
+      version_file: 'my_package/version.py'
+```
+
+---
+
+## `skill-check.yml`
+
+Analyses an OVOS skill repository for locale structure, language coverage, skill.json validity, and gitlocalize readiness. Silently passes for non-skill repos by default.
+
+**Source:** `.github/workflows/skill-check.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version |
+| `locale_dir` | string | `""` | Locale root path. Empty = auto-detect. |
+| `skip_if_not_skill` | boolean | `true` | Silently pass if no `ovos.plugin.skill` entry point found |
+| `fail_on_missing_en_us` | boolean | `true` | Fail if en-us locale directory is absent |
+| `fail_on_invalid_skill_json` | boolean | `false` | Fail if en-us skill.json is invalid or missing required fields |
+| `pr_comment` | boolean | `true` | Post `🎙️ Skill` section to OVOS PR Checks comment |
+
+### Permissions
+
+`pull-requests: write`, `contents: read`
+
+### Steps
+
+Follows the canonical 3-phase pattern (`continue-on-error` → format → post → re-raise):
+
+| Step | Description |
+|------|-------------|
+| Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
+| Setup Python | `actions/setup-python@v5` |
+| Run skill check | `check_skill.py --repo-root . --locale-dir … --output-json /tmp/skill-report.json`. `continue-on-error: true`. |
+| Format skill section | Inline Python reads `skill-report.json` → `skill-section.md` |
+| Post skill section to PR comment | Calls `update_pr_comment.py` with `--section-id skill` |
+| Skip if not an OVOS skill repo | Exits 0 if `is_skill: false` and `skip_if_not_skill: true` |
+| Fail if en-us locale is missing | Exits 1 if `has_en_us: false` and `fail_on_missing_en_us: true` |
+| Fail if skill.json is invalid | Exits 1 if JSON malformed or required fields missing and `fail_on_invalid_skill_json: true` |
+| Fail job if skill check failed | Re-raises error after comment is posted |
+
+### PR comment content
+
+```
+🎙️ **ovos-skill-hello-world.openvoiceos** — 14 languages
+
+**en-us:** 2 intents · 4 dialogs · skill.json ✅
+
+<details><summary>Translation coverage (13 languages)</summary>
+
+| Language | Coverage |
+|----------|----------|
+| ca-es | ✅ 100% (6/6) |
+| de-de | ⚠️ 83.3% (5/6) |
+
+</details>
+
+**Gitlocalize:** ✅ sync script · ✅ translations/ · ✅ sync workflow
+```
+
+Coverage icons: ✅ ≥95% · ⚠️ 50–94% · ❌ <50%. Non-skill repos: `ℹ️ Not an OVOS skill repo — check skipped.`
+
+### Typical usage
+
+```yaml
+name: Skill Check
+
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  skill_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
+    secrets: inherit
+```
+
+### Skill repos with gitlocalize
+
+To also enforce gitlocalize readiness, set `fail_on_invalid_skill_json: true` and ensure your repo has a `scripts/sync_translations.py` and `translations/` directory before enabling the check.
+
+---
+
+## `downstream-check.yml`
+
+Reports which packages in the ovos-releases alpha constraints depend on a given package. Uses `pipdeptree` and commits the sorted report to the repo, so repeated runs only generate a new commit when the actual dependency tree changes.
+
+**Source:** `.github/workflows/downstream-check.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `package_name` | string | _(required)_ | PyPI package name to track (e.g. `ovos-utils`) |
+| `constraints_url` | string | `https://raw.githubusercontent.com/OpenVoiceOS/ovos-releases/refs/heads/main/constraints-alpha.txt` | Constraints file URL to install from |
+| `output_file` | string | `downstream_report.txt` | Report output path (relative to repo root) |
+| `commit_branch` | string | `dev` | Branch to commit the report to |
+| `python_version` | string | `3.11` | Python version |
+| `runner` | string | `ubuntu-latest` | Runner label |
+
+### Typical usage
+
+```yaml
+name: Track Downstream Dependencies
+on:
+  push:
+    branches: [dev]
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  check_downstream:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
+    secrets: inherit
+    with:
+      package_name: 'ovos-utils'
+```
+
+---
+
+## `python-support.yml` *(legacy)*
+
+Runs an install matrix across Python versions and install modes (regular + editable). Optionally checks OPM detection using a legacy `entry_point` ID. Posts a `🐍 Python Support` section to the PR comment.
+
+**Source:** `.github/workflows/python-support.yml`
+
+> **Legacy status:** Most repos now use [`build-tests.yml`](#build-testsyml) which provides the same build/install matrix without the editable-mode complexity, plus pytest integration. For OPM detection, use [`opm-check.yml`](#opm-checkyml). Retain `python-support.yml` only for repos that specifically need editable-mode compatibility testing.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `package_name` | string | `""` | Package name for the channel compatibility check |
+| `python_versions` | string | `'["3.10", "3.11", "3.12", "3.13", "3.14"]'` | JSON array of Python versions |
+| `version_file` | string | `""` | Path to `version.py` for the channel compatibility check |
+| `install_modes` | string | `'["regular", "editable"]'` | JSON array of install modes |
+| `install_extras` | string | `""` | pip extras to install |
+| `system_deps` | string | `""` | Extra apt packages beyond `python3-dev libssl-dev` |
+| `entry_point` | string | `""` | Legacy OPM entry point ID to verify (only used when set) |
+| `pr_comment` | boolean | `true` | Post `🐍 Python Support` section to OVOS PR Checks comment |
+
+---
+
+## `sync-translations.yml`
+
+Synchronises [gitlocalize-app](https://gitlocalize.com/) translation commits. Runs `scripts/sync_translations.py` in the calling repo when triggered by a push from `gitlocalize-app[bot]` or by manual `workflow_dispatch`.
+
+**Source:** `.github/workflows/sync-translations.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `branch` | string | `dev` | Branch to checkout, run the script on, and commit back to |
+| `python_version` | string | `3.11` | Python version |
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `script_path` | string | `scripts/sync_translations.py` | Relative path to the sync script in the calling repo |
+
+### Typical usage
+
+Replace the per-repo `sync_tx.yml` with:
+
+```yaml
+name: Sync Translations
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+jobs:
+  sync_translations:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
+    secrets: inherit
+    with:
+      branch: dev
+      # script_path: scripts/sync_translations.py  # default
+```
+
+### Known issues
+
+Some existing `sync_tx.yml` files use `github.event.head_commit.author.username == 'gitlocalize-app[bot]'` for bot detection. This field is not reliable. The reusable workflow uses `github.actor == 'gitlocalize-app[bot]'` which is correct. When migrating, remove the old per-repo `sync_tx.yml` and replace with a call to this reusable workflow.
+
+---
+
+## `notify-matrix.yml`
+
+Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](https://github.com/fadenb/matrix-chat-message).
+
+**Source:** `.github/workflows/notify-matrix.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `message` | string | _(required)_ | Message text to send |
+| `homeserver` | string | `matrix.org` | Matrix homeserver URL |
+| `channel` | string | `!WjxEKjjINpyBRPFgxl:krbel.duckdns.org` | Matrix room ID |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `MATRIX_TOKEN` | Matrix access token (inherited via `secrets: inherit`) |
+
+### Typical usage
+
+```yaml
+  notify:
+    if: github.event.pull_request.merged == true
+    needs: publish_alpha
+    uses: OpenVoiceOS/gh-automations/.github/workflows/notify-matrix.yml@dev
+    secrets: inherit
+    with:
+      message: "new ${{ github.event.repository.name }} PR merged! https://github.com/${{ github.repository }}/pull/${{ github.event.number }}"
+```
+
+---
+
 ## PR Checks Comment Pattern
 
-`license-check.yml`, `pip-audit.yml`, `coverage.yml`, `skill-check.yml`, and `release-preview.yml` all post their results as sections in a **single shared PR comment** rather than separate bot comments.
+The following workflows post their results as named sections in a **single shared PR comment** rather than separate bot comments:
+
+| Workflow | Section ID | Section title |
+|----------|-----------|---------------|
+| `repo-health.yml` | `health` | `📋 Repo Health` |
+| `repo-health.yml` | `welcome` | `👋 Welcome` (first-time contributors only) |
+| `release-preview.yml` | `release` | `🏷️ Release Preview` |
+| `pip-audit.yml` | `security` | `🔒 Security (pip-audit)` |
+| `license-check.yml` | `license` | `⚖️ License Check` |
+| `python-support.yml` | `python_support` | `🐍 Python Support` |
+| `build-tests.yml` | `build` | `🔨 Build Tests` |
+| `opm-check.yml` | `opm` | `🔌 Plugin Detection` |
+| `coverage.yml` | `coverage` | `📊 Coverage` |
+| `skill-check.yml` | `skill` | `🎙️ Skill` |
 
 The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its body. Each workflow manages its own section:
 
 ```
 <!-- ovos-pr-checks -->
 ## OVOS PR Checks
+
+<!-- section:health -->
+### 📋 Repo Health
+✅ All required files present.
+...
+<!-- /section:health -->
+
+<!-- section:build -->
+### 🔨 Build Tests
+✅ All versions pass
+...
+<!-- /section:build -->
+
+<!-- section:opm -->
+### 🔌 Plugin Detection
+✅ Plugin Status: PASS
+...
+<!-- /section:opm -->
 
 <!-- section:coverage -->
 ### 📊 Coverage
@@ -656,7 +879,7 @@ The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its bo
 
 <!-- section:license -->
 ### ⚖️ License Check
-✅ No license violations found.
+✅ No license violations found (42 packages).
 ...
 <!-- /section:license -->
 
@@ -665,12 +888,6 @@ The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its bo
 ✅ No known vulnerabilities found.
 ...
 <!-- /section:security -->
-
-<!-- section:skill -->
-### 🎙️ Skill
-🎙️ **ovos-skill-hello-world.openvoiceos** — 14 languages
-...
-<!-- /section:skill -->
 
 <!-- section:release -->
 ### 🏷️ Release Preview
@@ -756,8 +973,6 @@ Sets `VERSION_ALPHA = 0` in a `version.py` file (declares stable).
 
 **Key function:** `update_alpha(version_file: str)` — `scripts/remove_alpha.py:10`
 
-Uses `fileinput.input(..., inplace=True)` to rewrite lines in-place. Replaces any line starting with `VERSION_ALPHA` with `VERSION_ALPHA = 0`.
-
 ```
 usage: remove_alpha.py --version-file <path>
 ```
@@ -788,19 +1003,40 @@ usage: check_downstream.py --package <name> --output <file>
 
 Requires `pipdeptree` to be installed in the environment before calling.
 
+### `scripts/check_opm.py`
+
+Detects and validates OVOS plugins via OPM. Supports multi-plugin-type repos. Outputs a structured JSON report.
+
+**Key functions:**
+- `auto_detect_plugin_types()` — `scripts/check_opm.py:308` — scans `[project.entry-points."opm.*"]` in `pyproject.toml` or `setup.py`
+- `validate_plugin_import(module_path, class_name)` — `scripts/check_opm.py:132` — imports the class, measures time in ms, detects missing dependencies
+- `check_plugin_interface(plugin_cls, short_type)` — `scripts/check_opm.py:152` — verifies `issubclass()` against the correct abstract base (9 types)
+- `extract_metadata()` — `scripts/check_opm.py:54` — reads name, version, authors, description, homepage, requires_python
+- `extract_system_deps()` — `scripts/check_opm.py:108` — reads `[tool.ovos.build] system-dependencies`
+- `validate_config_docs(repo_root)` — `scripts/check_opm.py:176` — searches for `settingsmeta.json`
+- `collect_issues(result)` — `scripts/check_opm.py:217` — aggregates issues list
+- `compute_status(issues)` — `scripts/check_opm.py:292` — returns `pass`, `warning`, or `fail`
+- `check_opm(plugin_type, entry_point, output_json, ...)` — `scripts/check_opm.py:406` — main entry point
+
+```
+usage: check_opm.py \
+    [--plugin-type auto|skill|tts|stt|wake_word|vad|phal|pipeline|utterance_transformer|tts_transformer] \
+    [--entry-point <id>] \
+    [--output-json <path>] \
+    [--validate-interface | --no-validate-interface] \
+    [--test-import | --no-test-import] \
+    [--perf-threshold-ms <ms>]
+```
+
 ### `scripts/check_skill.py`
 
 Analyses a checked-out OVOS skill repository. Outputs a JSON report. Stdlib only.
 
 **Key functions:**
-- `is_skill_repo(repo_root)` — `scripts/check_skill.py:39` — searches `setup.py`/`pyproject.toml`/`setup.cfg` for `ovos.plugin.skill`
-- `find_locale_dir(repo_root, override="")` — `scripts/check_skill.py:52` — auto-detects shallowest `locale/` dir containing `en-us/`
-- `count_locale_files(lang_dir)` — `scripts/check_skill.py:98` — counts by extension: `intent`, `voc`, `dialog`, `rx`, `entity`, `total`
-- `get_en_us_file_set(locale_dir)` — `scripts/check_skill.py:117` — relative paths of all files under `locale/en-us/` (excluding `skill.json`)
-- `check_skill_json(lang_dir)` — `scripts/check_skill.py:133` — validates presence and required fields: `skill_id`, `name`, `description`, `examples`, `tags`
-- `check_translation_completeness(locale_dir, en_us_files)` — `scripts/check_skill.py:157` — per-language coverage %
-- `check_gitlocalize_readiness(repo_root)` — `scripts/check_skill.py:183` — checks `scripts/sync_translations.py`, `translations/`, sync workflow
-- `run_checks(repo_root, locale_dir_override="")` — `scripts/check_skill.py:220` — orchestrates all checks, returns full report dict
+- `is_skill_repo(repo_root)` — `scripts/check_skill.py:39`
+- `find_locale_dir(repo_root, override="")` — `scripts/check_skill.py:52`
+- `check_translation_completeness(locale_dir, en_us_files)` — `scripts/check_skill.py:157`
+- `run_checks(repo_root, locale_dir_override="")` — `scripts/check_skill.py:220`
 
 ```
 usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skill-report.json]
@@ -808,14 +1044,12 @@ usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skil
 
 ### `scripts/check_release.py`
 
-Reads `version.py`, predicts next version from PR labels/title. Imports `_version_utils` via `sys.path.insert`. Stdlib only.
+Reads `version.py`, predicts next version from PR labels/title. Stdlib only.
 
 **Key functions:**
-- `parse_pr_title(pr_title)` — `scripts/check_release.py:106` — matches conventional commit prefix (case-insensitive)
-- `detect_bump_part(labels, pr_title)` — `scripts/check_release.py:74` — labels > title; priority: major > minor > build > alpha
-- `compute_next_version(major, minor, build, alpha, part)` — `scripts/check_release.py:120` — mirrors `update_version.py:22` bump rules exactly
-- `validate_version_block(version_file)` — `scripts/check_release.py:146` — checks markers + parseability
-- `run_checks(version_file, pr_labels_json, pr_title)` — `scripts/check_release.py:196` — orchestrates all checks; exits 0 for missing file, 1 for parse error
+- `detect_bump_part(labels, pr_title)` — `scripts/check_release.py:74`
+- `compute_next_version(major, minor, build, alpha, part)` — `scripts/check_release.py:120`
+- `run_checks(version_file, pr_labels_json, pr_title)` — `scripts/check_release.py:196`
 
 ```
 usage: check_release.py --version-file version.py \

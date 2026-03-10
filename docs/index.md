@@ -18,7 +18,7 @@ The reusable workflows check out this repo at runtime to access `scripts/`, pinn
   with:
     repository: OpenVoiceOS/gh-automations
     ref: dev
-    path: action/github/
+    path: _gh_automations/
 ```
 
 ---
@@ -34,14 +34,18 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 |---|---|---|
 | `publish-alpha.yml` | Bump version, publish alpha to PyPI, open release PR | All 209 repos — `release_workflow.yml` |
 | `publish-stable.yml` | Remove alpha suffix, tag stable release, sync dev | All 209 repos — `publish_stable.yml` |
-| `license-check.yml` | Scan dependencies for copyleft/incompatible licenses | 126 repos — `license_tests.yml` |
-| `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
-| `pip-audit.yml` | Scan installed dependencies for CVEs | Selected repos — `pipaudit.yml` |
-| `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
+| `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility check | All repos — `build_tests.yml` |
+| `opm-check.yml` | OPM plugin detection, interface validation, import timing | Plugin repos — `opm_check.yml` |
 | `coverage.yml` | Run pytest with coverage; post diff report to PR comment | Selected repos — `coverage.yml` |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
-| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | Skill repos — `skill_check.yml` |
+| `license-check.yml` | Scan dependencies for copyleft/incompatible licenses | 126 repos — `license_tests.yml` |
+| `pip-audit.yml` | Scan installed dependencies for CVEs; optional SARIF upload | Selected repos — `pipaudit.yml` |
 | `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |
+| `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos — `repo_health.yml` |
+| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | Skill repos — `skill_check.yml` |
+| `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
+| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy)* | Superseded by `build-tests.yml` for most repos |
+| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
+| `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
 
 Full input/output/job reference: [workflow-reference.md](workflow-reference.md)
 
@@ -64,6 +68,7 @@ Located in `scripts/`. Checked out by the reusable workflows at run time — not
 | `update_pr_comment.py` | `insert_or_replace_section(body, ...)` — `scripts/update_pr_comment.py:81` | Replace a named section in the shared PR comment |
 | `check_skill.py` | `run_checks(repo_root, ...)` — `scripts/check_skill.py:220` | Full skill locale/skill.json/gitlocalize analysis |
 | `check_release.py` | `run_checks(version_file, ...)` — `scripts/check_release.py:196` | Predict next version from PR labels/title |
+| `check_opm.py` | `check_opm(plugin_type, entry_point, ...)` — `scripts/check_opm.py:406` | OPM plugin detection, interface validation, import timing |
 
 All version scripts share the `version.py` block format:
 
@@ -106,9 +111,9 @@ VERSION_ALPHA = 4   # 0 = stable
 | Repo | Workflows used |
 |---|---|
 | [ovos-core](https://github.com/OpenVoiceOS/ovos-core) | `publish-alpha.yml`, `publish-stable.yml`, `license-check.yml`, `notify-matrix.yml`, `downstream-check.yml` |
-| [ovos-utils](https://github.com/OpenVoiceOS/ovos-utils) | All 6 workflows (downstream tracking: 13 repos depend on it) |
-| [ovos-bus-client](https://github.com/OpenVoiceOS/ovos-bus-client) | All 6 workflows |
-| [ovos-workshop](https://github.com/OpenVoiceOS/ovos-workshop) | All 6 workflows |
+| [ovos-utils](https://github.com/OpenVoiceOS/ovos-utils) | All core workflows (downstream tracking: 13 repos depend on it) |
+| [ovos-bus-client](https://github.com/OpenVoiceOS/ovos-bus-client) | All core workflows |
+| [ovos-workshop](https://github.com/OpenVoiceOS/ovos-workshop) | All core workflows |
 | [ovos-messagebus](../../ovos-messagebus/docs/index.md) | `publish-alpha.yml`, `publish-stable.yml`, `license-check.yml`, `notify-matrix.yml` |
 | [ovos-releases](https://github.com/OpenVoiceOS/ovos-releases) | Manages `constraints-alpha/testing/stable.txt` — updated after stable releases |
 | [raspOVOS](../../raspOVOS/docs/index.md) | Uses `constraints-alpha.txt` URL as `CONSTRAINTS` env var during image builds |
