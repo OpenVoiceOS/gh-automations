@@ -83,19 +83,11 @@ jobs:
       - name: Install package
         run: pip install ".${{ inputs.install_extras }}"
 
-      - name: Run pip-audit (GitHub Checks + annotations)
+      - name: Run pip-audit
         id: pip_audit_check
-        uses: pypa/gh-action-pip-audit@v1.0.0
-        # continue-on-error so the PR comment step always runs, even when CVEs are found.
+        # continue-on-error so the PR comment step always runs even when CVEs are found.
         # The job still fails at the end via the outcome check below (unless warn_only).
         continue-on-error: true
-        with:
-          ignore-vulns: ${{ inputs.ignore_vulns }}
-
-      - name: Run pip-audit (JSON output for PR comment and SARIF)
-        id: pip_audit_json
-        # pip-audit was installed above; packages are already in the environment.
-        # Run with JSON format to get structured data for the PR comment and SARIF upload.
         run: |
           IGNORE_ARGS=""
           while IFS= read -r vuln_id; do
@@ -104,16 +96,16 @@ jobs:
               IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
             fi
           done <<< "${{ inputs.ignore_vulns }}"
-          pip-audit --format=json $IGNORE_ARGS > /tmp/pip-audit-results.json 2>/dev/null || true
-          # Count audited packages for informational output
+          # JSON output for PR comment — exit code drives outcome (success/failure)
+          pip-audit --format=json $IGNORE_ARGS | tee /tmp/pip-audit-results.json
           TOTAL=$(python3 -c "
-          import json
+          import json, sys
           try:
               data = json.load(open('/tmp/pip-audit-results.json'))
               deps = data if isinstance(data, list) else data.get('dependencies', [])
-              print(len(deps))
+              sys.stdout.write(str(len(deps)))
           except Exception:
-              print(0)
+              sys.stdout.write('0')
           ")
           echo "total_packages=$TOTAL" >> $GITHUB_OUTPUT
 
@@ -127,11 +119,8 @@ jobs:
               IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
             fi
           done <<< "${{ inputs.ignore_vulns }}"
-          pip-audit --format=sarif $IGNORE_ARGS > /tmp/pip-audit.sarif 2>/dev/null || true
-          # If pip-audit produced empty/invalid output, write a valid empty SARIF so the upload doesn't fail
-          if [ ! -s /tmp/pip-audit.sarif ]; then
+          pip-audit --format=sarif $IGNORE_ARGS > /tmp/pip-audit.sarif || \
             echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[]}' > /tmp/pip-audit.sarif
-          fi
 
       - name: Upload SARIF to GitHub Security tab
         if: ${{ inputs.upload_sarif }}
@@ -212,7 +201,7 @@ jobs:
           PYEOF
         env:
           OUTCOME: ${{ steps.pip_audit_check.outcome }}
-          TOTAL_PACKAGES: ${{ steps.pip_audit_json.outputs.total_packages }}
+          TOTAL_PACKAGES: ${{ steps.pip_audit_check.outputs.total_packages }}
 
       - name: Post security section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
