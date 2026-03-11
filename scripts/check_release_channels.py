@@ -17,21 +17,26 @@ import os
 import re
 import sys
 
+def normalize_package_name(name: str) -> str:
+    """Normalize a package name to lowercase with hyphens (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def parse_constraints(content):
-    """Parse constraints file into a dict of {package: requirement_string}."""
+    """Parse constraints file into a dict of {normalized-package: requirement_string}."""
     constraints = {}
     for line in content.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         # Split on first occurrence of <, >, =, !
-        match = re.split(r'([<>=!])', line, 1)
+        match = re.split(r'([<>=!])', line, maxsplit=1)
         if len(match) >= 3:
-            name = match[0].strip()
+            name = normalize_package_name(match[0].strip())
             constraints[name] = line
         else:
             # Bare package name
-            constraints[line] = line
+            constraints[normalize_package_name(line)] = line
     return constraints
 
 def check_version_against_constraint(version, constraint_line):
@@ -131,7 +136,7 @@ def main():
         with open(path, "r") as f:
             constraints = parse_constraints(f.read())
         
-        constraint = constraints.get(args.package)
+        constraint = constraints.get(normalize_package_name(args.package))
         if not constraint:
             report_lines.append(f"| {name} | ⚪ | Not in channel | - |")
         else:
