@@ -308,6 +308,46 @@ jobs:
 
 Default `skip_if_not_skill: true` means this safely no-ops on non-skill repos.
 
+### `type_check.yml` — mypy static type checking
+
+```yaml
+name: Type Check
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  type_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/type-check.yml@dev
+    secrets: inherit
+    with:
+      mypy_args: 'my_package'    # check only your own code
+      fail_on_errors: false      # informational only (default)
+```
+
+Results are posted to the OVOS PR Checks comment. Set `fail_on_errors: true` to block merges on type errors.
+
+### `docs_check.yml` — Required documentation file check
+
+```yaml
+name: Docs Check
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  docs_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/docs-check.yml@dev
+    secrets: inherit
+    with:
+      required_files: 'docs/index.md,FAQ.md,QUICK_FACTS.md'   # default
+      fail_on_missing: false    # informational only (default)
+```
+
+Posts a 📚 Docs section showing which required files are present or missing. Set `fail_on_missing: true` to enforce the CLAUDE.md docs-must-exist rule.
+
 ### `release_preview.yml` — Next-version prediction
 
 ```yaml
@@ -392,3 +432,57 @@ Configure under repo Settings → Branches:
 
 Manual dispatch (`workflow_dispatch`) is always allowed for both `release_workflow.yml` and `publish_stable.yml`.
 
+---
+
+## Migrating an Existing Repo
+
+### Migrate codecov → `coverage.yml` (66 repos affected)
+
+If your repo currently uses `codecov/codecov-action` in `unit_tests.yml`, migrate to the self-hosted `coverage.yml` workflow:
+
+**Step 1:** Remove the codecov upload step from `unit_tests.yml`:
+
+```yaml
+# REMOVE this step:
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v3    # or v2/v4/v5
+  with:
+    token: ${{ secrets.CODECOV_TOKEN }}
+```
+
+**Step 2:** Add a new `coverage.yml` workflow (see [Optional Files → coverage.yml](#coverageyml--test-coverage-with-pr-diff-comments)):
+
+```yaml
+name: Coverage
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
+    secrets: inherit
+    with:
+      coverage_source: 'my_package'
+```
+
+**Step 3:** Remove the `CODECOV_TOKEN` secret from the repo if it was only used for coverage uploads.
+
+**Why migrate?** `coverage.yml` is self-hosted (no external account required), uses only `GITHUB_TOKEN`,
+and produces a consistent PR comment format across all 209 OVOS repos. See `SUGGESTIONS.md #8` for full context.
+
+**Note:** Do NOT do a bulk migration wave — migrate opportunistically when touching a repo's `.github/workflows/` for another reason.
+
+### Migrate `@master` → `@dev` refs
+
+All new repos should reference `@dev`. If you find `@master` refs in a repo's caller workflows:
+
+```yaml
+# Before:
+uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@master
+# After:
+uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+```
+
+Do this opportunistically when touching any workflow file in a repo.

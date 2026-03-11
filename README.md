@@ -29,9 +29,11 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
 | `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
-| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
+| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
 | `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
+| `type-check.yml` | Run mypy; post 🔎 Type Check section to PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
+| `docs-check.yml` | Verify required docs files exist; optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
 
 ---
 
@@ -130,5 +132,47 @@ All workflows include guards against accidental bot-triggered runs:
 | [docs/repos.md](docs/repos.md) | All repos currently using these automations |
 | [FAQ.md](FAQ.md) | Common questions and answers |
 | [QUICK_FACTS.md](QUICK_FACTS.md) | Machine-readable facts for RAG retrieval |
-| [AUDIT.md](AUDIT.md) | Known issues and technical debt |
+| [AUDIT.md](AUDIT.md) | Known issues, technical debt, security risks |
 | [SUGGESTIONS.md](SUGGESTIONS.md) | Proposed improvements |
+
+---
+
+## New Maintainer Checklist
+
+If you have just inherited or taken ownership of this repo, complete these steps:
+
+### Day 1 — Get oriented
+
+1. **Read [`docs/index.md`](docs/index.md)** — 20-workflow overview, scripts reference, and cross-references.
+2. **Read [`QUICK_FACTS.md`](QUICK_FACTS.md)** — Machine-readable summary: all scripts with line citations, all PR comment section IDs, required secrets.
+3. **Read [`AUDIT.md`](AUDIT.md)** — Known issues and technical debt with severity labels. Resolve any `High` items first.
+4. **Run the test suite** to confirm nothing is broken:
+   ```bash
+   cd gh-automations
+   pip install pytest pyyaml
+   pytest test/ -v
+   ```
+5. **Check [`docs/repos.md`](docs/repos.md)** — 209 repos depend on this library. Understand the caller blast radius before any change.
+
+### Before making changes
+
+- **Check `dev` vs `master` semantics:** `dev` is active development; `master` is the frozen v1 stable baseline. All PRs target `dev`.
+- **Check SUGGESTIONS.md** for prior proposals — do not re-invent solutions already evaluated.
+- **Test locally** before pushing: the test suite covers all 13 Python scripts. Add tests for any new scripts.
+- **Never force-push `master`** — 209 repos use `@master` or `@dev` refs; a rewrite would break them.
+
+### After making changes
+
+1. Update `FAQ.md` first — highest priority per AGENTS.md.
+2. Update `MAINTENANCE_REPORT.md` with the session log and AI model used.
+3. Update `AUDIT.md` and `SUGGESTIONS.md` if issues were found or resolved.
+4. Run `pytest test/ -v` — must be green before committing.
+5. Review `docs/workflow-reference.md` — if inputs/outputs changed, update the reference.
+
+### Deprecated workflows
+
+Two workflows are deprecated and scheduled for removal on **2027-01-01**:
+- `coverage-pages.yml` → migrate callers to `coverage.yml` with `deploy_pages: true`
+- `python-support.yml` → migrate callers to `build-tests.yml`
+
+Before removing either, check `docs/repos.md` for active callers.

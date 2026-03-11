@@ -1,7 +1,7 @@
 name: Coverage Pages
 # DEPRECATED — use coverage.yml with deploy_pages: true instead.
 # This file is kept for backwards compatibility with existing callers.
-# It will be removed in a future cleanup pass.
+# REMOVE AFTER: 2027-01-01 — verify no active callers in docs/repos.md before removing.
 #
 # Callers must grant:  contents: write
 #

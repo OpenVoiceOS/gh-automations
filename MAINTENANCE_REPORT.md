@@ -3,6 +3,41 @@
 
 ---
 
+## [2026-03-11] — Fourteenth session: Roadmap implementation — AUDIT.md, new workflows, tests
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Claude Sonnet 4.6
+**Actions Taken:**
+
+**Priority 1 — Hygiene:**
+- Created `AUDIT.md` with 8 open issues (A-001 through A-008), 6 resolved issues (R-001 through R-006), and technical debt table. Each issue cites `file:LINE`.
+- Added `# REMOVE AFTER: 2027-01-01` EOL date to `coverage-pages.yml` and `python-support.yml`.
+
+**Priority 2 — Pending SUGGESTIONS:**
+- Added `### Migrate codecov → coverage.yml` and `### Migrate @master → @dev refs` sections to `docs/repo-setup.md`.
+- Added type-check and docs-check workflow examples to `docs/repo-setup.md`.
+
+**Priority 3 — Quality:**
+- Created `test/test_workflow_inputs.py` with 4 parametrized test classes (60+ assertions):
+  - `TestWorkflowYaml` — valid YAML, `name:`, `on:`, `jobs:`, no floating `@latest`/`@main`/`@master` refs
+  - `TestReusableWorkflow` — `workflow_call`, inputs, `runner` input with default, all inputs have types
+  - `TestPrCommentWorkflow` — `pr_comment` boolean input with `default: true`
+  - `TestDeprecatedWorkflow` — valid YAML, DEPRECATED comment, REMOVE AFTER date
+
+**Priority 4 — New Workflows:**
+- Created `.github/workflows/type-check.yml` — runs mypy, posts 🔎 Type Check section to PR comment. `fail_on_errors: false` by default (informational).
+- Created `.github/workflows/docs-check.yml` — verifies required docs files (`docs/index.md`, `FAQ.md`, `QUICK_FACTS.md`), optional markdownlint. `fail_on_missing: false` by default (informational).
+
+**Priority 5 — Documentation:**
+- Added new workflows (`type-check.yml`, `docs-check.yml`) to `docs/index.md` workflow table and `README.md` workflow table.
+- Added `## New Maintainer Checklist` section to `README.md` with Day 1 orientation, pre-change checklist, post-change checklist, and deprecated workflow notes.
+- Added deprecated workflow EOL dates to `README.md` and `docs/index.md`.
+
+**Human Oversight Level:** Medium — user provided the improvement plan; implementation autonomous with test verification.
+
+---
+
 ## [2026-03-10] — Thirteenth session: Docs, tests, and ovoscope.yml section
 
 ### AI-Assisted Implementation Summary

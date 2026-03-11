@@ -7,6 +7,7 @@ name: Python Support
 #
 # This file is kept for backwards compatibility with existing callers.
 # New repos should not use it. Existing callers can migrate opportunistically.
+# REMOVE AFTER: 2027-01-01 — verify no active callers in docs/repos.md before removing.
 #
 on:
   workflow_call:

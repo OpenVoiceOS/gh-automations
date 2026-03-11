@@ -1,0 +1,191 @@
+name: Docs Check
+# Reusable workflow — verifies that required documentation files exist in a repo
+# (docs/index.md, FAQ.md, QUICK_FACTS.md) and optionally lints Markdown files
+# with markdownlint-cli2.
+#
+# Posts a 📚 Docs section to the shared OVOS PR Checks comment.
+# Informational only — never blocks merges unless fail_on_missing: true.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      required_files:
+        type: string
+        default: "docs/index.md,FAQ.md,QUICK_FACTS.md"
+        description: >
+          Comma-separated list of files that must exist at the repo root.
+          Checked with a simple exists() test — no content validation.
+      markdownlint:
+        type: boolean
+        default: false
+        description: >
+          Run markdownlint-cli2 on *.md files. Requires Node.js (available on
+          ubuntu-latest runners). Results are reported in the PR comment but
+          never block merges regardless of fail_on_missing.
+      markdownlint_config:
+        type: string
+        default: ""
+        description: >
+          Path to a markdownlint config file (e.g. '.markdownlint.json').
+          If empty, markdownlint-cli2 uses its built-in defaults.
+      fail_on_missing:
+        type: boolean
+        default: false
+        description: >
+          When true, the job fails if any required file is absent.
+          Default is false — docs check is informational.
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a 📚 Docs section in the shared OVOS PR Checks comment.
+          Only runs when the workflow is triggered by a pull_request event.
+
+jobs:
+  docs_check:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check required docs files
+        id: file_check
+        # continue-on-error so the PR comment step always runs.
+        # The job still fails at the end via the outcome check below (if fail_on_missing).
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          required = [f.strip() for f in os.environ["REQUIRED_FILES"].split(",") if f.strip()]
+          results = []
+          all_present = True
+
+          for path in required:
+              exists = os.path.isfile(path)
+              results.append({"file": path, "exists": exists})
+              if not exists:
+                  all_present = False
+
+          with open("/tmp/docs-check-results.json", "w") as f:
+              json.dump({"files": results, "all_present": all_present}, f)
+
+          if not all_present:
+              missing = [r["file"] for r in results if not r["exists"]]
+              print(f"Missing required docs files: {missing}")
+              sys.exit(1)
+          else:
+              print("All required docs files present.")
+          PYEOF
+        env:
+          REQUIRED_FILES: ${{ inputs.required_files }}
+
+      - name: Run markdownlint
+        id: markdownlint
+        if: ${{ inputs.markdownlint }}
+        # continue-on-error so the PR comment step always runs.
+        continue-on-error: true
+        run: |
+          npm install -g markdownlint-cli2 2>/dev/null
+          if [ -n "${{ inputs.markdownlint_config }}" ]; then
+            markdownlint-cli2 --config "${{ inputs.markdownlint_config }}" "**/*.md" \
+              2>&1 | tee /tmp/markdownlint-output.txt || true
+          else
+            markdownlint-cli2 "**/*.md" \
+              2>&1 | tee /tmp/markdownlint-output.txt || true
+          fi
+          markdownlint-cli2 "**/*.md" 2>&1
+        continue-on-error: true
+
+      - name: Format docs check section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          file_check_outcome = os.environ.get("FILE_CHECK_OUTCOME", "unknown")
+          markdownlint_outcome = os.environ.get("MARKDOWNLINT_OUTCOME", "skipped")
+          run_markdownlint = os.environ.get("RUN_MARKDOWNLINT", "false").lower() == "true"
+
+          lines = []
+
+          # File existence results
+          try:
+              with open("/tmp/docs-check-results.json") as f:
+                  data = json.load(f)
+              files = data.get("files", [])
+              all_present = data.get("all_present", False)
+
+              if all_present:
+                  lines.append("✅ All required documentation files present.")
+              else:
+                  lines.append("⚠️ Some required documentation files are missing.")
+
+              lines.append("")
+              for item in files:
+                  icon = "✅" if item["exists"] else "❌"
+                  lines.append(f"{icon} `{item['file']}`")
+          except (FileNotFoundError, json.JSONDecodeError):
+              lines.append("⚠️ Docs check did not produce a report — check the job log.")
+
+          # Markdownlint results
+          if run_markdownlint:
+              lines.append("")
+              if markdownlint_outcome == "success":
+                  lines.append("✅ **markdownlint**: no issues found")
+              elif markdownlint_outcome == "failure":
+                  try:
+                      ml_output = open("/tmp/markdownlint-output.txt").read().strip()
+                      error_lines = [l for l in ml_output.splitlines() if l.strip()]
+                      lines.append(f"⚠️ **markdownlint**: {len(error_lines)} issue(s) found — check job log")
+                  except FileNotFoundError:
+                      lines.append("⚠️ **markdownlint**: issues found — check job log")
+              else:
+                  lines.append("ℹ️ **markdownlint**: skipped")
+
+          with open("/tmp/docs-check-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+        env:
+          FILE_CHECK_OUTCOME: ${{ steps.file_check.outcome }}
+          MARKDOWNLINT_OUTCOME: ${{ steps.markdownlint.outcome }}
+          RUN_MARKDOWNLINT: ${{ inputs.markdownlint }}
+
+      - name: Post docs check section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "docs_check" \
+            --title "📚 Docs" \
+            --content-file /tmp/docs-check-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      # Skipped when fail_on_missing is false — docs check is informational only.
+      - name: Fail job if required docs files are missing
+        if: ${{ steps.file_check.outcome == 'failure' && inputs.fail_on_missing }}
+        run: |
+          echo "Required documentation files are missing — see report above."
+          exit 1

@@ -1,0 +1,176 @@
+name: Type Check
+# Reusable workflow — runs mypy on the repo and posts a 🔎 Type Check section
+# to the shared OVOS PR Checks comment.
+#
+# Informational only — never blocks merges unless fail_on_errors: true.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      mypy_args:
+        type: string
+        default: "."
+        description: >
+          Arguments passed to mypy (e.g. 'my_package' or '. --ignore-missing-imports').
+          Default checks the entire repository.
+      install_extras:
+        type: string
+        default: ""
+        description: "pip extras to install before type-checking, e.g. '[dev]'"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages to install before type-checking (space-separated)"
+      fail_on_errors:
+        type: boolean
+        default: false
+        description: >
+          When true, the job fails if mypy reports any errors.
+          Default is false — type check is informational.
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a 🔎 Type Check section in the shared OVOS PR Checks comment.
+          Only runs when the workflow is triggered by a pull_request event.
+
+jobs:
+  type_check:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip mypy
+          if python -m pip install -e ".[dev]${{ inputs.install_extras }}" 2>/dev/null; then
+            echo "Installed package with [dev] extras"
+          elif python -m pip install -e ".${{ inputs.install_extras }}" 2>/dev/null; then
+            echo "Installed package"
+          else
+            echo "No installable package found — type-checking source tree directly"
+          fi
+
+      - name: Run mypy
+        id: mypy
+        # continue-on-error so the PR comment step always runs.
+        # The job still fails at the end via the outcome check below (if fail_on_errors).
+        continue-on-error: true
+        run: |
+          mypy ${{ inputs.mypy_args }} \
+            --show-column-numbers \
+            --no-error-summary \
+            --output=json 2>/dev/null \
+            | tee /tmp/mypy-results.json || true
+          # Also capture human-readable output for the PR comment
+          mypy ${{ inputs.mypy_args }} \
+            --show-column-numbers \
+            --no-error-summary 2>&1 \
+            | tee /tmp/mypy-human.txt || true
+          # Exit code from human-readable run (not tee)
+          mypy ${{ inputs.mypy_args }} --show-column-numbers --no-error-summary 2>&1
+        continue-on-error: true
+
+      - name: Format type check section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, re
+
+          outcome = os.environ.get("MYPY_OUTCOME", "unknown")
+          human_path = "/tmp/mypy-human.txt"
+
+          lines = []
+
+          try:
+              raw = open(human_path).read().strip()
+          except FileNotFoundError:
+              raw = ""
+
+          # Count errors and notes from the human output
+          error_lines = [l for l in raw.splitlines() if ": error:" in l]
+          note_lines = [l for l in raw.splitlines() if ": note:" in l]
+          # Summary line (last non-empty line)
+          summary_lines = [l for l in raw.splitlines() if l.strip()]
+          summary = summary_lines[-1] if summary_lines else ""
+
+          if outcome == "success" or not error_lines:
+              lines.append("✅ **mypy**: no type errors found")
+              if note_lines:
+                  lines.append(f"ℹ️ {len(note_lines)} note(s) — check the job log")
+          else:
+              lines.append(f"❌ **mypy**: {len(error_lines)} error(s) found")
+              if summary:
+                  lines.append(f"> {summary}")
+
+              # Show first 10 errors
+              if error_lines:
+                  shown = error_lines[:10]
+                  lines.append("")
+                  lines.append("<details><summary>Errors (showing first {}/{})".format(
+                      len(shown), len(error_lines)) + "</summary>")
+                  lines.append("")
+                  lines.append("```")
+                  for l in shown:
+                      lines.append(l)
+                  lines.append("```")
+                  lines.append("")
+                  lines.append("</details>")
+
+          if not lines:
+              lines.append("⚠️ Type check did not produce output — check the job log.")
+
+          with open("/tmp/type-check-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+        env:
+          MYPY_OUTCOME: ${{ steps.mypy.outcome }}
+
+      - name: Post type check section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "type_check" \
+            --title "🔎 Type Check" \
+            --content-file /tmp/type-check-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      # Skipped when fail_on_errors is false — type check is informational only.
+      - name: Fail job if mypy found errors
+        if: ${{ steps.mypy.outcome == 'failure' && inputs.fail_on_errors }}
+        run: |
+          echo "mypy found type errors — see report above."
+          exit 1

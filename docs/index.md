@@ -44,9 +44,11 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos — `repo_health.yml` |
 | `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | Skill repos — `skill_check.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
-| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy)* | Superseded by `build-tests.yml` for most repos |
+| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | Superseded by `build-tests.yml` for most repos |
 | `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
 | `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
+| `type-check.yml` | Run mypy and post 🔎 Type Check section to PR comment | Repos with type hints |
+| `docs-check.yml` | Verify required docs files exist; optional markdownlint | All repos |
 
 Full input/output/job reference: [workflow-reference.md](workflow-reference.md)
 
