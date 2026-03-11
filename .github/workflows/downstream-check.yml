@@ -54,10 +54,13 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq python3-dev swig libssl-dev libfann-dev portaudio19-dev libpulse-dev
-      - name: Install constraints and pipdeptree
+      - name: Install OVOS ecosystem and pipdeptree
         run: |
           python -m pip install build wheel pipdeptree
           curl -fsSL -o constraints.txt "${{ inputs.constraints_url }}"
+          # Install the full OVOS ecosystem so pipdeptree can find all reverse deps
+          pip install -r constraints.txt || true
+          # Re-install the target package pinned to the constraints version
           pip install -c constraints.txt "${{ inputs.package_name }}" || true
       - name: Generate downstream report
         run: |
