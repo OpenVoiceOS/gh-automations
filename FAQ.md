@@ -21,44 +21,45 @@ The original `TigreGotico/gh-automations` is now archived. GitHub preserves redi
 
 ## Ovoscope Workflow
 
-### How do I run ovoscope tests without adding pipeline dependencies to pyproject.toml?
+### How do I declare pipeline dependencies for ovoscope tests?
 
-The `ovoscope.yml` workflow now **auto-installs** pipeline plugins when you set `require_*: true`. You no longer need to add them to your `[test]` extras manually.
-
-Example:
-```yaml
-jobs:
-  ovoscope:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
-    with:
-      require_padatious: true  # Auto-installs ovos-padatious + swig
-      require_adapt: false     # No installation
-```
-
-**Auto-installed packages:**
-- `require_adapt: true` → `ovos-adapt-parser` (PyPI name, entry point: `ovos-adapt-pipeline-plugin`)
-- `require_padatious: true` → `ovos-padatious` (PyPI name, entry point: `ovos-padatious-pipeline-plugin`) + `swig` + `libfann-dev`
-- `require_m2v: true` → `ovos-m2v-pipeline`
-
-**Note:** PyPI package names differ from entry point names:
-- Adapt: PyPI=`ovos-adapt-parser`, entry point=`ovos-adapt-pipeline-plugin`
-- Padatious: PyPI=`ovos-padatious`, entry point=`ovos-padatious-pipeline-plugin`
-
-The workflow handles this automatically.
-
-### What if I want to manage pipeline dependencies manually?
-
-Set all `require_*` inputs to `false` (the default) and add the pipeline plugins to your `pyproject.toml` `[project.optional-dependencies].test` section:
+Skills **SHOULD** declare pipeline dependencies in `pyproject.toml` so tests can run locally and in distro builds:
 
 ```toml
 [project.optional-dependencies]
 test = [
     "ovoscope>=0.12.0a1",
-    "ovos-padatious",  # or ovos-adapt-pipeline-plugin, ovos-m2v-pipeline
+    "ovos-padatious",  # E2E tests use Padatious pipeline
 ]
 ```
 
-Then the workflow's "Install Pipeline Plugin Dependencies" step will skip installation, and the check step will verify they're present.
+Then in `.github/workflows/ovoscope.yml`:
+```yaml
+jobs:
+  ovoscope:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
+    with:
+      require_padatious: true  # CI fallback — auto-installs if missing
+```
+
+### What if I forget to add pipeline dependencies to pyproject.toml?
+
+The ovoscope workflow has a **CI fallback** — it auto-installs pipeline plugins when `require_*: true`:
+
+- `require_adapt: true` → auto-installs `ovos-adapt-parser` (PyPI name)
+- `require_padatious: true` → auto-installs `ovos-padatious` + `swig` + `libfann-dev`
+- `require_m2v: true` → auto-installs `ovos-m2v-pipeline`
+
+**Important:** This is a safety net for CI only. Local test runs and distro builds require explicit dependencies in `pyproject.toml`.
+
+### Why do I need to add dependencies to pyproject.toml if CI auto-installs them?
+
+- **Local testing:** `pip install -e .[test]` should work without manual steps
+- **Distro builds:** Distribution packagers need explicit dependency lists
+- **Reproducibility:** Dependencies should be declared, not implicit
+- **Offline development:** Auto-install only works in CI with network access
+
+The CI auto-install is a **fallback** to prevent CI failures when maintainers forget to add dependencies.
 
 ### Why does padatious require swig and libfann-dev?
 

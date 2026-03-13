@@ -3,7 +3,7 @@
 
 ---
 
-## [2026-03-13] — Auto-install pipeline plugins in ovoscope.yml
+## [2026-03-13] — Auto-install pipeline plugins in ovoscope.yml (CI fallback)
 
 ### AI-Assisted Implementation Summary
 
@@ -12,29 +12,33 @@
 
 **Problem:** Skills using ovoscope E2E tests with `require_padatious: true` were failing CI because the workflow expected the pipeline plugin to be in `[test]` extras, but the PyPI package names differ from entry point names, causing confusion.
 
-**Solution:** Enhanced `ovoscope.yml` to auto-install pipeline plugins when `require_*: true` is set, eliminating the need for skills to manually add them to `pyproject.toml`.
+**Solution:** Enhanced `ovoscope.yml` to auto-install pipeline plugins as a **CI fallback** when `require_*: true` is set. Skills MUST still declare dependencies in `pyproject.toml` for local/distro testing.
 
 **Changes to `.github/workflows/ovoscope.yml`:**
-- Updated header comments to document auto-installation behavior
+- Updated header comments to clarify auto-installation is a **CI fallback**, not a replacement for `pyproject.toml` dependencies
 - Modified `Install System Dependencies` step to auto-add `swig libfann-dev` when `require_padatious: true`
 - Added new `Install Pipeline Plugin Dependencies` step that:
   - Installs `ovos-adapt-parser` (PyPI name) if `require_adapt: true`
   - Installs `ovos-padatious` (PyPI name) if `require_padatious: true`
   - Installs `ovos-m2v-pipeline` if `require_m2v: true`
   - Prints installed pipeline entry points for debugging
+  - Error messages remind maintainers to add deps to `pyproject.toml`
 - Updated `Check required pipeline availability` step to reference auto-installation in error messages
 
 **Documentation updates:**
 - `README.md` — Added ovoscope.yml to workflow table
 - `FAQ.md` — Added "Ovoscope Workflow" section with Q&As:
-  - How to run ovoscope tests without manual dependency management
-  - How to manage dependencies manually (opt-out)
+  - How to declare pipeline dependencies in `pyproject.toml` (REQUIRED)
+  - What happens if you forget (CI fallback auto-installs)
+  - Why `pyproject.toml` deps are needed (local testing, distro builds, reproducibility)
   - Why padatious requires swig and libfann-dev
-  - PyPI vs entry point naming (Adapt: `ovos-adapt-parser` → `ovos-adapt-pipeline-plugin`, Padatious: `ovos-padatious` → `ovos-padatious-pipeline-plugin`)
 
-**Impact:** Skills no longer need to add pipeline plugins to `[test]` extras. The workflow handles installation automatically, reducing configuration errors and CI failures.
+**Impact:** 
+- CI no longer fails when maintainers forget pipeline dependencies (auto-install fallback)
+- Skills still require explicit `pyproject.toml` deps for local/distro testing
+- Clear error messages guide maintainers to add missing dependencies
 
-**Human Oversight Level:** Medium — user identified the CI failure; implementation autonomous with documentation updates.
+**Human Oversight Level:** Medium — user identified the CI failure and correct best practice; implementation autonomous with documentation updates.
 
 ---
 

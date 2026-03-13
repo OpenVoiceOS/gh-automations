@@ -5,12 +5,14 @@ name: Ovoscope End-to-End Tests
 # runs pytest against the end2end test directory, parses the JSON report,
 # and posts a '🔌 Skill Tests (ovoscope)' section to the OVOS PR Checks comment.
 #
-# Pipeline plugin auto-installation:
+# Pipeline plugin auto-installation (CI fallback):
+# Skills SHOULD declare pipeline dependencies in pyproject.toml [test] extras.
+# The auto-install steps below are a safety net for CI when dependencies are missing.
 # - PADACIOSO_PIPELINE: Always available via ovos-workshop (no extra deps needed).
-# - ADAPT_PIPELINE: Auto-installs ovos-adapt-pipeline-plugin if require_adapt=true.
-# - PADATIOUS_PIPELINE: Auto-installs ovos-padatious (PyPI name) if require_padatious=true.
+# - ADAPT_PIPELINE: Auto-installs ovos-adapt-parser if require_adapt=true (CI fallback).
+# - PADATIOUS_PIPELINE: Auto-installs ovos-padatious if require_padatious=true (CI fallback).
 #   Also auto-adds swig to system_deps for building the C extension.
-# - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true.
+# - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true (CI fallback).
 #
 # Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
 # Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
@@ -116,28 +118,32 @@ jobs:
 
       - name: Install Pipeline Plugin Dependencies
         run: |
-          # Auto-install pipeline plugins based on require_* flags
-          # This ensures tests can run without manually adding deps to pyproject.toml
+          # Auto-install pipeline plugins as CI fallback.
+          # NOTE: Skills should declare these in pyproject.toml [test] extras.
+          # This step ensures CI passes if the maintainer forgot to add them.
           if [ "${{ inputs.require_adapt }}" == "true" ]; then
-            echo "Installing ovos-adapt-parser..."
+            echo "Installing ovos-adapt-parser (CI fallback)..."
             pip install ovos-adapt-parser || {
               echo "::error::Failed to install ovos-adapt-parser"
               echo "::error::Note: Entry point is 'ovos-adapt-pipeline-plugin'"
+              echo "::error::Add 'ovos-adapt-parser' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
           if [ "${{ inputs.require_padatious }}" == "true" ]; then
-            echo "Installing ovos-padatious..."
+            echo "Installing ovos-padatious (CI fallback)..."
             pip install ovos-padatious || {
               echo "::error::Failed to install ovos-padatious (PyPI name)"
               echo "::error::Note: Entry point is 'ovos-padatious-pipeline-plugin'"
+              echo "::error::Add 'ovos-padatious' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
           if [ "${{ inputs.require_m2v }}" == "true" ]; then
-            echo "Installing ovos-m2v-pipeline..."
+            echo "Installing ovos-m2v-pipeline (CI fallback)..."
             pip install ovos-m2v-pipeline || {
               echo "::error::Failed to install ovos-m2v-pipeline"
+              echo "::error::Add 'ovos-m2v-pipeline' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
