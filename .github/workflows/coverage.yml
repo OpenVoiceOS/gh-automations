@@ -93,7 +93,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov coverage[toml] ovoscope
+          python -m pip install pytest pytest-cov coverage[toml]
           if python -m pip install -e ".[dev]" 2>/dev/null; then
             echo "Installed package with [dev] extras"
           elif python -m pip install -e . 2>/dev/null; then
