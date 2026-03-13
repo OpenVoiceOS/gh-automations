@@ -36,11 +36,15 @@ jobs:
 ```
 
 **Auto-installed packages:**
-- `require_adapt: true` → `ovos-adapt-pipeline-plugin`
+- `require_adapt: true` → `ovos-adapt-parser` (PyPI name, entry point: `ovos-adapt-pipeline-plugin`)
 - `require_padatious: true` → `ovos-padatious` (PyPI name, entry point: `ovos-padatious-pipeline-plugin`) + `swig` + `libfann-dev`
 - `require_m2v: true` → `ovos-m2v-pipeline`
 
-**Note:** The PyPI package name for Padatious is `ovos-padatious`, but the entry point is `ovos-padatious-pipeline-plugin`. The workflow handles this automatically.
+**Note:** PyPI package names differ from entry point names:
+- Adapt: PyPI=`ovos-adapt-parser`, entry point=`ovos-adapt-pipeline-plugin`
+- Padatious: PyPI=`ovos-padatious`, entry point=`ovos-padatious-pipeline-plugin`
+
+The workflow handles this automatically.
 
 ### What if I want to manage pipeline dependencies manually?
 

@@ -10,7 +10,7 @@
 **Model Used:** Qwen 3.5
 **Actions Taken:**
 
-**Problem:** Skills using ovoscope E2E tests with `require_padatious: true` were failing CI because the workflow expected the pipeline plugin to be in `[test]` extras, but the PyPI package name (`ovos-padatious`) differs from the entry point name (`ovos-padatious-pipeline-plugin`), causing confusion.
+**Problem:** Skills using ovoscope E2E tests with `require_padatious: true` were failing CI because the workflow expected the pipeline plugin to be in `[test]` extras, but the PyPI package names differ from entry point names, causing confusion.
 
 **Solution:** Enhanced `ovoscope.yml` to auto-install pipeline plugins when `require_*: true` is set, eliminating the need for skills to manually add them to `pyproject.toml`.
 
@@ -18,7 +18,7 @@
 - Updated header comments to document auto-installation behavior
 - Modified `Install System Dependencies` step to auto-add `swig libfann-dev` when `require_padatious: true`
 - Added new `Install Pipeline Plugin Dependencies` step that:
-  - Installs `ovos-adapt-pipeline-plugin` if `require_adapt: true`
+  - Installs `ovos-adapt-parser` (PyPI name) if `require_adapt: true`
   - Installs `ovos-padatious` (PyPI name) if `require_padatious: true`
   - Installs `ovos-m2v-pipeline` if `require_m2v: true`
   - Prints installed pipeline entry points for debugging
@@ -26,10 +26,11 @@
 
 **Documentation updates:**
 - `README.md` — Added ovoscope.yml to workflow table
-- `FAQ.md` — Added "Ovoscope Workflow" section with 3 Q&As:
+- `FAQ.md` — Added "Ovoscope Workflow" section with Q&As:
   - How to run ovoscope tests without manual dependency management
   - How to manage dependencies manually (opt-out)
   - Why padatious requires swig and libfann-dev
+  - PyPI vs entry point naming (Adapt: `ovos-adapt-parser` → `ovos-adapt-pipeline-plugin`, Padatious: `ovos-padatious` → `ovos-padatious-pipeline-plugin`)
 
 **Impact:** Skills no longer need to add pipeline plugins to `[test]` extras. The workflow handles installation automatically, reducing configuration errors and CI failures.
 

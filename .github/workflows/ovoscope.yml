@@ -119,9 +119,10 @@ jobs:
           # Auto-install pipeline plugins based on require_* flags
           # This ensures tests can run without manually adding deps to pyproject.toml
           if [ "${{ inputs.require_adapt }}" == "true" ]; then
-            echo "Installing ovos-adapt-pipeline-plugin..."
-            pip install ovos-adapt-pipeline-plugin || {
-              echo "::error::Failed to install ovos-adapt-pipeline-plugin"
+            echo "Installing ovos-adapt-parser..."
+            pip install ovos-adapt-parser || {
+              echo "::error::Failed to install ovos-adapt-parser"
+              echo "::error::Note: Entry point is 'ovos-adapt-pipeline-plugin'"
               exit 1
             }
           fi
