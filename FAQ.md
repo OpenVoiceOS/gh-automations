@@ -19,6 +19,49 @@ The original `TigreGotico/gh-automations` is now archived. GitHub preserves redi
 
 ---
 
+## Ovoscope Workflow
+
+### How do I run ovoscope tests without adding pipeline dependencies to pyproject.toml?
+
+The `ovoscope.yml` workflow now **auto-installs** pipeline plugins when you set `require_*: true`. You no longer need to add them to your `[test]` extras manually.
+
+Example:
+```yaml
+jobs:
+  ovoscope:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
+    with:
+      require_padatious: true  # Auto-installs ovos-padatious + swig
+      require_adapt: false     # No installation
+```
+
+**Auto-installed packages:**
+- `require_adapt: true` → `ovos-adapt-pipeline-plugin`
+- `require_padatious: true` → `ovos-padatious` (PyPI name, entry point: `ovos-padatious-pipeline-plugin`) + `swig` + `libfann-dev`
+- `require_m2v: true` → `ovos-m2v-pipeline`
+
+**Note:** The PyPI package name for Padatious is `ovos-padatious`, but the entry point is `ovos-padatious-pipeline-plugin`. The workflow handles this automatically.
+
+### What if I want to manage pipeline dependencies manually?
+
+Set all `require_*` inputs to `false` (the default) and add the pipeline plugins to your `pyproject.toml` `[project.optional-dependencies].test` section:
+
+```toml
+[project.optional-dependencies]
+test = [
+    "ovoscope>=0.12.0a1",
+    "ovos-padatious",  # or ovos-adapt-pipeline-plugin, ovos-m2v-pipeline
+]
+```
+
+Then the workflow's "Install Pipeline Plugin Dependencies" step will skip installation, and the check step will verify they're present.
+
+### Why does padatious require swig and libfann-dev?
+
+`ovos-padatious` bundles a C extension (`fann2`) that requires the Fast Artificial Neural Network (FANN) library. The `swig` tool generates the Python bindings, and `libfann-dev` provides the C headers. The workflow automatically installs these when `require_padatious: true`.
+
+---
+
 ## Versioning & Branching of gh-automations Itself
 
 ### Which ref should new repos use — `TigreGotico/gh-automations@@master` or `OpenVoiceOS/gh-automations@dev`?

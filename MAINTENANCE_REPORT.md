@@ -3,6 +3,40 @@
 
 ---
 
+## [2026-03-13] — Auto-install pipeline plugins in ovoscope.yml
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Qwen 3.5
+**Actions Taken:**
+
+**Problem:** Skills using ovoscope E2E tests with `require_padatious: true` were failing CI because the workflow expected the pipeline plugin to be in `[test]` extras, but the PyPI package name (`ovos-padatious`) differs from the entry point name (`ovos-padatious-pipeline-plugin`), causing confusion.
+
+**Solution:** Enhanced `ovoscope.yml` to auto-install pipeline plugins when `require_*: true` is set, eliminating the need for skills to manually add them to `pyproject.toml`.
+
+**Changes to `.github/workflows/ovoscope.yml`:**
+- Updated header comments to document auto-installation behavior
+- Modified `Install System Dependencies` step to auto-add `swig libfann-dev` when `require_padatious: true`
+- Added new `Install Pipeline Plugin Dependencies` step that:
+  - Installs `ovos-adapt-pipeline-plugin` if `require_adapt: true`
+  - Installs `ovos-padatious` (PyPI name) if `require_padatious: true`
+  - Installs `ovos-m2v-pipeline` if `require_m2v: true`
+  - Prints installed pipeline entry points for debugging
+- Updated `Check required pipeline availability` step to reference auto-installation in error messages
+
+**Documentation updates:**
+- `README.md` — Added ovoscope.yml to workflow table
+- `FAQ.md` — Added "Ovoscope Workflow" section with 3 Q&As:
+  - How to run ovoscope tests without manual dependency management
+  - How to manage dependencies manually (opt-out)
+  - Why padatious requires swig and libfann-dev
+
+**Impact:** Skills no longer need to add pipeline plugins to `[test]` extras. The workflow handles installation automatically, reducing configuration errors and CI failures.
+
+**Human Oversight Level:** Medium — user identified the CI failure; implementation autonomous with documentation updates.
+
+---
+
 ## [2026-03-11] — Fourteenth session: Roadmap implementation — AUDIT.md, new workflows, tests
 
 ### AI-Assisted Implementation Summary

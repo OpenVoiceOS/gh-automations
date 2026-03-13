@@ -5,11 +5,12 @@ name: Ovoscope End-to-End Tests
 # runs pytest against the end2end test directory, parses the JSON report,
 # and posts a '🔌 Skill Tests (ovoscope)' section to the OVOS PR Checks comment.
 #
-# Pipeline plugin strategy:
-# - PADACIOSO_PIPELINE (pure Python) is always available via ovos-workshop.
-# - ADAPT_PIPELINE requires ovos-adapt-pipeline-plugin (add to [test] deps).
-# - PADATIOUS_PIPELINE requires ovos-padatious-pipeline-plugin (C extension, needs swig).
-# - M2V_PIPELINE requires ovos-m2v-pipeline.
+# Pipeline plugin auto-installation:
+# - PADACIOSO_PIPELINE: Always available via ovos-workshop (no extra deps needed).
+# - ADAPT_PIPELINE: Auto-installs ovos-adapt-pipeline-plugin if require_adapt=true.
+# - PADATIOUS_PIPELINE: Auto-installs ovos-padatious (PyPI name) if require_padatious=true.
+#   Also auto-adds swig to system_deps for building the C extension.
+# - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true.
 #
 # Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
 # Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
@@ -44,23 +45,33 @@ on:
         type: boolean
         default: false
         description: >
-          Fail CI if ovos-adapt-pipeline-plugin is not installed.
+          Auto-install ovos-adapt-pipeline-plugin and fail CI if installation fails.
           When false, Adapt pipeline tests are skipped if the plugin is absent.
-          Requires ovos-adapt-pipeline-plugin in [test] deps.
       require_padatious:
         type: boolean
         default: false
         description: >
-          Fail CI if ovos-padatious-pipeline-plugin is not installed.
+          Auto-install ovos-padatious (PyPI name) and fail CI if installation fails.
+          Automatically adds 'swig' to system_deps for building the C extension (fann2).
           When false, Padatious pipeline tests are skipped if the plugin is absent.
-          Requires ovos-padatious-pipeline-plugin in [test] deps (C extension — needs swig).
       require_m2v:
         type: boolean
         default: false
         description: >
-          Fail CI if ovos-m2v-pipeline is not installed.
+          Auto-install ovos-m2v-pipeline and fail CI if installation fails.
           When false, M2V pipeline tests are skipped if the plugin is absent.
-          Requires ovos-m2v-pipeline in [test] deps.
+      bus_coverage:
+        type: boolean
+        default: true
+        description: "Enable bus-level message coverage tracking"
+      bus_coverage_include:
+        type: string
+        default: ""
+        description: "Regex pattern of skill_ids to include in bus coverage report"
+      bus_coverage_exclude:
+        type: string
+        default: "^Thread-|^intents$|^skills$|^__core__$"
+        description: "Regex pattern of skill_ids to exclude from bus coverage report"
       pr_comment:
         type: boolean
         default: true
@@ -91,10 +102,46 @@ jobs:
           python-version: ${{ inputs.python_version }}
 
       - name: Install System Dependencies
-        if: ${{ inputs.system_deps != '' }}
+        if: ${{ inputs.system_deps != '' || inputs.require_padatious }}
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq ${{ inputs.system_deps }}
+          DEPS="${{ inputs.system_deps }}"
+          # Auto-add swig for padatious (required for fann2 C extension)
+          if [ "${{ inputs.require_padatious }}" == "true" ]; then
+            DEPS="$DEPS swig libfann-dev"
+          fi
+          if [ -n "$DEPS" ]; then
+            sudo apt-get install -yq $DEPS
+          fi
+
+      - name: Install Pipeline Plugin Dependencies
+        run: |
+          # Auto-install pipeline plugins based on require_* flags
+          # This ensures tests can run without manually adding deps to pyproject.toml
+          if [ "${{ inputs.require_adapt }}" == "true" ]; then
+            echo "Installing ovos-adapt-pipeline-plugin..."
+            pip install ovos-adapt-pipeline-plugin || {
+              echo "::error::Failed to install ovos-adapt-pipeline-plugin"
+              exit 1
+            }
+          fi
+          if [ "${{ inputs.require_padatious }}" == "true" ]; then
+            echo "Installing ovos-padatious..."
+            pip install ovos-padatious || {
+              echo "::error::Failed to install ovos-padatious (PyPI name)"
+              echo "::error::Note: Entry point is 'ovos-padatious-pipeline-plugin'"
+              exit 1
+            }
+          fi
+          if [ "${{ inputs.require_m2v }}" == "true" ]; then
+            echo "Installing ovos-m2v-pipeline..."
+            pip install ovos-m2v-pipeline || {
+              echo "::error::Failed to install ovos-m2v-pipeline"
+              exit 1
+            }
+          fi
+          # Show installed pipeline entry points
+          python3 -c "import importlib.metadata; eps = importlib.metadata.entry_points(group='opm.pipeline'); print('Installed pipelines:', [ep.name for ep in eps])"
 
       - name: Install Package with Test Extras
         run: |
@@ -123,25 +170,30 @@ jobs:
           installed = get_installed_pipeline_bases()
           failures = []
 
+          # These checks verify that auto-installation succeeded
+          # If require_* is true, the pipeline should already be installed
+          # This check provides a clear error message if installation failed
+
           if "${{ inputs.require_adapt }}" == "true":
               if "ovos-adapt-pipeline-plugin" not in installed:
                   failures.append(
                       "ADAPT_PIPELINE (ovos-adapt-pipeline-plugin) is required but not installed.\n"
-                      "Add 'ovos-adapt-pipeline-plugin' to your [test] extras."
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step."
                   )
 
           if "${{ inputs.require_padatious }}" == "true":
               if "ovos-padatious-pipeline-plugin" not in installed:
                   failures.append(
                       "PADATIOUS_PIPELINE (ovos-padatious-pipeline-plugin) is required but not installed.\n"
-                      "Add 'ovos-padatious-pipeline-plugin' to your [test] extras (requires swig)."
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step.\n"
+                      "Note: PyPI package name is 'ovos-padatious', entry point is 'ovos-padatious-pipeline-plugin'."
                   )
 
           if "${{ inputs.require_m2v }}" == "true":
               if "ovos-m2v-pipeline" not in installed:
                   failures.append(
                       "M2V_PIPELINE (ovos-m2v-pipeline) is required but not installed.\n"
-                      "Add 'ovos-m2v-pipeline' to your [test] extras."
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step."
                   )
 
           if failures:
@@ -157,10 +209,21 @@ jobs:
         # continue-on-error so the PR comment step always runs even on failure
         continue-on-error: true
         run: |
+          COV_ARGS=""
+          if [ "${{ inputs.bus_coverage }}" == "true" ]; then
+            COV_ARGS="--ovoscope-bus-cov --ovoscope-bus-cov-verbose --ovoscope-bus-cov-file=/tmp/ovoscope-bus-coverage.json"
+            if [ -n "${{ inputs.bus_coverage_include }}" ]; then
+              COV_ARGS="$COV_ARGS --ovoscope-bus-cov-include='${{ inputs.bus_coverage_include }}'"
+            fi
+            if [ -n "${{ inputs.bus_coverage_exclude }}" ]; then
+              COV_ARGS="$COV_ARGS --ovoscope-bus-cov-exclude='${{ inputs.bus_coverage_exclude }}'"
+            fi
+          fi
           python -m pytest \
             ${{ inputs.test_path }} \
             --json-report \
             --json-report-file=/tmp/ovoscope-results.json \
+            $COV_ARGS \
             -v
 
       - name: Format ovoscope section for PR comment
@@ -254,15 +317,138 @@ jobs:
         env:
           OUTCOME: ${{ steps.run_tests.outcome }}
 
-      - name: Post ovoscope section to PR comment
+      - name: Format bus coverage section for PR comment
+        if: ${{ inputs.pr_comment && inputs.bus_coverage && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          def get_status_bar(pct):
+              filled = int(pct / 10)
+              bar = "█" * filled + "░" * (10 - filled)
+              return f"`{bar}` {pct}%"
+
+          try:
+              with open("/tmp/ovoscope-bus-coverage.json") as f:
+                  data = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              data = None
+
+          lines = []
+
+          if data is None:
+              lines.append("⚠️ Bus coverage report unavailable — check the job log.")
+          else:
+              totals = data.get("totals", {})
+              skills = data.get("skills", [])
+              
+              l_pct = totals.get("listener_coverage_pct", 0)
+              l_cov = totals.get("listener_covered", 0)
+              l_tot = totals.get("listener_total", 0)
+              
+              e_tot = totals.get("emitter_total", 0)
+              e_obs = totals.get("observed_count", 0)
+              e_ass = totals.get("asserted_count", 0)
+
+              # --- Summary Badges ---
+              status_icon = "🟢" if l_pct >= 80 else ("🟡" if l_pct >= 50 else "🔴")
+              lines.append(f"### {status_icon} Coverage Summary")
+              lines.append(f"| Metric | Status | Coverage |")
+              lines.append(f"|--------|--------|----------|")
+              lines.append(f"| **Listeners** | {get_status_bar(l_pct)} | {l_cov}/{l_tot} handlers |")
+              
+              e_pct = int(100 * e_obs / e_tot) if e_tot else 0
+              lines.append(f"| **Emitters** | {get_status_bar(e_pct)} | {e_obs}/{e_tot} observed |")
+              
+              a_pct = int(100 * e_ass / e_tot) if e_tot else 0
+              lines.append(f"| **Assertions** | {get_status_bar(a_pct)} | {e_ass}/{e_tot} asserted |")
+              lines.append("")
+              
+              if skills:
+                  lines.append("#### 📊 Per-Skill Breakdown")
+                  lines.append("| Skill | Listeners | Observed | Asserted |")
+                  lines.append("|-------|-----------|----------|----------|")
+                  for s in skills:
+                      sid = s.get("skill_id", "?")
+                      lp = s.get("listener_coverage_pct", 0)
+                      ls = s.get("listeners", [])
+                      l_c = sum(1 for h in ls if h.get("covered"))
+                      l_t = len(ls)
+                      
+                      es = s.get("emitters", [])
+                      e_o = sum(1 for e in es if e.get("observed"))
+                      e_a = sum(1 for e in es if e.get("asserted"))
+                      e_t = len(es)
+                      
+                      # Color the listener pct
+                      lp_str = f"**{lp}%**" if lp < 50 else f"{lp}%"
+                      lines.append(f"| `{sid}` | {l_c}/{l_t} ({lp_str}) | {e_o}/{e_t} | {e_a}/{e_t} |")
+                  
+                  # Optional details
+                  lines.append("")
+                  lines.append("<details><summary>🔍 Detailed Message Type Breakdown</summary>")
+                  lines.append("")
+                  for s in skills:
+                      sid = s.get("skill_id", "?")
+                      lines.append(f"#### `{sid}`")
+                      
+                      ls = s.get("listeners", [])
+                      uncovered = [h for h in ls if not h.get("covered")]
+                      covered = [h for h in ls if h.get("covered")]
+                      
+                      if uncovered:
+                          lines.append("**⚠️ Uncovered Listeners:**")
+                          # Sort to show intents first as they are most important
+                          uncovered.sort(key=lambda x: (not (".intent" in x.get("msg_type") or ":" in x.get("msg_type")), x.get("msg_type")))
+                          for h in uncovered:
+                              msg = h.get("msg_type")
+                              important = " (Intent)" if (".intent" in msg or ":" in msg) else ""
+                              lines.append(f"- ❌ `{msg}`{important}")
+                      
+                      if covered:
+                          lines.append("**✅ Covered Listeners:**")
+                          covered.sort(key=lambda x: x.get("msg_type"))
+                          for h in covered:
+                              cnt = h.get("invocation_count", 0)
+                              lines.append(f"- ✅ `{h.get('msg_type')}` ({cnt}x)")
+                      
+                      es = s.get("emitters", [])
+                      if es:
+                          lines.append("")
+                          lines.append("**📤 Emitters:**")
+                          es.sort(key=lambda x: (not x.get("observed"), x.get("msg_type")))
+                          for e in es:
+                              o_mark = "✅" if e.get("observed") else "❌"
+                              a_mark = " (Asserted ✅)" if e.get("asserted") else " (**Not Asserted** ⚠️)"
+                              cnt = e.get("observed_count", 0)
+                              lines.append(f"- {o_mark} `{e.get('msg_type')}`{a_mark}")
+                      lines.append("---")
+                  lines.append("</details>")
+
+          with open("/tmp/ovoscope-bus-coverage-section.md", "w") as f:
+              f.write("\n".join(lines))
+          PYEOF
+
+      - name: Post ovoscope sections to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
+          # Post the main test results
           python3 _gh_automations/scripts/update_pr_comment.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --section-id "ovoscope" \
             --title "🔌 Skill Tests (ovoscope)" \
             --content-file /tmp/ovoscope-section.md
+            
+          # Post the bus coverage report (if enabled)
+          if [ "${{ inputs.bus_coverage }}" == "true" ] && [ -f /tmp/ovoscope-bus-coverage-section.md ]; then
+            python3 _gh_automations/scripts/update_pr_comment.py \
+              --repo "${{ github.repository }}" \
+              --pr "${{ github.event.pull_request.number }}" \
+              --section-id "bus-coverage" \
+              --title "🚌 Bus Coverage" \
+              --content-file /tmp/ovoscope-bus-coverage-section.md
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
