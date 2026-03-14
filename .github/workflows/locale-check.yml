@@ -1,0 +1,161 @@
+name: Locale Build Check
+# Verifies that locale folders are correctly included in the package build.
+# Checks pyproject.toml configuration and build manifest.
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.11"
+      locale_path:
+        type: string
+        default: ""
+        description: "Override locale path (relative to repo root). If empty, auto-detects."
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post sections in the shared 'OVOS PR Checks' comment.
+          Only runs when triggered by a pull_request event.
+
+jobs:
+  locale_check:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install build setuptools
+
+      - name: Run build to generate SOURCES.txt
+        run: |
+          python -m build --no-isolation --outdir dist/ 2>&1 | tail -20
+        continue-on-error: true
+
+      - name: Run locale build check
+        run: |
+          python3 _gh_automations/scripts/check_locale_build.py \
+            --repo-root . \
+            --locale-path "${{ inputs.locale_path }}" \
+            --output-json /tmp/locale-report.json \
+            --verbose
+
+      - name: Format locale section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          import sys
+
+          try:
+              with open("/tmp/locale-report.json") as f:
+                  r = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              with open("/tmp/locale-section.md", "w") as f:
+                  f.write("⚠️ Locale check did not produce a report.")
+              sys.exit(0)
+
+          lines = []
+          status = r.get("status", "pass")
+          summary = r.get("summary", "")
+
+          # Summary line
+          lines.append(summary)
+          lines.append("")
+
+          # Locale directories
+          locale_dirs = r.get("locale_dirs_found", [])
+          if locale_dirs:
+              lines.append("**Locale directories found:**")
+              for ld in locale_dirs:
+                  rel = ld.replace(r.get("repo_root", "") + "/", "")
+                  lines.append(f"- `{rel}`")
+              lines.append("")
+
+          # Details per directory
+          details = r.get("locale_dirs_details", [])
+          if details:
+              lines.append("**Localization coverage:**")
+              for d in details:
+                  path = d["path"]
+                  files = d["file_counts"]["total_files"]
+                  langs = len(d["languages"])
+                  lines.append(f"- `{path}`: {files} files in {langs} languages ({', '.join(d['languages'][:5])}{'...' if langs > 5 else ''})")
+              lines.append("")
+
+          # pyproject.toml config
+          pyproject = r.get("pyproject_config", {})
+          if pyproject.get("has_locale_data"):
+              pkg = pyproject.get("package_name", "unknown")
+              patterns = pyproject.get("patterns", [])
+              lines.append(f"**pyproject.toml:** ✅ `[tool.setuptools.package-data.{pkg}]` includes locale")
+              for p in patterns:
+                  lines.append(f"  - `{p}`")
+          elif not locale_dirs:
+              lines.append("**pyproject.toml:** ℹ️ No locale configuration needed (no locale folder)")
+          else:
+              lines.append("**pyproject.toml:** ❌ Locale folder not configured in `[tool.setuptools.package-data]`")
+          lines.append("")
+
+          # Build manifest
+          build = r.get("build_manifest", {})
+          if build.get("includes_locale"):
+              files = build.get("files", [])
+              lines.append(f"**Build manifest:** ✅ {len(files)} locale files included in package")
+          elif locale_dirs:
+              lines.append("**Build manifest:** ⚠️ Build not run or locale not included (run `python -m build`)")
+          else:
+              lines.append("**Build manifest:** ℹ️ No locale to include")
+          lines.append("")
+
+          # Issues
+          issues = r.get("issues", [])
+          errors = [i for i in issues if i["severity"] == "error"]
+          warnings = [i for i in issues if i["severity"] == "warning"]
+          infos = [i for i in issues if i["severity"] == "info"]
+
+          if errors or warnings:
+              lines.append("**Issues:**")
+              for i in errors:
+                  lines.append(f"- ❌ {i['message']}")
+              for i in warnings:
+                  lines.append(f"- ⚠️ {i['message']}")
+
+          output = "\n".join(lines)
+
+          with open("/tmp/locale-section.md", "w") as f:
+              f.write(output)
+          PYEOF
+
+      - name: Post locale section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "locale" \
+            --title "🌍 Locale Build" \
+            --content-file /tmp/locale-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

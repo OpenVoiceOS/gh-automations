@@ -3,6 +3,62 @@
 
 ---
 
+## [2026-03-13] — New `locale-check.yml` workflow for locale build verification
+
+### AI-Assisted Implementation Summary
+
+**Model Used:** Qwen 3.5
+**Actions Taken:**
+
+**Problem:** No automated check to verify that locale folders are correctly included in Python package builds. Missing locale configuration in `pyproject.toml` leads to packages without translations.
+
+**Solution:** Created new reusable workflow `locale-check.yml` and script `check_locale_build.py` to verify locale packaging.
+
+**New files created:**
+- `scripts/check_locale_build.py` — Python script that:
+  - Auto-detects locale directories in the repository
+  - Counts locale files by extension and language
+  - Checks `pyproject.toml` for `[tool.setuptools.package-data]` locale patterns
+  - Validates build manifest (`SOURCES.txt`) includes locale files
+  - Returns JSON report with status: `pass`/`warning`/`fail`
+- `.github/workflows/locale-check.yml` — Reusable workflow that:
+  - Runs build to generate `SOURCES.txt`
+  - Calls `check_locale_build.py`
+  - Posts `🌍 Locale Build` section to PR comment
+  - Shows localization coverage statistics
+- `test/test_locale_build.py` — Unit tests (11 tests covering all functions)
+
+**Documentation updates:**
+- `README.md` — Added `locale-check.yml` to workflow table and script list
+- `docs/workflow-reference.md` — Added full reference documentation with:
+  - Input parameters
+  - Step-by-step workflow description
+  - Example PR comment output
+  - Status logic table
+  - Usage examples
+  - Script API documentation
+
+**Tested on:**
+- `ovos-skill-ggwave`: ✅ 69 files, 10 languages — PASS
+- `ovos-core`: ✅ 31 files, 16 languages — PASS
+
+**Status logic:**
+| Condition | Status |
+|-----------|--------|
+| No locale folder | `pass` (ℹ️ not using localization) |
+| Locale found, not in pyproject.toml | `fail` (❌ not packaged) |
+| Locale in pyproject.toml, not in build | `warning` (⚠️ build pending) |
+| Locale in both | `pass` (✅ properly configured) |
+
+**When to use:**
+- **Skills**: Use `skill-check.yml` (includes locale coverage) — no need for both
+- **Core/Plugins**: Use `locale-check.yml` to verify locale packaging
+- **Libraries without locale**: No workflow needed
+
+**Human Oversight Level:** Medium — autonomous implementation with full test coverage and documentation.
+
+---
+
 ## [2026-03-13] — Auto-install pipeline plugins in ovoscope.yml (CI fallback)
 
 ### AI-Assisted Implementation Summary

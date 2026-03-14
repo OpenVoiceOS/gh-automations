@@ -19,6 +19,77 @@ The original `TigreGotico/gh-automations` is now archived. GitHub preserves redi
 
 ---
 
+## Locale Build Workflow
+
+### What does `locale-check.yml` do?
+
+The `locale-check.yml` workflow verifies that locale folders are correctly included in the Python package build. It checks:
+
+1. **Locale folder exists** — auto-detects `locale/` directories in the repository
+2. **pyproject.toml configuration** — verifies `[tool.setuptools.package-data]` includes locale patterns
+3. **Build manifest** — validates `SOURCES.txt` includes locale files after build
+
+It posts a `🌍 Locale Build` section to the PR comment showing localization coverage statistics.
+
+### When should I use `locale-check.yml` vs `skill-check.yml`?
+
+- **Skills**: Use `skill-check.yml` — it includes locale coverage analysis plus skill.json validation and gitlocalize readiness
+- **Core/Plugins**: Use `locale-check.yml` — focuses on packaging verification without skill-specific checks
+- **Libraries without locale**: No workflow needed
+
+### How do I add locale-check.yml to my repo?
+
+Add a new workflow file `.github/workflows/locale-check.yml`:
+
+```yaml
+name: Locale Build Check
+
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  locale_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/locale-check.yml@dev
+    secrets: inherit
+```
+
+### What if my locale files are not being included in the build?
+
+The workflow will fail with: `❌ Locale folder not properly configured for packaging`
+
+Fix by adding to your `pyproject.toml`:
+
+```toml
+[tool.setuptools.package-data]
+my_package = [
+    "locale/*/*.voc",
+    "locale/*/*.dialog",
+    "locale/*/*.entity",
+    "locale/*/*.intent",
+    "locale/*/*.json",
+]
+```
+
+Replace `my_package` with your actual package name. See [docs/workflow-reference.md](docs/workflow-reference.md#locale-checkyml) for full details.
+
+### Can I run the check script locally?
+
+Yes, the underlying script can be run standalone:
+
+```bash
+python scripts/check_locale_build.py \
+  --repo-root . \
+  --locale-path "" \
+  --output-json /tmp/locale-report.json \
+  --verbose
+```
+
+Exit code is always 0; check the JSON `status` field (`pass`/`warning`/`fail`) for programmatic use.
+
+---
+
 ## Ovoscope Workflow
 
 ### How do I declare pipeline dependencies for ovoscope tests?

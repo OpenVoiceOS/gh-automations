@@ -3,7 +3,7 @@
 
 > Evidence-based record of known issues, technical debt, and security risks.
 > Each entry cites `file:LINE` and includes recommended action.
-> Last updated: 2026-03-11.
+> Last updated: 2026-03-13.
 
 ---
 
@@ -169,6 +169,7 @@ using only `GITHUB_TOKEN`.
 | R-004 | OPM editable-install entry-point registration bugs | Added editable check phase to `opm-check.yml` | 2026-03-10 |
 | R-005 | `read_version` duplicated across all version scripts | Extracted to `scripts/_version_utils.py` | 2026-03-09 |
 | R-006 | Missing tests for `update_pr_comment.py` | `test/test_update_pr_comment.py` added (26 tests) | 2026-03-10 |
+| R-007 | No CI check for locale packaging configuration | `locale-check.yml` workflow + `check_locale_build.py` script (11 tests) | 2026-03-13 |
 
 ---
 

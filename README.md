@@ -28,6 +28,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
 | `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `locale-check.yml` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) | [reference](docs/workflow-reference.md#locale-checkyml) |
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
@@ -105,6 +106,7 @@ Scripts in `scripts/` are checked out by the reusable workflows at run time:
 | `check_downstream.py` | Report downstream dependents via pipdeptree |
 | `update_pr_comment.py` | Manage the shared OVOS PR Checks comment (find-or-create, section replace) |
 | `check_skill.py` | Analyse skill locale structure, skill.json, translation coverage, gitlocalize |
+| `check_locale_build.py` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) |
 | `check_release.py` | Predict next version from PR labels/title using conventional commit rules |
 | `check_opm.py` | Detect OVOS plugins via OPM, validate interface, measure import time |
 

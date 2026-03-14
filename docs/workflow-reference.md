@@ -877,6 +877,111 @@ To also enforce gitlocalize readiness, set `fail_on_invalid_skill_json: true` an
 
 ---
 
+## `locale-check.yml`
+
+Verifies that locale folders are correctly included in the package build. Checks both `pyproject.toml` configuration (`[tool.setuptools.package-data]`) and the build manifest (`SOURCES.txt`).
+
+**Source:** `.github/workflows/locale-check.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version |
+| `locale_path` | string | `""` | Override locale path (relative to repo root). Empty = auto-detect. |
+| `pr_comment` | boolean | `true` | Post `🌍 Locale Build` section to OVOS PR Checks comment |
+
+### Permissions
+
+`pull-requests: write`, `contents: read`
+
+### Steps
+
+Follows the canonical 3-phase pattern (`continue-on-error` → format → post → re-raise):
+
+| Step | Description |
+|------|-------------|
+| Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
+| Setup Python | `actions/setup-python@v5` |
+| Install build dependencies | `pip install build setuptools` |
+| Run build to generate SOURCES.txt | `python -m build --no-isolation`. `continue-on-error: true`. |
+| Run locale build check | `check_locale_build.py --repo-root . --locale-path … --output-json /tmp/locale-report.json --verbose`. `continue-on-error: true`. |
+| Format locale section | Inline Python reads `locale-report.json` → `locale-section.md` |
+| Post locale section to PR comment | Calls `update_pr_comment.py` with `--section-id locale` |
+
+### PR comment content
+
+```
+🌍 Locale Build
+
+✅ Locale properly configured (95 files, 9 languages)
+
+**Locale directories found:**
+- `ovos_skill_ggwave/locale`
+
+**Localization coverage:**
+- `ovos_skill_ggwave/locale`: 95 files in 9 languages (en-us, pt-br, es-es, de-de, fr-fr...)
+
+**pyproject.toml:** ✅ `[tool.setuptools.package-data.ovos_skill_ggwave]` includes locale
+  - `locale/*/*.voc`
+  - `locale/*/*.dialog`
+  - `locale/*/*.entity`
+  - `locale/*/*.intent`
+  - `locale/*/*.json`
+
+**Build manifest:** ✅ 95 locale files included in package
+```
+
+### Status logic
+
+| Condition | Status | Summary |
+|-----------|--------|---------|
+| No locale folder found | `pass` | ℹ️ No locale folder found — localization not used |
+| Locale found, not in pyproject.toml | `fail` | ❌ Locale folder not properly configured for packaging |
+| Locale in pyproject.toml, not in build | `warning` | ⚠️ Locale configured but build verification pending |
+| Locale in both | `pass` | ✅ Locale properly configured (X files, Y languages) |
+
+### Typical usage
+
+```yaml
+name: Locale Build Check
+
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  locale_check:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/locale-check.yml@dev
+    secrets: inherit
+```
+
+### When to use
+
+Add this workflow to any OVOS repo that includes locale files:
+
+- **Skills**: Use `skill-check.yml` (includes locale coverage analysis) — no need for both
+- **Core/Plugins**: Use `locale-check.yml` to verify locale files are packaged correctly
+- **Libraries without locale**: No workflow needed
+
+### Script API
+
+The underlying `check_locale_build.py` script can also be run standalone:
+
+```bash
+python scripts/check_locale_build.py \
+  --repo-root . \
+  --locale-path "" \
+  --output-json /tmp/locale-report.json \
+  --verbose
+```
+
+Exit code is always 0; check the JSON `status` field (`pass`/`warning`/`fail`) for programmatic use.
+
+---
+
 ## `downstream-check.yml`
 
 Reports which packages in the ovos-releases alpha constraints depend on a given package. Uses `pipdeptree` and commits the sorted report to the repo, so repeated runs only generate a new commit when the actual dependency tree changes.
