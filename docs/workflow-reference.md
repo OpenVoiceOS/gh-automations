@@ -798,7 +798,7 @@ jobs:
 
 ## `skill-check.yml`
 
-Analyses an OVOS skill repository for locale structure, language coverage, skill.json validity, and gitlocalize readiness. Silently passes for non-skill repos by default.
+Analyses an OVOS skill repository for locale structure, language coverage, and skill.json validity. Silently passes for non-skill repos by default.
 
 **Source:** `.github/workflows/skill-check.yml`
 
@@ -870,10 +870,6 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
     secrets: inherit
 ```
-
-### Skill repos with gitlocalize
-
-To also enforce gitlocalize readiness, set `fail_on_invalid_skill_json: true` and ensure your repo has a `scripts/sync_translations.py` and `translations/` directory before enabling the check.
 
 ---
 

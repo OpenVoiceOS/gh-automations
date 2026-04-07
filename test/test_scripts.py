@@ -897,7 +897,6 @@ class TestCheckReleaseChannels:
 # ---------------------------------------------------------------------------
 
 from check_skill import (  # noqa: E402
-    check_gitlocalize_readiness,
     check_skill_json,
     check_translation_completeness,
     count_locale_files,
@@ -917,7 +916,7 @@ def _make_skill_repo(tmp_path: Path, *, entry_point: bool = True, langs: list[st
             "setup(entry_points={'ovos.plugin.skill': ['demo=demo:DemoSkill']})\n"
         )
     locale_dir = tmp_path / "skill_pkg" / "locale"
-    en_us = locale_dir / "en-us"
+    en_us = locale_dir / "en-US"
     en_us.mkdir(parents=True)
     (en_us / "hello.intent").write_text("hello\nhi\n")
     (en_us / "greet.dialog").write_text("Hello!\n")
@@ -970,7 +969,7 @@ class TestFindLocaleDir:
 class TestCountLocaleFiles:
     def test_counts_correctly(self, tmp_path: Path) -> None:
         repo = _make_skill_repo(tmp_path)
-        en_us = repo / "skill_pkg" / "locale" / "en-us"
+        en_us = repo / "skill_pkg" / "locale" / "en-US"
         counts = count_locale_files(str(en_us))
         assert counts["intent"] == 1
         assert counts["dialog"] == 1
@@ -1002,7 +1001,7 @@ class TestGetEnUsFileSet:
 class TestCheckSkillJson:
     def test_valid_json(self, tmp_path: Path) -> None:
         repo = _make_skill_repo(tmp_path)
-        en_us = repo / "skill_pkg" / "locale" / "en-us"
+        en_us = repo / "skill_pkg" / "locale" / "en-US"
         result = check_skill_json(str(en_us))
         assert result["exists"] is True
         assert result["valid_json"] is True
@@ -1034,41 +1033,21 @@ class TestCheckSkillJson:
 
 class TestCheckTranslationCompleteness:
     def test_full_coverage(self, tmp_path: Path) -> None:
-        repo = _make_skill_repo(tmp_path, langs=["de-de"])
+        repo = _make_skill_repo(tmp_path, langs=["de-DE"])
         locale_dir = repo / "skill_pkg" / "locale"
-        # de-de has hello.intent only; en-us has hello.intent + greet.dialog
+        # de-DE has hello.intent only; en-US has hello.intent + greet.dialog
         en_us_files = get_en_us_file_set(str(locale_dir))
         results = check_translation_completeness(str(locale_dir), en_us_files)
         assert len(results) == 1
-        assert results[0]["lang"] == "de-de"
+        assert results[0]["lang"] == "de-DE"
         assert results[0]["present"] == 1
         assert results[0]["total"] == 2
 
     def test_empty_en_us_set(self, tmp_path: Path) -> None:
         locale = tmp_path / "locale"
         locale.mkdir()
-        (locale / "de-de").mkdir()
+        (locale / "de-DE").mkdir()
         assert check_translation_completeness(str(locale), set()) == []
-
-
-class TestCheckGitlocalizeReadiness:
-    def test_all_present(self, tmp_path: Path) -> None:
-        (tmp_path / "scripts").mkdir()
-        (tmp_path / "scripts" / "sync_translations.py").write_text("")
-        (tmp_path / "translations").mkdir()
-        wf_dir = tmp_path / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        (wf_dir / "sync.yml").write_text("uses: sync-translations.yml\n")
-        result = check_gitlocalize_readiness(str(tmp_path))
-        assert result["sync_script_exists"] is True
-        assert result["translations_dir_exists"] is True
-        assert result["sync_workflow_exists"] is True
-
-    def test_all_absent(self, tmp_path: Path) -> None:
-        result = check_gitlocalize_readiness(str(tmp_path))
-        assert result["sync_script_exists"] is False
-        assert result["translations_dir_exists"] is False
-        assert result["sync_workflow_exists"] is False
 
 
 class TestSkillRunChecks:
@@ -1077,12 +1056,12 @@ class TestSkillRunChecks:
         assert report["is_skill"] is False
 
     def test_skill_repo_full(self, tmp_path: Path) -> None:
-        repo = _make_skill_repo(tmp_path, langs=["de-de", "fr-fr"])
+        repo = _make_skill_repo(tmp_path, langs=["de-DE", "fr-FR"])
         report = skill_run_checks(str(repo))
         assert report["is_skill"] is True
         assert report["has_en_us"] is True
         assert report["skill_id"] == "demo.test"
-        assert report["languages"] == 3  # en-us + de-de + fr-fr
+        assert report["languages"] == 3  # en-US + de-DE + fr-FR
         assert len(report["translations"]) == 2
 
 
