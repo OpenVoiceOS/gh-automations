@@ -16,8 +16,13 @@ on:
         description: "Run ruff check"
       ruff_args:
         type: string
-        default: "."
-        description: "Arguments passed to ruff check (e.g. '. --select E,F')"
+        default: ". --exclude _gh_automations"
+        description: >
+          Arguments passed to ruff check (e.g. '. --select E,F').
+          Default excludes _gh_automations/, which is where other reusable
+          workflows in this repo check themselves out as a sibling for
+          PR comment scripts. Without this exclude, consumers see ruff
+          errors from this repo's own scripts in their skill PRs.
       pre_commit:
         type: boolean
         default: false
