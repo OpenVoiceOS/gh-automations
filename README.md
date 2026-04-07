@@ -27,7 +27,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `pip-audit.yml` | Scan dependencies for known CVEs; optional SARIF upload | [reference](docs/workflow-reference.md#pip-audityml) |
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
-| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `skill-check.yml` | Locale coverage and skill.json validity | [reference](docs/workflow-reference.md#skill-checkyml) |
 | `locale-check.yml` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) | [reference](docs/workflow-reference.md#locale-checkyml) |
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
@@ -105,7 +105,7 @@ Scripts in `scripts/` are checked out by the reusable workflows at run time:
 | `get_version.py` | Read and print version string from `version.py` |
 | `check_downstream.py` | Report downstream dependents via pipdeptree |
 | `update_pr_comment.py` | Manage the shared OVOS PR Checks comment (find-or-create, section replace) |
-| `check_skill.py` | Analyse skill locale structure, skill.json, translation coverage, gitlocalize |
+| `check_skill.py` | Analyse skill locale structure, skill.json, and translation coverage |
 | `check_locale_build.py` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) |
 | `check_release.py` | Predict next version from PR labels/title using conventional commit rules |
 | `check_opm.py` | Detect OVOS plugins via OPM, validate interface, measure import time |

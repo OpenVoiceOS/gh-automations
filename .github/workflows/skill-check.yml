@@ -1,6 +1,6 @@
 name: Skill Check
 # Analyses an OVOS skill repository for locale structure, language coverage,
-# skill.json validity, and gitlocalize readiness.
+# and skill.json validity.
 #
 # Follows the same 3-phase pattern as pip-audit.yml:
 #   continue-on-error → format section → post comment → re-raise
@@ -155,15 +155,6 @@ jobs:
               lines.append("")
               lines.append("</details>")
               lines.append("")
-
-          # Gitlocalize readiness
-          gl = r.get("gitlocalize", {})
-          if gl:
-              gl_parts = []
-              gl_parts.append(("✅" if gl.get("sync_script_exists") else "❌") + " sync script")
-              gl_parts.append(("✅" if gl.get("translations_dir_exists") else "❌") + " translations/")
-              gl_parts.append(("✅" if gl.get("sync_workflow_exists") else "❌") + " sync workflow")
-              lines.append("**Gitlocalize:** " + " · ".join(gl_parts))
 
           with open("/tmp/skill-section.md", "w") as f:
               f.write("\n".join(lines))

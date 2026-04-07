@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Analyse a checked-out OVOS skill repository for locale structure, language
-coverage, skill.json validity, and gitlocalize readiness.
+coverage, and skill.json validity.
 
 Outputs a JSON report. Exit code is always 0; callers decide pass/fail.
 
@@ -54,7 +54,7 @@ def find_locale_dir(repo_root: str, override: str = "") -> str | None:
 
     Preference order:
     1. *override* if provided and valid.
-    2. Shallowest ``locale/`` directory containing an ``en-us`` sub-directory.
+    2. Shallowest ``locale/`` directory containing an ``en-US`` sub-directory.
     3. Any directory named ``locale/`` containing sub-directories with
        ``*.intent`` or ``*.voc`` files.
 
@@ -72,7 +72,7 @@ def find_locale_dir(repo_root: str, override: str = "") -> str | None:
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("node_modules", "__pycache__")]
         if os.path.basename(dirpath) == "locale":
             depth = dirpath.count(os.sep)
-            en_us = os.path.join(dirpath, "en-us")
+            en_us = os.path.join(dirpath, "en-US")
             if os.path.isdir(en_us):
                 candidates.append((depth, dirpath))
             else:
@@ -115,8 +115,8 @@ def count_locale_files(lang_dir: str) -> dict[str, int]:
 
 
 def get_en_us_file_set(locale_dir: str) -> set[str]:
-    """Return relative paths of all files under locale_dir/en-us/ (excluding skill.json)."""
-    en_us_dir = os.path.join(locale_dir, "en-us")
+    """Return relative paths of all files under locale_dir/en-US/ (excluding skill.json)."""
+    en_us_dir = os.path.join(locale_dir, "en-US")
     if not os.path.isdir(en_us_dir):
         return set()
     result: set[str] = set()
@@ -155,7 +155,7 @@ def check_skill_json(lang_dir: str) -> dict:
 
 
 def check_translation_completeness(locale_dir: str, en_us_files: set[str]) -> list[dict]:
-    """Check translation coverage for each non-en-us language directory.
+    """Check translation coverage for each non-en-US language directory.
 
     Returns list of dicts: {lang, total, present, pct}, sorted by lang.
     """
@@ -164,7 +164,7 @@ def check_translation_completeness(locale_dir: str, en_us_files: set[str]) -> li
     results: list[dict] = []
     try:
         langs = [d for d in os.listdir(locale_dir)
-                 if os.path.isdir(os.path.join(locale_dir, d)) and d != "en-us"]
+                 if os.path.isdir(os.path.join(locale_dir, d)) and d != "en-US"]
     except OSError:
         return []
     for lang in sorted(langs):
@@ -180,43 +180,6 @@ def check_translation_completeness(locale_dir: str, en_us_files: set[str]) -> li
     return results
 
 
-def check_gitlocalize_readiness(repo_root: str) -> dict:
-    """Check gitlocalize integration readiness.
-
-    Returns dict with:
-      sync_script_exists, translations_dir_exists,
-      sync_workflow_exists, sync_workflow_file.
-    """
-    sync_script = os.path.join(repo_root, "scripts", "sync_translations.py")
-    translations_dir = os.path.join(repo_root, "translations")
-    workflows_dir = os.path.join(repo_root, ".github", "workflows")
-
-    sync_workflow_exists = False
-    sync_workflow_file: str | None = None
-
-    if os.path.isdir(workflows_dir):
-        for fname in os.listdir(workflows_dir):
-            if not fname.endswith((".yml", ".yaml")):
-                continue
-            fpath = os.path.join(workflows_dir, fname)
-            try:
-                with open(fpath, encoding="utf-8") as fh:
-                    content = fh.read()
-                if "sync-translations.yml" in content:
-                    sync_workflow_exists = True
-                    sync_workflow_file = fname
-                    break
-            except OSError:
-                continue
-
-    return {
-        "sync_script_exists": os.path.isfile(sync_script),
-        "translations_dir_exists": os.path.isdir(translations_dir),
-        "sync_workflow_exists": sync_workflow_exists,
-        "sync_workflow_file": sync_workflow_file,
-    }
-
-
 def run_checks(repo_root: str, locale_dir_override: str = "") -> dict:
     """Run all skill checks and return the full report dict."""
     repo_root = os.path.abspath(repo_root)
@@ -230,7 +193,6 @@ def run_checks(repo_root: str, locale_dir_override: str = "") -> dict:
         "skill_json": {},
         "languages": 0,
         "translations": [],
-        "gitlocalize": {},
         "skill_id": None,
     }
 
@@ -239,7 +201,7 @@ def run_checks(repo_root: str, locale_dir_override: str = "") -> dict:
         return report
 
     report["locale_dir"] = locale_dir
-    en_us_dir = os.path.join(locale_dir, "en-us")
+    en_us_dir = os.path.join(locale_dir, "en-US")
     report["has_en_us"] = os.path.isdir(en_us_dir)
 
     if report["has_en_us"]:
@@ -250,14 +212,12 @@ def run_checks(repo_root: str, locale_dir_override: str = "") -> dict:
     en_us_files = get_en_us_file_set(locale_dir)
     translations = check_translation_completeness(locale_dir, en_us_files)
     report["translations"] = translations
-    # Count non-en-us language dirs
+    # Count non-en-US language dirs
     try:
         all_langs = [d for d in os.listdir(locale_dir) if os.path.isdir(os.path.join(locale_dir, d))]
     except OSError:
         all_langs = []
     report["languages"] = len(all_langs)
-
-    report["gitlocalize"] = check_gitlocalize_readiness(repo_root)
 
     return report
 

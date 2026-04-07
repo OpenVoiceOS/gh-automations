@@ -33,7 +33,7 @@ It posts a `🌍 Locale Build` section to the PR comment showing localization co
 
 ### When should I use `locale-check.yml` vs `skill-check.yml`?
 
-- **Skills**: Use `skill-check.yml` — it includes locale coverage analysis plus skill.json validation and gitlocalize readiness
+- **Skills**: Use `skill-check.yml` — it includes locale coverage analysis plus skill.json validation
 - **Core/Plugins**: Use `locale-check.yml` — focuses on packaging verification without skill-specific checks
 - **Libraries without locale**: No workflow needed
 
@@ -557,11 +557,10 @@ jobs:
 It runs `scripts/check_skill.py` against the checked-out repo and posts a `🎙️ Skill` section to the OVOS PR Checks comment. Checks include:
 
 - **is_skill** — looks for `ovos.plugin.skill` in `setup.py`, `pyproject.toml`, or `setup.cfg`
-- **Locale directory** — auto-detects the shallowest `locale/` dir containing `en-us/`
-- **en-us file counts** — counts `.intent`, `.voc`, `.dialog`, `.rx`, `.entity` files
+- **Locale directory** — auto-detects the shallowest `locale/` dir containing `en-US/`
+- **en-US file counts** — counts `.intent`, `.voc`, `.dialog`, `.rx`, `.entity` files
 - **skill.json validity** — checks presence and required fields: `skill_id`, `name`, `description`, `examples`, `tags`
-- **Translation coverage** — for each non-en-us language: files present / en-us file count × 100%
-- **Gitlocalize readiness** — `scripts/sync_translations.py`, `translations/`, workflow calling `sync-translations.yml`
+- **Translation coverage** — for each non-en-US language: files present / en-US file count × 100%
 
 ### Does skill-check fail for non-skill repos?
 

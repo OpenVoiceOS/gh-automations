@@ -42,7 +42,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `pip-audit.yml` | Scan installed dependencies for CVEs; optional SARIF upload | Selected repos — `pipaudit.yml` |
 | `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |
 | `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos — `repo_health.yml` |
-| `skill-check.yml` | Locale coverage, skill.json validity, gitlocalize readiness | Skill repos — `skill_check.yml` |
+| `skill-check.yml` | Locale coverage and skill.json validity | Skill repos — `skill_check.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | Superseded by `build-tests.yml` for most repos |
 | `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
@@ -69,7 +69,7 @@ Located in `scripts/`. Checked out by the reusable workflows at run time — not
 | `check_downstream.py` | `get_downstream(package_name)` — `scripts/check_downstream.py:61` | Report reverse dependencies using `pipdeptree` |
 | `update_pr_comment.py` | `find_ovos_comment(repo, pr)` — `scripts/update_pr_comment.py:56` | Find-or-create the shared OVOS PR Checks comment |
 | `update_pr_comment.py` | `insert_or_replace_section(body, ...)` — `scripts/update_pr_comment.py:81` | Replace a named section in the shared PR comment |
-| `check_skill.py` | `run_checks(repo_root, ...)` — `scripts/check_skill.py:220` | Full skill locale/skill.json/gitlocalize analysis |
+| `check_skill.py` | `run_checks(repo_root, ...)` — `scripts/check_skill.py:220` | Full skill locale and skill.json analysis |
 | `check_release.py` | `run_checks(version_file, ...)` — `scripts/check_release.py:196` | Predict next version from PR labels/title |
 | `check_opm.py` | `check_opm(plugin_type, entry_point, ...)` — `scripts/check_opm.py:406` | OPM plugin detection, interface validation, import timing |
 
