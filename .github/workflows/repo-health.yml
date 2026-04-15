@@ -73,12 +73,18 @@ jobs:
           lines.append("")
 
           for item in files:
-              # Special icon logic: 
+              # Special icon logic:
+              # - Legacy (pyproject.toml present) = 🗑️ with note, no failure
               # - Required & Missing = ❌
               # - Required & Present = ✅
-              # - Optional & Missing = ℹ️ (if no other group satisfied) or skip
+              # - Optional & Missing = ⚠️ (if no other group satisfied) or skip
               # - Optional & Present = ✅
-              
+
+              if item.get("legacy"):
+                  reason = item.get("legacy_reason", "consider removing")
+                  lines.append(f"🗑️ `{item['file']}` — legacy: {reason}")
+                  continue
+
               if item["exists"]:
                   icon = "✅"
               elif item["required"]:
@@ -88,12 +94,13 @@ jobs:
                   icon = "❌"
                   all_ok = False
               else:
-                  # Truly optional or satisfied by another file in group
-                  if item["file"] == "setup.py" and any(f["file"] == "pyproject.toml" and f["exists"] for f in files):
-                      continue # Hide setup.py if pyproject.toml exists
                   icon = "⚠️"
 
-              lines.append(f"{icon} `{item['file']}` — {item['label']}")
+              rename = item.get("rename_to")
+              if rename:
+                  lines.append(f"{icon} `{item['file']}` — {item['label']} (consider renaming to `{rename}`)")
+              else:
+                  lines.append(f"{icon} `{item['file']}` — {item['label']}")
 
           # Version block markers
           if version_info.get("exists"):
