@@ -27,11 +27,11 @@ on:
       fail_on_missing_en_us:
         type: boolean
         default: true
-        description: "Fail if en-us locale directory is absent"
+        description: "Fail if en-US locale directory is absent"
       fail_on_invalid_skill_json:
         type: boolean
         default: false
-        description: "Fail if en-us skill.json is missing or invalid"
+        description: "Fail if en-US skill.json is missing or invalid"
       pr_comment:
         type: boolean
         default: true
@@ -112,9 +112,9 @@ jobs:
               sj_icon = "✅" if sj.get("valid_json") and not sj.get("missing_fields") else "⚠️"
               sj_text = f"skill.json {sj_icon}"
               parts.append(sj_text)
-              lines.append("**en-us:** " + " · ".join(parts))
+              lines.append("**en-US:** " + " · ".join(parts))
           else:
-              lines.append("❌ **en-us locale not found**")
+              lines.append("❌ **en-US locale not found**")
           lines.append("")
 
           # Translation coverage table with progress bars
@@ -189,7 +189,7 @@ jobs:
               sys.exit(0)
           PYEOF
 
-      - name: Fail if en-us locale is missing
+      - name: Fail if en-US locale is missing
         if: ${{ inputs.fail_on_missing_en_us }}
         run: |
           python3 - <<'PYEOF'
@@ -202,7 +202,7 @@ jobs:
           if not r.get("is_skill"):
               sys.exit(0)
           if not r.get("has_en_us"):
-              print("ERROR: en-us locale directory not found (fail_on_missing_en_us=true).")
+              print("ERROR: en-US locale directory not found (fail_on_missing_en_us=true).")
               sys.exit(1)
           PYEOF
 
