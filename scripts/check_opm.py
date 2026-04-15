@@ -462,62 +462,8 @@ def check_opm(
         except Exception:
             pass
 
-    # Step 3: Check if OPM can find each plugin type
-    try:
-        import ovos_plugin_manager
-    except ImportError:
-        result["summary"] = "❌ ovos-plugin-manager not installed"
-        if output_json:
-            with open(output_json, "w") as f:
-                json.dump(result, f, indent=2)
-        print(result["summary"])
-        return 1
-
-    # Step 3b: Check configuration docs
-    has_config_docs, config_keys, _ = validate_config_docs()
-    result["validation"]["has_config_docs"] = has_config_docs
-    result["validation"]["config_keys"] = config_keys
-
-    # Step 3c: Check requires-python compatibility
-    req_py = result["metadata"].get("requires_python")
-    if req_py:
-        try:
-            import packaging.specifiers
-            spec = packaging.specifiers.SpecifierSet(req_py)
-            running = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-            result["validation"]["requires_python_ok"] = running in spec
-        except Exception:
-            result["validation"]["requires_python_ok"] = None  # packaging not available
-
-    found_any = False
-    for ptype in plugin_types_to_check:
-        full_type = f"opm.{ptype}" if not ptype.startswith("opm.") else ptype
-        short_type = ptype.replace("opm.", "")
-
-        try:
-            # Dynamically import the finder function
-            module_path, func_name = PLUGIN_TYPE_FINDERS.get(short_type, "").split(":")
-            if not module_path:
-                print(f"⚠️  Unknown plugin type: {short_type}", file=sys.stderr)
-                continue
-
-            module = __import__(module_path, fromlist=[func_name])
-            finder = getattr(module, func_name)
-            plugins = finder()
-
-            result["opm_found"][full_type] = bool(plugins)
-            found_any = bool(plugins) or found_any
-
-            # Extract first plugin class if available
-            if plugins:
-                first_plugin = list(plugins.items())[0] if plugins else None
-                if first_plugin and len(first_plugin) > 1:
-                    result["plugin_classes"][full_type] = first_plugin[1].__class__.__name__
-        except Exception as e:
-            print(f"⚠️  Error checking {short_type}: {e}", file=sys.stderr)
-            result["opm_found"][full_type] = False
-
-    # Step 3c: Validate declared entry points (import test + interface check)
+    # Step 3: Validate declared entry points (import test + interface check)
+    # Run before OPM check so results are populated even when OPM is absent.
     if test_import or validate_interface:
         pyproject = Path("pyproject.toml")
         if pyproject.exists():
@@ -566,6 +512,61 @@ def check_opm(
                                         print(f"⚠️  Could not validate interface for {ep_name}: {e}", file=sys.stderr)
             except Exception as e:
                 print(f"⚠️  Error extracting entry points for validation: {e}", file=sys.stderr)
+
+    # Step 3b: Check if OPM can find each plugin type
+    try:
+        import ovos_plugin_manager
+    except ImportError:
+        result["summary"] = "❌ ovos-plugin-manager not installed"
+        if output_json:
+            with open(output_json, "w") as f:
+                json.dump(result, f, indent=2)
+        print(result["summary"])
+        return 1
+
+    # Step 3c: Check configuration docs
+    has_config_docs, config_keys, _ = validate_config_docs()
+    result["validation"]["has_config_docs"] = has_config_docs
+    result["validation"]["config_keys"] = config_keys
+
+    # Step 3c: Check requires-python compatibility
+    req_py = result["metadata"].get("requires_python")
+    if req_py:
+        try:
+            import packaging.specifiers
+            spec = packaging.specifiers.SpecifierSet(req_py)
+            running = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            result["validation"]["requires_python_ok"] = running in spec
+        except Exception:
+            result["validation"]["requires_python_ok"] = None  # packaging not available
+
+    found_any = False
+    for ptype in plugin_types_to_check:
+        full_type = f"opm.{ptype}" if not ptype.startswith("opm.") else ptype
+        short_type = ptype.replace("opm.", "")
+
+        try:
+            # Dynamically import the finder function
+            module_path, func_name = PLUGIN_TYPE_FINDERS.get(short_type, "").split(":")
+            if not module_path:
+                print(f"⚠️  Unknown plugin type: {short_type}", file=sys.stderr)
+                continue
+
+            module = __import__(module_path, fromlist=[func_name])
+            finder = getattr(module, func_name)
+            plugins = finder()
+
+            result["opm_found"][full_type] = bool(plugins)
+            found_any = bool(plugins) or found_any
+
+            # Extract first plugin class if available
+            if plugins:
+                first_plugin = list(plugins.items())[0] if plugins else None
+                if first_plugin and len(first_plugin) > 1:
+                    result["plugin_classes"][full_type] = first_plugin[1].__class__.__name__
+        except Exception as e:
+            print(f"⚠️  Error checking {short_type}: {e}", file=sys.stderr)
+            result["opm_found"][full_type] = False
 
     # Step 4: Legacy entry_point support (backward compatibility)
     if entry_point:
