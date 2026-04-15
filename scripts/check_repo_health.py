@@ -17,10 +17,13 @@ import sys
 from _version_utils import find_version_file
 
 
-REQUIRED_FILES = [
-    ("README.md", "README"),
-    ("LICENSE", "License file"),
-]
+# LICENSE canonical name; alternatives are accepted but flagged for rename
+LICENSE_CANONICAL = "LICENSE"
+LICENSE_FILES = ["LICENSE", "LICENSE.md", "LICENSE.txt"]
+
+# README canonical name; alternatives are accepted but flagged for rename
+README_CANONICAL = "README.md"
+README_FILES = ["README.md", "README.txt", "README"]
 
 SETUP_FILES = [
     ("pyproject.toml", "pyproject.toml"),
@@ -30,6 +33,13 @@ SETUP_FILES = [
 OPTIONAL_FILES = [
     ("CHANGELOG.md", "Changelog"),
     ("requirements.txt", "Requirements"),
+]
+
+# These files are considered legacy/outdated when pyproject.toml is present
+LEGACY_IF_PYPROJECT = [
+    ("setup.py", "setup.py"),
+    ("requirements.txt", "requirements.txt"),
+    ("MANIFEST.in", "MANIFEST.in"),
 ]
 
 
@@ -46,30 +56,56 @@ def check_required_files(repo_root: str, version_file: str = "version.py") -> li
         "required": True
     })
 
-    for filename, label in REQUIRED_FILES:
-        path = os.path.join(repo_root, filename)
-        exists = os.path.isfile(path)
-        results.append({
-            "file": filename,
-            "label": label,
-            "exists": exists,
-            "required": True,
-        })
+    # README: canonical is README.md; alternatives accepted but flagged for rename
+    readme_file = next(
+        (f for f in README_FILES if os.path.isfile(os.path.join(repo_root, f))),
+        None,
+    )
+    readme_entry: dict = {
+        "file": readme_file or README_CANONICAL,
+        "label": "README",
+        "exists": readme_file is not None,
+        "required": True,
+    }
+    if readme_file and readme_file != README_CANONICAL:
+        readme_entry["rename_to"] = README_CANONICAL
+    results.append(readme_entry)
+
+    # LICENSE: canonical is LICENSE; alternatives accepted but flagged for rename
+    license_file = next(
+        (f for f in LICENSE_FILES if os.path.isfile(os.path.join(repo_root, f))),
+        None,
+    )
+    license_entry: dict = {
+        "file": license_file or LICENSE_CANONICAL,
+        "label": "License file",
+        "exists": license_file is not None,
+        "required": True,
+    }
+    if license_file and license_file != LICENSE_CANONICAL:
+        license_entry["rename_to"] = LICENSE_CANONICAL
+    results.append(license_entry)
 
     # At least one setup file must exist
     has_pyproject = os.path.isfile(os.path.join(repo_root, "pyproject.toml"))
     has_setup_py = os.path.isfile(os.path.join(repo_root, "setup.py"))
-    
+
+    legacy_filenames = {f for f, _ in LEGACY_IF_PYPROJECT}
+
     for filename, label in SETUP_FILES:
         exists = os.path.isfile(os.path.join(repo_root, filename))
         is_required = False
-        
+
         # If neither exists, they are BOTH required (group failure)
         # If pyproject exists, setup.py is truly optional (no warning)
         # If ONLY setup.py exists, it's satisfied but we might suggest pyproject later
         if filename == "pyproject.toml" and not has_setup_py:
             is_required = True
-        
+
+        # skip setup.py here — it will be reported as legacy below
+        if has_pyproject and filename in legacy_filenames and exists:
+            continue
+
         results.append({
             "file": filename,
             "label": label,
@@ -79,9 +115,27 @@ def check_required_files(repo_root: str, version_file: str = "version.py") -> li
             "group_satisfied": (has_pyproject or has_setup_py)
         })
 
+    # Flag legacy packaging files when pyproject.toml is present
+    if has_pyproject:
+        for filename, label in LEGACY_IF_PYPROJECT:
+            path = os.path.join(repo_root, filename)
+            exists = os.path.isfile(path)
+            if exists:
+                results.append({
+                    "file": filename,
+                    "label": label,
+                    "exists": True,
+                    "required": False,
+                    "legacy": True,
+                    "legacy_reason": "pyproject.toml is present; this file is no longer needed",
+                })
+
     for filename, label in OPTIONAL_FILES:
         path = os.path.join(repo_root, filename)
         exists = os.path.isfile(path)
+        # Skip if already reported as legacy
+        if has_pyproject and any(filename == f for f, _ in LEGACY_IF_PYPROJECT):
+            continue
         results.append({
             "file": filename,
             "label": label,
