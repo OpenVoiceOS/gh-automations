@@ -82,7 +82,7 @@ jobs:
             --package "${{ inputs.package_name }}" \
             --output "${{ inputs.output_file }}"
       - name: Upload report as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.output_file }}
           path: ${{ inputs.output_file }}
