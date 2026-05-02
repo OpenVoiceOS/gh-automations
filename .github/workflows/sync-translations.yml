@@ -62,7 +62,7 @@ jobs:
         run: python ${{ inputs.script_path }}
 
       - name: Commit updated translations
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: sync translations"
           branch: ${{ inputs.branch }}

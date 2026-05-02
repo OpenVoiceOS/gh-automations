@@ -114,7 +114,7 @@ jobs:
           echo "version=$(python get_version.py --version-file ../../package/${{ inputs.version_file }})" >> $GITHUB_OUTPUT
 
       - name: Push Version Change
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: Increment Version to ${{ steps.version.outputs.version }}
           branch: ${{ steps.branch_detect.outputs.actual_branch }}
