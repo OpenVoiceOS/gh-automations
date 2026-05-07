@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload OPM results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opm-results
           path: /tmp/opm_result*.json
@@ -207,7 +207,7 @@ jobs:
           path: _gh_automations/
 
       - name: Download OPM results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: opm_artifacts
           pattern: opm-results

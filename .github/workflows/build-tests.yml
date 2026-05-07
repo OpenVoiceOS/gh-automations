@@ -128,7 +128,7 @@ jobs:
 
       - name: Upload result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-result-${{ matrix.python-version }}
           path: build-results/${{ matrix.python-version }}.txt
@@ -151,7 +151,7 @@ jobs:
           path: _gh_automations/
 
       - name: Download all results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: results_download
           pattern: build-result-*
