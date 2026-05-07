@@ -26,6 +26,15 @@ on:
         description: >
           pip extras appended to the install command, e.g. 'test' or 'dev,test'.
           Applied when installing the built wheel.
+      pre_install_pip:
+        type: string
+        default: ""
+        description: >
+          Optional space-separated pip requirement specs to install BEFORE the
+          package build/install step. Use this to override transitive deps with
+          git URLs (e.g. for testing against an unreleased version of a sibling
+          package). Each whitespace-separated item is passed as a single
+          argument to `pip install`, so quoted git URLs are supported.
       test_path:
         type: string
         default: ""
@@ -69,6 +78,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install build wheel
+
+      - name: Pre-install pip requirements
+        if: ${{ inputs.pre_install_pip != '' }}
+        run: |
+          # shellcheck disable=SC2086
+          python -m pip install ${{ inputs.pre_install_pip }}
 
       - name: Build Distribution Packages
         id: build
