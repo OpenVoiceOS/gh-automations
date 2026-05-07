@@ -64,11 +64,11 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Checkout gh-automations scripts
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev

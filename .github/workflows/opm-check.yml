@@ -66,7 +66,7 @@ jobs:
   opm_check:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python ${{ inputs.python_version }}
         uses: actions/setup-python@v5
@@ -74,7 +74,7 @@ jobs:
           python-version: ${{ inputs.python_version }}
 
       - name: Checkout gh-automations scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
@@ -200,7 +200,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout gh-automations
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev

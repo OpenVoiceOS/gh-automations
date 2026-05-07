@@ -77,11 +77,11 @@ jobs:
       contents: write   # needed for deploy_pages git push; harmless when deploy_pages: false
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout gh-automations scripts
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
