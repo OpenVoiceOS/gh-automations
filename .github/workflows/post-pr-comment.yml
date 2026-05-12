@@ -55,16 +55,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Find PR number from head SHA
+      - name: Find PR number from head branch
         id: pr
         run: |
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
           REPO="${{ github.event.workflow_run.repository.full_name }}"
-          PR_NUMBER=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
-            --header "Accept: application/vnd.github+json" \
+          FORK_OWNER="${{ github.event.workflow_run.head_repository.owner.login }}"
+          HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          PR_NUMBER=$(gh api "repos/$REPO/pulls?head=${FORK_OWNER}:${HEAD_BRANCH}&state=open" \
             --jq '.[0].number // empty' 2>/dev/null || echo "")
           if [ -z "$PR_NUMBER" ]; then
-            echo "No PR found for SHA $HEAD_SHA — skipping"
+            echo "No open PR found for ${FORK_OWNER}:${HEAD_BRANCH} — skipping"
             echo "found=false" >> $GITHUB_OUTPUT
           else
             echo "PR number: $PR_NUMBER"
