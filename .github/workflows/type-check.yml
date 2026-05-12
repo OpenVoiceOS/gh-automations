@@ -39,6 +39,10 @@ on:
         description: >
           Post a 🔎 Type Check section in the shared OVOS PR Checks comment.
           Only runs when the workflow is triggered by a pull_request event.
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   type_check:
@@ -155,6 +159,15 @@ jobs:
         env:
           MYPY_OUTCOME: ${{ steps.mypy.outcome }}
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post type check section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -165,7 +178,7 @@ jobs:
             --title "🔎 Type Check" \
             --content-file /tmp/type-check-section.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so the check status is correct.
       # Skipped when fail_on_errors is false — type check is informational only.

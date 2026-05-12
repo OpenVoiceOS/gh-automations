@@ -68,6 +68,10 @@ on:
         type: number
         default: 14
         description: "Days to retain the coverage XML artifact"
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   coverage:
@@ -235,6 +239,15 @@ jobs:
           MIN_COVERAGE: ${{ inputs.min_coverage }}
           TESTS_OUTCOME: ${{ steps.run_tests.outcome }}
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post coverage section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -245,7 +258,7 @@ jobs:
             --title "📊 Coverage" \
             --content-file /tmp/coverage-section.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Upload Coverage XML Artifact
         if: always()

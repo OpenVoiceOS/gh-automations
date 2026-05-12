@@ -21,6 +21,10 @@ on:
         description: >
           Post sections in the shared 'OVOS PR Checks' comment.
           Only runs when triggered by a pull_request event.
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   locale_check:
@@ -148,6 +152,15 @@ jobs:
               f.write(output)
           PYEOF
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post locale section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -158,4 +171,4 @@ jobs:
             --title "🌍 Locale Build" \
             --content-file /tmp/locale-section.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

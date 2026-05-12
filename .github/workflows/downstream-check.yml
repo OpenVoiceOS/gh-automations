@@ -34,6 +34,10 @@ on:
         type: string
         default: "dev"
         description: "Deprecated — ignored. Report is now uploaded as an artifact instead of committed."
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   check_downstream:
@@ -88,6 +92,15 @@ jobs:
           path: ${{ inputs.output_file }}
           retention-days: 30
           if-no-files-found: warn
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post downstream section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -98,4 +111,4 @@ jobs:
             --title "🔗 Downstream Dependents" \
             --content-file "${{ inputs.output_file }}"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

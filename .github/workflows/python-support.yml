@@ -48,6 +48,10 @@ on:
         type: boolean
         default: true
         description: "Post/update the '🐍 Python Support' section in the PR comment"
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   check_compatibility:
@@ -197,6 +201,15 @@ jobs:
             cat /tmp/channel-report.md >> /tmp/python-report.md
           fi
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post PR comment section
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \
@@ -206,4 +219,4 @@ jobs:
             --title "🐍 Python Support" \
             --content-file /tmp/python-report.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

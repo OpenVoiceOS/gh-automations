@@ -61,6 +61,10 @@ on:
         type: string
         default: ""
         description: "Maximum ovos-plugin-manager version (exclusive upper bound), e.g. '3.0.0'. Leave empty for no upper bound."
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   opm_check:
@@ -399,6 +403,15 @@ jobs:
               echo "⚠️ Breaking changes will affect these packages — consider impact before merging." >> /tmp/opm-section.md
           fi
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post OPM section to PR comment
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \
@@ -408,4 +421,4 @@ jobs:
             --title "🔌 Plugin Detection" \
             --content-file /tmp/opm-section.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

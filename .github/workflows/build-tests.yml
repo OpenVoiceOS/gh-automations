@@ -47,6 +47,11 @@ on:
         description: >
           Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments from forks"
+
 jobs:
   build_tests:
     strategy:
@@ -217,6 +222,15 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
+      - name: Generate app token for PR comment
+        id: app-token
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Post build section to PR comment
         run: |
           python3 _gh_automations/scripts/update_pr_comment.py \
@@ -226,4 +240,4 @@ jobs:
             --title "🔨 Build Tests" \
             --content-file /tmp/build-section.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
