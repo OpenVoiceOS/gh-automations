@@ -37,9 +37,8 @@ on:
 jobs:
   post_comment:
     runs-on: ubuntu-latest
-    # Only run for fork PRs — internal PRs already post in-context.
-    # head_repository.id != repository.id means the PR is from a fork.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.id != github.event.workflow_run.repository.id }}
+    # Only run for pull_request-triggered workflow runs (not push/manual).
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
     permissions:
       pull-requests: write
       contents: read
@@ -89,8 +88,11 @@ jobs:
         id: check
         if: ${{ steps.pr.outputs.found == 'true' }}
         run: |
-          if [ -f /tmp/pr-section/pr-section-meta.json ]; then
+          shopt -s nullglob
+          files=(/tmp/pr-section/*.json)
+          if [ ${#files[@]} -gt 0 ]; then
             echo "found=true" >> $GITHUB_OUTPUT
+            echo "Found ${#files[@]} section file(s)"
           else
             echo "found=false" >> $GITHUB_OUTPUT
             echo "No pr-comment-section artifact in run ${{ github.event.workflow_run.id }}"
@@ -105,26 +107,33 @@ jobs:
           private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
         continue-on-error: true
 
-      - name: Post section to PR comment
+      - name: Post sections to PR comment
         if: ${{ steps.check.outputs.found == 'true' }}
         run: |
-          python3 - <<'PYEOF'
+          python3 <<'PYEOF'
           import json, sys, pathlib, subprocess
 
-          meta = json.loads(pathlib.Path("/tmp/pr-section/pr-section-meta.json").read_text())
-          content_file = "/tmp/pr-section-content.md"
-          pathlib.Path(content_file).write_text(meta["content"])
+          repo = "${{ github.event.workflow_run.repository.full_name }}"
+          pr   = "${{ steps.pr.outputs.number }}"
 
-          result = subprocess.run([
-              sys.executable,
-              "_gh_automations/scripts/update_pr_comment.py",
-              "--repo", "${{ github.event.workflow_run.repository.full_name }}",
-              "--pr",   "${{ steps.pr.outputs.number }}",
-              "--section-id", meta["section_id"],
-              "--title", meta["title"],
-              "--content-file", content_file,
-          ])
-          sys.exit(result.returncode)
+          section_files = sorted(pathlib.Path("/tmp/pr-section/").glob("*.json"))
+          exit_code = 0
+          for sf in section_files:
+              meta = json.loads(sf.read_text())
+              content_file = f"/tmp/{sf.stem}-content.md"
+              pathlib.Path(content_file).write_text(meta["content"])
+              result = subprocess.run([
+                  sys.executable,
+                  "_gh_automations/scripts/update_pr_comment.py",
+                  "--repo", repo,
+                  "--pr",   pr,
+                  "--section-id", meta["section_id"],
+                  "--title", meta["title"],
+                  "--content-file", content_file,
+              ])
+              if result.returncode != 0:
+                  exit_code = result.returncode
+          sys.exit(exit_code)
           PYEOF
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}

@@ -440,56 +440,31 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
-      - name: Generate app token for PR comment
-        id: app-token
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.LOCALIZE_APP_ID }}
-          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
-        continue-on-error: true
 
       - name: Write section metadata for workflow_run posting
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
+          mkdir -p /tmp/pr-sections
           python3 <<'PYEOF'
           import json, pathlib
           content = pathlib.Path('/tmp/ovoscope-section.md').read_text() if pathlib.Path('/tmp/ovoscope-section.md').exists() else ''
-          meta = {'section_id': 'ovoscope', 'title': '🔭 Ovoscope', 'content': content}
-          pathlib.Path('/tmp/pr-section-meta.json').write_text(json.dumps(meta))
+          meta = {'section_id': 'ovoscope', 'title': '🔌 Skill Tests (ovoscope)', 'content': content}
+          pathlib.Path('/tmp/pr-sections/ovoscope.json').write_text(json.dumps(meta))
+          bus_cov = pathlib.Path('/tmp/ovoscope-bus-coverage-section.md')
+          if bus_cov.exists():
+              meta2 = {'section_id': 'bus-coverage', 'title': '🚌 Bus Coverage', 'content': bus_cov.read_text()}
+              pathlib.Path('/tmp/pr-sections/bus-coverage.json').write_text(json.dumps(meta2))
           PYEOF
 
-      - name: Upload section for workflow_run comment posting
+      - name: Upload sections for workflow_run comment posting
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: pr-comment-section
-          path: /tmp/pr-section-meta.json
+          path: /tmp/pr-sections/
           retention-days: 1
           if-no-files-found: ignore
 
-      - name: Post ovoscope sections to PR comment
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        run: |
-          # Post the main test results
-          python3 _gh_automations/scripts/update_pr_comment.py \
-            --repo "${{ github.repository }}" \
-            --pr "${{ github.event.pull_request.number }}" \
-            --section-id "ovoscope" \
-            --title "🔌 Skill Tests (ovoscope)" \
-            --content-file /tmp/ovoscope-section.md
-            
-          # Post the bus coverage report (if enabled)
-          if [ "${{ inputs.bus_coverage }}" == "true" ] && [ -f /tmp/ovoscope-bus-coverage-section.md ]; then
-            python3 _gh_automations/scripts/update_pr_comment.py \
-              --repo "${{ github.repository }}" \
-              --pr "${{ github.event.pull_request.number }}" \
-              --section-id "bus-coverage" \
-              --title "🚌 Bus Coverage" \
-              --content-file /tmp/ovoscope-bus-coverage-section.md
-          fi
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so check status is correct.
       - name: Fail job if tests failed
