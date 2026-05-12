@@ -1,0 +1,28 @@
+name: Validate Translations
+on:
+  workflow_call:
+    inputs:
+      system_deps:
+        type: string
+        default: ''
+        description: 'Space-separated apt packages to install'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        if: inputs.system_deps != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.system_deps }}
+
+      - name: Install ovos-localize
+        run: pip install ovos-localize
+
+      - name: Validate locale files
+        run: ovos-localize-cli --repo . --report-format github

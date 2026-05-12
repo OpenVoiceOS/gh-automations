@@ -189,7 +189,7 @@ jobs:
         continue-on-error: true
 
       - name: Write section metadata for workflow_run posting
-        if: ${ inputs.pr_comment && github.event_name == 'pull_request' }
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
           python3 -c "
 import json, pathlib
