@@ -236,6 +236,25 @@ jobs:
           private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
         continue-on-error: true
 
+      - name: Write section metadata for workflow_run posting
+        if: ${ inputs.pr_comment && github.event_name == 'pull_request' }
+        run: |
+          python3 -c "
+import json, pathlib
+content = pathlib.Path('/tmp/license-section.md').read_text() if pathlib.Path('/tmp/license-section.md').exists() else ''
+meta = {'section_id': 'license', 'title': '⚖️ License', 'content': content}
+pathlib.Path('/tmp/pr-section-meta.json').write_text(json.dumps(meta))
+"
+
+      - name: Upload section for workflow_run comment posting
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-comment-section
+          path: /tmp/pr-section-meta.json
+          retention-days: 1
+          if-no-files-found: ignore
+
       - name: Post license section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |

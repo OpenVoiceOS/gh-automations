@@ -1,0 +1,119 @@
+name: Post PR Comment
+# Reusable workflow — called via workflow_run so it has base-repo secret access.
+# Downloads the pr-comment-section artifact uploaded by the triggering workflow
+# and posts/updates the shared OVOS PR Checks comment using the GitHub App token.
+#
+# Usage in consumer repo (.github/workflows/post-pr-comments.yml):
+#
+#   name: Post PR Comments
+#   on:
+#     workflow_run:
+#       workflows:
+#         - Build Tests
+#         - Coverage
+#         - Lint
+#         - Repo Health
+#         - License Check
+#         - Pip Audit
+#         - Skill Check
+#         - OPM Check
+#         - Ovoscope
+#         - Locale Check
+#         - Downstream Check
+#         - Docs Check
+#         - Release Preview
+#       types: [completed]
+#   jobs:
+#     post:
+#       uses: OpenVoiceOS/gh-automations/.github/workflows/post-pr-comment.yml@dev
+#       secrets: inherit
+on:
+  workflow_call:
+    secrets:
+      LOCALIZE_APP_PRIVATE_KEY:
+        required: false
+        description: "Private key for the GitHub App used to post PR comments"
+
+jobs:
+  post_comment:
+    runs-on: ubuntu-latest
+    # Only run for pull_request-triggered workflow runs (not push/manual)
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_requests[0] != null }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download pr-comment-section artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-comment-section
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: /tmp/pr-section/
+        continue-on-error: true
+
+      - name: Check artifact exists
+        id: check
+        run: |
+          if [ -f /tmp/pr-section/pr-section-meta.json ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No pr-comment-section artifact found in workflow run ${{ github.event.workflow_run.id }}"
+          fi
+
+      - name: Generate app token
+        id: app-token
+        if: ${{ steps.check.outputs.found == 'true' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LOCALIZE_APP_ID }}
+          private-key: ${{ secrets.LOCALIZE_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Post section to PR comment
+        if: ${{ steps.check.outputs.found == 'true' }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys, pathlib
+
+          meta_path = pathlib.Path("/tmp/pr-section/pr-section-meta.json")
+          meta = json.loads(meta_path.read_text())
+
+          section_id = meta["section_id"]
+          title = meta["title"]
+          content = meta["content"]
+
+          # Write content to temp file for update_pr_comment.py
+          content_file = "/tmp/pr-section-content.md"
+          pathlib.Path(content_file).write_text(content)
+
+          pr_number = "${{ github.event.workflow_run.pull_requests[0].number }}"
+          repo = "${{ github.event.workflow_run.repository.full_name }}"
+
+          import subprocess
+          result = subprocess.run([
+              sys.executable,
+              "_gh_automations/scripts/update_pr_comment.py",
+              "--repo", repo,
+              "--pr", pr_number,
+              "--section-id", section_id,
+              "--title", title,
+              "--content-file", content_file,
+          ], capture_output=False)
+          sys.exit(result.returncode)
+          PYEOF
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
