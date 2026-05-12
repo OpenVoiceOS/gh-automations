@@ -38,7 +38,7 @@ jobs:
   post_comment:
     runs-on: ubuntu-latest
     # Only run for pull_request-triggered workflow runs (not push/manual)
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_requests[0] != null }}
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
     permissions:
       pull-requests: write
       contents: read
@@ -55,7 +55,27 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Find PR number from head SHA
+        id: pr
+        run: |
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          REPO="${{ github.event.workflow_run.repository.full_name }}"
+          PR_NUMBER=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --header "Accept: application/vnd.github+json" \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR found for SHA $HEAD_SHA — skipping"
+            echo "found=false" >> $GITHUB_OUTPUT
+          else
+            echo "PR number: $PR_NUMBER"
+            echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "found=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download pr-comment-section artifact
+        if: ${{ steps.pr.outputs.found == 'true' }}
         uses: actions/download-artifact@v4
         with:
           name: pr-comment-section
@@ -66,12 +86,13 @@ jobs:
 
       - name: Check artifact exists
         id: check
+        if: ${{ steps.pr.outputs.found == 'true' }}
         run: |
           if [ -f /tmp/pr-section/pr-section-meta.json ]; then
             echo "found=true" >> $GITHUB_OUTPUT
           else
             echo "found=false" >> $GITHUB_OUTPUT
-            echo "No pr-comment-section artifact found in workflow run ${{ github.event.workflow_run.id }}"
+            echo "No pr-comment-section artifact in run ${{ github.event.workflow_run.id }}"
           fi
 
       - name: Generate app token
@@ -87,32 +108,21 @@ jobs:
         if: ${{ steps.check.outputs.found == 'true' }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, sys, pathlib
+          import json, sys, pathlib, subprocess
 
-          meta_path = pathlib.Path("/tmp/pr-section/pr-section-meta.json")
-          meta = json.loads(meta_path.read_text())
-
-          section_id = meta["section_id"]
-          title = meta["title"]
-          content = meta["content"]
-
-          # Write content to temp file for update_pr_comment.py
+          meta = json.loads(pathlib.Path("/tmp/pr-section/pr-section-meta.json").read_text())
           content_file = "/tmp/pr-section-content.md"
-          pathlib.Path(content_file).write_text(content)
+          pathlib.Path(content_file).write_text(meta["content"])
 
-          pr_number = "${{ github.event.workflow_run.pull_requests[0].number }}"
-          repo = "${{ github.event.workflow_run.repository.full_name }}"
-
-          import subprocess
           result = subprocess.run([
               sys.executable,
               "_gh_automations/scripts/update_pr_comment.py",
-              "--repo", repo,
-              "--pr", pr_number,
-              "--section-id", section_id,
-              "--title", title,
+              "--repo", "${{ github.event.workflow_run.repository.full_name }}",
+              "--pr",   "${{ steps.pr.outputs.number }}",
+              "--section-id", meta["section_id"],
+              "--title", meta["title"],
               "--content-file", content_file,
-          ], capture_output=False)
+          ])
           sys.exit(result.returncode)
           PYEOF
         env:
