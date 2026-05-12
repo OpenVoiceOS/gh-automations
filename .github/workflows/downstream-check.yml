@@ -104,12 +104,12 @@ jobs:
       - name: Write section metadata for workflow_run posting
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          python3 -c "
-import json, pathlib
-content = pathlib.Path('/tmp/downstream-section.md').read_text() if pathlib.Path('/tmp/downstream-section.md').exists() else ''
-meta = {'section_id': 'downstream', 'title': '🔗 Downstream', 'content': content}
-pathlib.Path('/tmp/pr-section-meta.json').write_text(json.dumps(meta))
-"
+          python3 <<'PYEOF'
+          import json, pathlib
+          content = pathlib.Path('/tmp/downstream-section.md').read_text() if pathlib.Path('/tmp/downstream-section.md').exists() else ''
+          meta = {'section_id': 'downstream', 'title': '🔗 Downstream', 'content': content}
+          pathlib.Path('/tmp/pr-section-meta.json').write_text(json.dumps(meta))
+          PYEOF
 
       - name: Upload section for workflow_run comment posting
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}

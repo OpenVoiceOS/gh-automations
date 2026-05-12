@@ -37,8 +37,9 @@ on:
 jobs:
   post_comment:
     runs-on: ubuntu-latest
-    # Only run for pull_request-triggered workflow runs (not push/manual)
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    # Only run for fork PRs — internal PRs already post in-context.
+    # head_repository.id != repository.id means the PR is from a fork.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.id != github.event.workflow_run.repository.id }}
     permissions:
       pull-requests: write
       contents: read
