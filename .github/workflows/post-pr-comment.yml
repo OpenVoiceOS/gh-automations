@@ -76,7 +76,7 @@ jobs:
 
       - name: Download pr-comment-section artifact
         if: ${{ steps.pr.outputs.found == 'true' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pr-comment-section
           github-token: ${{ secrets.GITHUB_TOKEN }}

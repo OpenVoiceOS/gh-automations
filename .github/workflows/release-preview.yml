@@ -193,7 +193,7 @@ jobs:
 
       - name: Upload sections for workflow_run comment posting
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pr-comment-section
           path: /tmp/pr-sections/
