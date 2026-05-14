@@ -38,10 +38,6 @@ on:
         description: >
           Post a '🎙️ Skill' section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   skill_check:
@@ -164,27 +160,17 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post skill section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/skill-section.md').read_text() if pathlib.Path('/tmp/skill-section.md').exists() else ''
-          meta = {'section_id': 'skill', 'title': '🎓 Skill Check', 'content': content}
-          pathlib.Path('/tmp/pr-sections/skill.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "skill" \
+            --title "🎙️ Skill" \
+            --content-file /tmp/skill-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Pass/fail logic (after comment is posted) ---
 

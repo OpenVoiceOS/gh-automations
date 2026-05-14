@@ -967,9 +967,6 @@ def github_api(method: str, path: str, data: dict = None) -> dict | list:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"GitHub API {method} {path} failed with HTTP {exc.code}: {detail}", file=sys.stderr)
-        if exc.code == 403:
-            # Fork PRs run with a read-only token — re-raise so callers can handle gracefully
-            raise PermissionError(f"HTTP 403 on {method} {path}: {detail}") from exc
         raise
 
 
@@ -1118,9 +1115,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except PermissionError as exc:
-        print(f"⚠️  No write access to post PR comment (fork PR?): {exc}", file=sys.stderr)
-        print("Section will be posted by the post-pr-comment workflow_run handler if configured.", file=sys.stderr)
-        sys.exit(0)
+    main()

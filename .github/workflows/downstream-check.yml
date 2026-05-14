@@ -34,10 +34,6 @@ on:
         type: string
         default: "dev"
         description: "Deprecated — ignored. Report is now uploaded as an artifact instead of committed."
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   check_downstream:
@@ -92,24 +88,14 @@ jobs:
           path: ${{ inputs.output_file }}
           retention-days: 30
           if-no-files-found: warn
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post downstream section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/downstream-section.md').read_text() if pathlib.Path('/tmp/downstream-section.md').exists() else ''
-          meta = {'section_id': 'downstream', 'title': '🔗 Downstream', 'content': content}
-          pathlib.Path('/tmp/pr-sections/downstream.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 action/github/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "downstream" \
+            --title "🔗 Downstream Dependents" \
+            --content-file "${{ inputs.output_file }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

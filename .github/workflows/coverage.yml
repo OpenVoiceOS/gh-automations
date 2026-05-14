@@ -68,10 +68,6 @@ on:
         type: number
         default: 14
         description: "Days to retain the coverage XML artifact"
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   coverage:
@@ -239,27 +235,17 @@ jobs:
           MIN_COVERAGE: ${{ inputs.min_coverage }}
           TESTS_OUTCOME: ${{ steps.run_tests.outcome }}
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post coverage section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/coverage-section.md').read_text() if pathlib.Path('/tmp/coverage-section.md').exists() else ''
-          meta = {'section_id': 'coverage', 'title': '📊 Coverage', 'content': content}
-          pathlib.Path('/tmp/pr-sections/coverage.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "coverage" \
+            --title "📊 Coverage" \
+            --content-file /tmp/coverage-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Coverage XML Artifact
         if: always()

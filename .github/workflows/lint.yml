@@ -31,10 +31,6 @@ on:
         type: boolean
         default: true
         description: "Post a section in the OVOS PR Checks comment on pull_request events"
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   lint:
@@ -99,27 +95,17 @@ jobs:
             fi
           } > /tmp/lint-section.md
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post lint section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/lint-section.md').read_text() if pathlib.Path('/tmp/lint-section.md').exists() else ''
-          meta = {'section_id': 'lint', 'title': '🔍 Lint', 'content': content}
-          pathlib.Path('/tmp/pr-sections/lint.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "lint" \
+            --title "🔍 Lint" \
+            --content-file /tmp/lint-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Lint is informational — it never blocks merges.
       # Fix the issues at your own pace; the PR Checks comment shows what needs attention.

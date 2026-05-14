@@ -61,10 +61,6 @@ on:
         type: string
         default: ""
         description: "Maximum ovos-plugin-manager version (exclusive upper bound), e.g. '3.0.0'. Leave empty for no upper bound."
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   opm_check:
@@ -403,24 +399,13 @@ jobs:
               echo "⚠️ Breaking changes will affect these packages — consider impact before merging." >> /tmp/opm-section.md
           fi
 
-
-      - name: Write section metadata for workflow_run posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+      - name: Post OPM section to PR comment
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/opm-section.md').read_text() if pathlib.Path('/tmp/opm-section.md').exists() else ''
-          meta = {'section_id': 'opm', 'title': '🔌 OPM Check', 'content': content}
-          pathlib.Path('/tmp/pr-sections/opm.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "opm" \
+            --title "🔌 Plugin Detection" \
+            --content-file /tmp/opm-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
