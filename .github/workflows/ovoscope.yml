@@ -13,6 +13,8 @@ name: Ovoscope End-to-End Tests
 # - PADATIOUS_PIPELINE: Auto-installs ovos-padatious if require_padatious=true (CI fallback).
 #   Also auto-adds swig to system_deps for building the C extension.
 # - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true (CI fallback).
+# - NEBULENTO_PIPELINE: Auto-installs nebulento if require_nebulento=true (CI fallback).
+# - PALAVREADO_PIPELINE: Auto-installs palavreado if require_palavreado=true (CI fallback).
 #
 # Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
 # Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
@@ -62,6 +64,18 @@ on:
         description: >
           Auto-install ovos-m2v-pipeline and fail CI if installation fails.
           When false, M2V pipeline tests are skipped if the plugin is absent.
+      require_nebulento:
+        type: boolean
+        default: false
+        description: >
+          Auto-install nebulento and fail CI if installation fails.
+          When false, nebulento pipeline tests are skipped if the plugin is absent.
+      require_palavreado:
+        type: boolean
+        default: false
+        description: >
+          Auto-install palavreado and fail CI if installation fails.
+          When false, palavreado pipeline tests are skipped if the plugin is absent.
       bus_coverage:
         type: boolean
         default: true
@@ -151,6 +165,24 @@ jobs:
               exit 1
             }
           fi
+          if [ "${{ inputs.require_nebulento }}" == "true" ]; then
+            echo "Installing nebulento (CI fallback)..."
+            pip install nebulento || {
+              echo "::error::Failed to install nebulento"
+              echo "::error::Note: Entry point is 'ovos-nebulento-pipeline-plugin'"
+              echo "::error::Add 'nebulento' to your [test] extras in pyproject.toml"
+              exit 1
+            }
+          fi
+          if [ "${{ inputs.require_palavreado }}" == "true" ]; then
+            echo "Installing palavreado (CI fallback)..."
+            pip install palavreado || {
+              echo "::error::Failed to install palavreado"
+              echo "::error::Note: Entry point is 'palavreado'"
+              echo "::error::Add 'palavreado' to your [test] extras in pyproject.toml"
+              exit 1
+            }
+          fi
           # Show installed pipeline entry points
           python3 -c "import importlib.metadata; eps = importlib.metadata.entry_points(group='opm.pipeline'); print('Installed pipelines:', [ep.name for ep in eps])"
 
@@ -205,6 +237,22 @@ jobs:
                   failures.append(
                       "M2V_PIPELINE (ovos-m2v-pipeline) is required but not installed.\n"
                       "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step."
+                  )
+
+          if "${{ inputs.require_nebulento }}" == "true":
+              if "ovos-nebulento-pipeline-plugin" not in installed:
+                  failures.append(
+                      "NEBULENTO_PIPELINE (ovos-nebulento-pipeline-plugin) is required but not installed.\n"
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step.\n"
+                      "Note: PyPI package name is 'nebulento', entry point is 'ovos-nebulento-pipeline-plugin'."
+                  )
+
+          if "${{ inputs.require_palavreado }}" == "true":
+              if "palavreado" not in installed:
+                  failures.append(
+                      "PALAVREADO_PIPELINE (palavreado) is required but not installed.\n"
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step.\n"
+                      "Note: PyPI package name is 'palavreado', entry point is 'palavreado'."
                   )
 
           if failures:
