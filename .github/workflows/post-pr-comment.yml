@@ -44,7 +44,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout gh-automations scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
