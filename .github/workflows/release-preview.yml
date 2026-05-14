@@ -30,10 +30,6 @@ on:
         description: >
           Post a '🏷️ Release Preview' section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   release_preview:
@@ -179,27 +175,17 @@ jobs:
                       f.write(channel_report)
           PYEOF
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post release section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/release-preview-section.md').read_text() if pathlib.Path('/tmp/release-preview-section.md').exists() else ''
-          meta = {'section_id': 'release_preview', 'title': '🚀 Release Preview', 'content': content}
-          pathlib.Path('/tmp/pr-sections/release_preview.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "release" \
+            --title "🏷️ Release Preview" \
+            --content-file /tmp/release-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so the check status is correct.
       # Only fails for truly malformed version.py (parse_error); file_not_found is OK.

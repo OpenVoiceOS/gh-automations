@@ -47,11 +47,6 @@ on:
         description: >
           Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
-
 jobs:
   build_tests:
     strategy:
@@ -222,24 +217,13 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
-
-      - name: Write section metadata for workflow_run posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+      - name: Post build section to PR comment
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/build-section.md').read_text() if pathlib.Path('/tmp/build-section.md').exists() else ''
-          meta = {'section_id': 'build', 'title': '🔨 Build Tests', 'content': content}
-          pathlib.Path('/tmp/pr-sections/build.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "build" \
+            --title "🔨 Build Tests" \
+            --content-file /tmp/build-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

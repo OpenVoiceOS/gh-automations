@@ -18,10 +18,6 @@ on:
         description: >
           Post sections in the shared 'OVOS PR Checks' comment.
           Only runs when triggered by a pull_request event.
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   repo_health:
@@ -133,34 +129,23 @@ jobs:
               f.write(output)
           PYEOF
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post health section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/health-section.md').read_text() if pathlib.Path('/tmp/health-section.md').exists() else ''
-          meta = {'section_id': 'health', 'title': '📋 Repo Health', 'content': content}
-          pathlib.Path('/tmp/pr-sections/health.json').write_text(json.dumps(meta))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "health" \
+            --title "📋 Repo Health" \
+            --content-file /tmp/health-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # --- First-time contributor greeting (#4) ---
 
-      - name: Stage welcome section for first-time contributor
+      - name: Greet first-time contributor
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && (github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' || github.event.pull_request.author_association == 'FIRST_TIMER') }}
         run: |
-          mkdir -p /tmp/pr-sections
           AUTHOR="${{ github.event.pull_request.user.login }}"
           cat > /tmp/welcome-section.md <<GREETING
           Welcome **@${AUTHOR}**! Thanks for your first contribution to this repo.
@@ -170,19 +155,12 @@ jobs:
           - Add a conventional commit prefix to your PR title (e.g. \`fix:\`, \`feat:\`) for automatic versioning
           - Questions? Open a discussion or ping a maintainer
           GREETING
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/welcome-section.md').read_text()
-          meta = {'section_id': 'welcome', 'title': '👋 Welcome', 'content': content}
-          pathlib.Path('/tmp/pr-sections/welcome.json').write_text(json.dumps(meta))
-          PYEOF
 
-      - name: Re-upload sections (welcome included)
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && (github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' || github.event.pull_request.author_association == 'FIRST_TIMER') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-          overwrite: true
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "welcome" \
+            --title "👋 Welcome" \
+            --content-file /tmp/welcome-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

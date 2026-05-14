@@ -109,10 +109,6 @@ on:
         description: >
           Post a '🔌 Skill Tests (ovoscope)' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
-    secrets:
-      LOCALIZE_APP_PRIVATE_KEY:
-        required: false
-        description: "Private key for the GitHub App used to post PR comments from forks"
 
 jobs:
   ovoscope:
@@ -156,9 +152,8 @@ jobs:
           # This step ensures CI passes if the maintainer forgot to add them.
           #
           # When `pre_release: true`, install each plugin from its GitHub `dev`
-          # branch (git+https) instead of PyPI. PIP_FLAGS is empty for PyPI
-          # installs; for git+https we add --force-reinstall so an already-
-          # installed PyPI version is replaced.
+          # branch (git+https) instead of PyPI. For git+https we add
+          # --force-reinstall so an already-installed PyPI version is replaced.
           PRE_RELEASE="${{ inputs.pre_release }}"
           if [ "${{ inputs.require_adapt }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
@@ -557,31 +552,28 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
-
-      - name: Write section metadata for workflow_run posting
+      - name: Post ovoscope sections to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
-          mkdir -p /tmp/pr-sections
-          python3 <<'PYEOF'
-          import json, pathlib
-          content = pathlib.Path('/tmp/ovoscope-section.md').read_text() if pathlib.Path('/tmp/ovoscope-section.md').exists() else ''
-          meta = {'section_id': 'ovoscope', 'title': '🔌 Skill Tests (ovoscope)', 'content': content}
-          pathlib.Path('/tmp/pr-sections/ovoscope.json').write_text(json.dumps(meta))
-          bus_cov = pathlib.Path('/tmp/ovoscope-bus-coverage-section.md')
-          if bus_cov.exists():
-              meta2 = {'section_id': 'bus-coverage', 'title': '🚌 Bus Coverage', 'content': bus_cov.read_text()}
-              pathlib.Path('/tmp/pr-sections/bus-coverage.json').write_text(json.dumps(meta2))
-          PYEOF
-
-      - name: Upload sections for workflow_run comment posting
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-comment-section
-          path: /tmp/pr-sections/
-          retention-days: 1
-          if-no-files-found: ignore
-
+          # Post the main test results
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "ovoscope" \
+            --title "🔌 Skill Tests (ovoscope)" \
+            --content-file /tmp/ovoscope-section.md
+            
+          # Post the bus coverage report (if enabled)
+          if [ "${{ inputs.bus_coverage }}" == "true" ] && [ -f /tmp/ovoscope-bus-coverage-section.md ]; then
+            python3 _gh_automations/scripts/update_pr_comment.py \
+              --repo "${{ github.repository }}" \
+              --pr "${{ github.event.pull_request.number }}" \
+              --section-id "bus-coverage" \
+              --title "🚌 Bus Coverage" \
+              --content-file /tmp/ovoscope-bus-coverage-section.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail the job after posting the PR comment so check status is correct.
       - name: Fail job if tests failed
