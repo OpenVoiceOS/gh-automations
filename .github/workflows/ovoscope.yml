@@ -13,10 +13,17 @@ name: Ovoscope End-to-End Tests
 # - PADATIOUS_PIPELINE: Auto-installs ovos-padatious if require_padatious=true (CI fallback).
 #   Also auto-adds swig to system_deps for building the C extension.
 # - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true (CI fallback).
+# - NEBULENTO_PIPELINE: Auto-installs nebulento if require_nebulento=true (CI fallback).
+# - PALAVREADO_PIPELINE: Auto-installs palavreado if require_palavreado=true (CI fallback).
 #
 # Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
 # Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
 # are absent instead of silently skipping.
+#
+# Pre-release validation:
+# Set `pre_release: true` to install ovoscope AND every required pipeline plugin
+# from its GitHub `dev` branch instead of PyPI. Use this to validate against
+# unreleased changes in the framework or any engine.
 #
 on:
   workflow_call:
@@ -62,6 +69,28 @@ on:
         description: >
           Auto-install ovos-m2v-pipeline and fail CI if installation fails.
           When false, M2V pipeline tests are skipped if the plugin is absent.
+      require_nebulento:
+        type: boolean
+        default: false
+        description: >
+          Auto-install nebulento and fail CI if installation fails.
+          When false, nebulento pipeline tests are skipped if the plugin is absent.
+      require_palavreado:
+        type: boolean
+        default: false
+        description: >
+          Auto-install palavreado and fail CI if installation fails.
+          When false, palavreado pipeline tests are skipped if the plugin is absent.
+      pre_release:
+        type: boolean
+        default: false
+        description: >
+          Install ovoscope and every required pipeline plugin from its GitHub
+          `dev` branch instead of PyPI. Use to validate against unreleased
+          changes in the framework or any engine. Affects ovoscope itself
+          (always installed from dev when this flag is set) and the engines
+          gated by require_adapt / require_padatious / require_m2v /
+          require_nebulento / require_palavreado.
       bus_coverage:
         type: boolean
         default: true
@@ -125,29 +154,93 @@ jobs:
           # Auto-install pipeline plugins as CI fallback.
           # NOTE: Skills should declare these in pyproject.toml [test] extras.
           # This step ensures CI passes if the maintainer forgot to add them.
+          #
+          # When `pre_release: true`, install each plugin from its GitHub `dev`
+          # branch (git+https) instead of PyPI. PIP_FLAGS is empty for PyPI
+          # installs; for git+https we add --force-reinstall so an already-
+          # installed PyPI version is replaced.
+          PRE_RELEASE="${{ inputs.pre_release }}"
           if [ "${{ inputs.require_adapt }}" == "true" ]; then
-            echo "Installing ovos-adapt-parser (CI fallback)..."
-            pip install ovos-adapt-parser || {
-              echo "::error::Failed to install ovos-adapt-parser"
+            if [ "$PRE_RELEASE" == "true" ]; then
+              echo "Installing ovos-adapt-parser from GitHub dev..."
+              SRC="git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev"
+              EXTRA="--force-reinstall"
+            else
+              echo "Installing ovos-adapt-parser (CI fallback)..."
+              SRC="ovos-adapt-parser"
+              EXTRA=""
+            fi
+            pip install $EXTRA "$SRC" || {
+              echo "::error::Failed to install ovos-adapt-parser from $SRC"
               echo "::error::Note: Entry point is 'ovos-adapt-pipeline-plugin'"
               echo "::error::Add 'ovos-adapt-parser' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
           if [ "${{ inputs.require_padatious }}" == "true" ]; then
-            echo "Installing ovos-padatious (CI fallback)..."
-            pip install ovos-padatious || {
-              echo "::error::Failed to install ovos-padatious (PyPI name)"
+            if [ "$PRE_RELEASE" == "true" ]; then
+              echo "Installing ovos-padatious from GitHub dev..."
+              SRC="git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev"
+              EXTRA="--force-reinstall"
+            else
+              echo "Installing ovos-padatious (CI fallback)..."
+              SRC="ovos-padatious"
+              EXTRA=""
+            fi
+            pip install $EXTRA "$SRC" || {
+              echo "::error::Failed to install ovos-padatious from $SRC"
               echo "::error::Note: Entry point is 'ovos-padatious-pipeline-plugin'"
               echo "::error::Add 'ovos-padatious' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
           if [ "${{ inputs.require_m2v }}" == "true" ]; then
-            echo "Installing ovos-m2v-pipeline (CI fallback)..."
-            pip install ovos-m2v-pipeline || {
-              echo "::error::Failed to install ovos-m2v-pipeline"
+            if [ "$PRE_RELEASE" == "true" ]; then
+              echo "Installing ovos-m2v-pipeline from GitHub dev..."
+              SRC="git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@dev"
+              EXTRA="--force-reinstall"
+            else
+              echo "Installing ovos-m2v-pipeline (CI fallback)..."
+              SRC="ovos-m2v-pipeline"
+              EXTRA=""
+            fi
+            pip install $EXTRA "$SRC" || {
+              echo "::error::Failed to install ovos-m2v-pipeline from $SRC"
               echo "::error::Add 'ovos-m2v-pipeline' to your [test] extras in pyproject.toml"
+              exit 1
+            }
+          fi
+          if [ "${{ inputs.require_nebulento }}" == "true" ]; then
+            if [ "$PRE_RELEASE" == "true" ]; then
+              echo "Installing nebulento from GitHub dev..."
+              SRC="git+https://github.com/OpenVoiceOS/nebulento@dev"
+              EXTRA="--force-reinstall"
+            else
+              echo "Installing nebulento (CI fallback)..."
+              SRC="nebulento"
+              EXTRA=""
+            fi
+            pip install $EXTRA "$SRC" || {
+              echo "::error::Failed to install nebulento from $SRC"
+              echo "::error::Note: Entry point is 'ovos-nebulento-pipeline-plugin'"
+              echo "::error::Add 'nebulento' to your [test] extras in pyproject.toml"
+              exit 1
+            }
+          fi
+          if [ "${{ inputs.require_palavreado }}" == "true" ]; then
+            if [ "$PRE_RELEASE" == "true" ]; then
+              echo "Installing palavreado from GitHub dev..."
+              SRC="git+https://github.com/OpenVoiceOS/palavreado@dev"
+              EXTRA="--force-reinstall"
+            else
+              echo "Installing palavreado (CI fallback)..."
+              SRC="palavreado"
+              EXTRA=""
+            fi
+            pip install $EXTRA "$SRC" || {
+              echo "::error::Failed to install palavreado from $SRC"
+              echo "::error::Note: Entry point is 'palavreado'"
+              echo "::error::Add 'palavreado' to your [test] extras in pyproject.toml"
               exit 1
             }
           fi
@@ -157,13 +250,21 @@ jobs:
       - name: Install Package with Test Extras
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-json-report ovoscope
+          python -m pip install pytest pytest-json-report
+          if [ "${{ inputs.pre_release }}" == "true" ]; then
+            echo "Installing ovoscope from GitHub dev (pre_release)..."
+            pip install --force-reinstall \
+              "git+https://github.com/TigreGotico/ovoscope@dev"
+          else
+            pip install ovoscope
+          fi
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
             pip install ".[$EXTRAS]"
           else
             pip install .
           fi
+          python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
 
       - name: Check required pipeline availability
         run: |
@@ -205,6 +306,22 @@ jobs:
                   failures.append(
                       "M2V_PIPELINE (ovos-m2v-pipeline) is required but not installed.\n"
                       "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step."
+                  )
+
+          if "${{ inputs.require_nebulento }}" == "true":
+              if "ovos-nebulento-pipeline-plugin" not in installed:
+                  failures.append(
+                      "NEBULENTO_PIPELINE (ovos-nebulento-pipeline-plugin) is required but not installed.\n"
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step.\n"
+                      "Note: PyPI package name is 'nebulento', entry point is 'ovos-nebulento-pipeline-plugin'."
+                  )
+
+          if "${{ inputs.require_palavreado }}" == "true":
+              if "palavreado" not in installed:
+                  failures.append(
+                      "PALAVREADO_PIPELINE (palavreado) is required but not installed.\n"
+                      "Auto-installation failed. Check the 'Install Pipeline Plugin Dependencies' step.\n"
+                      "Note: PyPI package name is 'palavreado', entry point is 'palavreado'."
                   )
 
           if failures:
