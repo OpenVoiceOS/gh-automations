@@ -110,32 +110,9 @@ on:
           Post a '🔌 Skill Tests (ovoscope)' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
 
-      # ---- Intent-case accuracy (ovoscope.intent_cases) -------------------
-      accuracy_baseline:
-        type: string
-        default: ""
-        description: >
-          Path (relative to the skill repo root) of a previously-saved
-          intent-accuracy report JSON. When supplied, the workflow uses it
-          as a baseline: the PR comment shows which (pipeline, lang,
-          intent, utterance) cases regressed or recovered, and the run
-          fails if any case regressed (was-pass -> now-fail).
-      accuracy_tolerant:
-        type: boolean
-        default: false
-        description: >
-          Run ovoscope intent-case tests in tolerant mode: individual
-          mismatches downgrade to xfail and don't fail the build. Only
-          the aggregate gate (accuracy_min / accuracy_baseline regression
-          list) can block the session.
-      accuracy_min:
-        type: string
-        default: ""
-        description: >
-          Minimum overall intent-case pass rate (0.0-1.0). The workflow
-          fails when the observed pass rate is below this value.
-          Leave empty to skip the absolute-floor gate (still recommended
-          to set an accuracy_baseline so regressions are caught).
+      # NOTE: intent-case accuracy gating + lang sharding live in the
+      # sibling `intent-case-tests.yml` reusable workflow. Use both
+      # workflows in tandem (or only one) depending on what the skill ships.
 
 jobs:
   ovoscope:
@@ -369,26 +346,11 @@ jobs:
               COV_ARGS="$COV_ARGS --ovoscope-bus-cov-exclude='${{ inputs.bus_coverage_exclude }}'"
             fi
           fi
-          ACCURACY_ARGS=""
-          # Always emit the intent-case accuracy JSON + Markdown so the PR
-          # comment step can ingest them. Suites that don't use
-          # ovoscope.intent_cases will simply produce empty pivots.
-          ACCURACY_ARGS="--ovoscope-accuracy-report=/tmp/ovoscope-intent-accuracy.json --ovoscope-accuracy-md=/tmp/ovoscope-intent-accuracy.md"
-          if [ -n "${{ inputs.accuracy_baseline }}" ] && [ -f "${{ inputs.accuracy_baseline }}" ]; then
-            ACCURACY_ARGS="$ACCURACY_ARGS --ovoscope-accuracy-baseline=${{ inputs.accuracy_baseline }}"
-          fi
-          if [ "${{ inputs.accuracy_tolerant }}" == "true" ]; then
-            ACCURACY_ARGS="$ACCURACY_ARGS --ovoscope-accuracy-tolerant"
-          fi
-          if [ -n "${{ inputs.accuracy_min }}" ]; then
-            ACCURACY_ARGS="$ACCURACY_ARGS --ovoscope-accuracy-min=${{ inputs.accuracy_min }}"
-          fi
           python -m pytest \
             ${{ inputs.test_path }} \
             --json-report \
             --json-report-file=/tmp/ovoscope-results.json \
             $COV_ARGS \
-            $ACCURACY_ARGS \
             -v
 
       - name: Format ovoscope section for PR comment
@@ -594,18 +556,6 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
 
-      - name: Relocate intent-case accuracy section for PR comment
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        run: |
-          # ovoscope writes the rendered markdown directly via
-          # --ovoscope-accuracy-md=...; we just shuttle the file under the
-          # name update_pr_comment.py expects.
-          if [ -f /tmp/ovoscope-intent-accuracy.md ] && \
-             [ -s /tmp/ovoscope-intent-accuracy.md ]; then
-            cp /tmp/ovoscope-intent-accuracy.md \
-               /tmp/ovoscope-intent-accuracy-section.md
-          fi
-
       - name: Post ovoscope sections to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -616,17 +566,6 @@ jobs:
             --section-id "ovoscope" \
             --title "🔌 Skill Tests (ovoscope)" \
             --content-file /tmp/ovoscope-section.md
-
-          # Post the intent-case accuracy report (only if the skill uses
-          # ovoscope.intent_cases and the markdown is non-empty).
-          if [ -f /tmp/ovoscope-intent-accuracy-section.md ]; then
-            python3 _gh_automations/scripts/update_pr_comment.py \
-              --repo "${{ github.repository }}" \
-              --pr "${{ github.event.pull_request.number }}" \
-              --section-id "intent-accuracy" \
-              --title "🎯 Intent-Case Accuracy" \
-              --content-file /tmp/ovoscope-intent-accuracy-section.md
-          fi
 
           # Post the bus coverage report (if enabled)
           if [ "${{ inputs.bus_coverage }}" == "true" ] && [ -f /tmp/ovoscope-bus-coverage-section.md ]; then
