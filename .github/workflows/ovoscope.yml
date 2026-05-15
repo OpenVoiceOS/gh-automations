@@ -136,10 +136,36 @@ on:
           fails when the observed pass rate is below this value.
           Leave empty to skip the absolute-floor gate (still recommended
           to set an accuracy_baseline so regressions are caught).
+      langs:
+        type: string
+        default: '["all"]'
+        description: >
+          JSON array of language tags to shard the test run across, one
+          job per lang. Each shard passes `-k '<slug>'` to pytest (where
+          slug = lang.replace('-', '_')) so only tests whose nodeid
+          contains that slug run in that shard. Pass the value verbatim
+          from the skill's locale list, e.g.
+          '["en-US", "de-DE", "pt-PT", ...]'.
+
+          Default `["all"]` runs the entire suite in a single job
+          (legacy behaviour, no `-k` filter). For skills with >500 cases
+          (≈ 5 langs of generated intent-case tests) the single job
+          times out on GitHub-hosted runners; sharding by lang gets each
+          shard down to a few hundred tests and they run in parallel.
+
+          Tests that have no lang slug in their nodeid (hand-written
+          divergence canaries, smoke tests) won't be picked up when a
+          specific lang list is passed — keep them in a non-sharded
+          suite or include their class name in the slug list (the `-k`
+          filter accepts any substring match).
 
 jobs:
   ovoscope:
     runs-on: ${{ inputs.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: ${{ fromJson(inputs.langs) }}
     permissions:
       pull-requests: write
       contents: read
@@ -354,6 +380,25 @@ jobs:
           print(f"Pipeline check passed. Installed: {sorted(installed)}")
           PYEOF
 
+      - name: Compute lang shard filter
+        id: shard
+        run: |
+          LANG_TAG='${{ matrix.lang }}'
+          if [ "$LANG_TAG" = "all" ]; then
+            echo "filter=" >> "$GITHUB_OUTPUT"
+            echo "slug=all" >> "$GITHUB_OUTPUT"
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+            echo "title_suffix=" >> "$GITHUB_OUTPUT"
+          else
+            # Test nodeids contain the lang as an underscore-joined slug
+            # (e.g. "test_en_US__WhoAreYou__who_are_you"); -k matches substrings.
+            SLUG="${LANG_TAG//-/_}"
+            echo "filter=$SLUG" >> "$GITHUB_OUTPUT"
+            echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+            echo "suffix=-$SLUG" >> "$GITHUB_OUTPUT"
+            echo "title_suffix= ($LANG_TAG)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run ovoscope tests
         id: run_tests
         # continue-on-error so the PR comment step always runs even on failure
@@ -383,12 +428,17 @@ jobs:
           if [ -n "${{ inputs.accuracy_min }}" ]; then
             ACCURACY_ARGS="$ACCURACY_ARGS --ovoscope-accuracy-min=${{ inputs.accuracy_min }}"
           fi
+          K_ARGS=""
+          if [ -n "${{ steps.shard.outputs.filter }}" ]; then
+            K_ARGS="-k ${{ steps.shard.outputs.filter }}"
+          fi
           python -m pytest \
             ${{ inputs.test_path }} \
             --json-report \
             --json-report-file=/tmp/ovoscope-results.json \
             $COV_ARGS \
             $ACCURACY_ARGS \
+            $K_ARGS \
             -v
 
       - name: Format ovoscope section for PR comment
@@ -609,12 +659,18 @@ jobs:
       - name: Post ovoscope sections to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
+          # Suffix every section with the lang slug when sharded so each
+          # matrix shard's comment edits a distinct section instead of
+          # stomping on the others.
+          SUF='${{ steps.shard.outputs.suffix }}'
+          TSUF='${{ steps.shard.outputs.title_suffix }}'
+
           # Post the main test results
           python3 _gh_automations/scripts/update_pr_comment.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
-            --section-id "ovoscope" \
-            --title "🔌 Skill Tests (ovoscope)" \
+            --section-id "ovoscope${SUF}" \
+            --title "🔌 Skill Tests (ovoscope)${TSUF}" \
             --content-file /tmp/ovoscope-section.md
 
           # Post the intent-case accuracy report (only if the skill uses
@@ -623,8 +679,8 @@ jobs:
             python3 _gh_automations/scripts/update_pr_comment.py \
               --repo "${{ github.repository }}" \
               --pr "${{ github.event.pull_request.number }}" \
-              --section-id "intent-accuracy" \
-              --title "🎯 Intent-Case Accuracy" \
+              --section-id "intent-accuracy${SUF}" \
+              --title "🎯 Intent-Case Accuracy${TSUF}" \
               --content-file /tmp/ovoscope-intent-accuracy-section.md
           fi
 
@@ -633,8 +689,8 @@ jobs:
             python3 _gh_automations/scripts/update_pr_comment.py \
               --repo "${{ github.repository }}" \
               --pr "${{ github.event.pull_request.number }}" \
-              --section-id "bus-coverage" \
-              --title "🚌 Bus Coverage" \
+              --section-id "bus-coverage${SUF}" \
+              --title "🚌 Bus Coverage${TSUF}" \
               --content-file /tmp/ovoscope-bus-coverage-section.md
           fi
         env:
