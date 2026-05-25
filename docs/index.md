@@ -99,11 +99,11 @@ VERSION_ALPHA = 4   # 0 = stable
 
 | Resource | Path |
 |----------|------|
-| Machine-readable facts | [`../QUICK_FACTS.md`](../QUICK_FACTS.md) |
-| Common questions | [`../FAQ.md`](../FAQ.md) |
-| Change log | [`../MAINTENANCE_REPORT.md`](../MAINTENANCE_REPORT.md) |
-| Known issues | [`../AUDIT.md`](../AUDIT.md) |
-| Improvement proposals | [`../SUGGESTIONS.md`](../SUGGESTIONS.md) |
+| Maintenance notes | [`maintenance.md`](maintenance.md) |
+| Workflow reference | [`workflow-reference.md`](workflow-reference.md) |
+| Repo setup guide | [`repo-setup.md`](repo-setup.md) |
+| Release flow | [`release-flow.md`](release-flow.md) |
+| Caller repos | [`repos.md`](repos.md) |
 
 ---
 

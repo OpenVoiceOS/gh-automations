@@ -1,7 +1,6 @@
 name: Docs Check
 # Reusable workflow — verifies that required documentation files exist in a repo
-# (docs/index.md, FAQ.md, QUICK_FACTS.md) and optionally lints Markdown files
-# with markdownlint-cli2.
+# (README.md by default) and optionally lints Markdown files with markdownlint-cli2.
 #
 # Posts a 📚 Docs section to the shared OVOS PR Checks comment.
 # Informational only — never blocks merges unless fail_on_missing: true.
@@ -14,7 +13,7 @@ on:
         default: "ubuntu-latest"
       required_files:
         type: string
-        default: "docs/index.md,FAQ.md,QUICK_FACTS.md"
+        default: "README.md"
         description: >
           Comma-separated list of files that must exist at the repo root.
           Checked with a simple exists() test — no content validation.
