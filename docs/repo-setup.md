@@ -380,23 +380,6 @@ jobs:
       version_file: 'my_package/version.py'  # if empty, auto-detects
 ```
 
-### `sync_translations.yml` — Gitlocalize sync (skill repos only)
-
-```yaml
-name: Sync Translations
-on:
-  workflow_dispatch:
-  push:
-    branches: [dev]
-
-jobs:
-  sync_translations:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
-    secrets: inherit
-    with:
-      branch: dev
-```
-
 ---
 
 ## Required GitHub Secrets

@@ -1040,47 +1040,6 @@ Runs an install matrix across Python versions and install modes (regular + edita
 
 ---
 
-## `sync-translations.yml`
-
-Synchronises [gitlocalize-app](https://gitlocalize.com/) translation commits. Runs `scripts/sync_translations.py` in the calling repo when triggered by a push from `gitlocalize-app[bot]` or by manual `workflow_dispatch`.
-
-**Source:** `.github/workflows/sync-translations.yml`
-
-### Inputs
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `branch` | string | `dev` | Branch to checkout, run the script on, and commit back to |
-| `python_version` | string | `3.11` | Python version |
-| `runner` | string | `ubuntu-latest` | Runner label |
-| `script_path` | string | `scripts/sync_translations.py` | Relative path to the sync script in the calling repo |
-
-### Typical usage
-
-Replace the per-repo `sync_tx.yml` with:
-
-```yaml
-name: Sync Translations
-on:
-  workflow_dispatch:
-  push:
-    branches: [dev]
-
-jobs:
-  sync_translations:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
-    secrets: inherit
-    with:
-      branch: dev
-      # script_path: scripts/sync_translations.py  # default
-```
-
-### Known issues
-
-Some existing `sync_tx.yml` files use `github.event.head_commit.author.username == 'gitlocalize-app[bot]'` for bot detection. This field is not reliable. The reusable workflow uses `github.actor == 'gitlocalize-app[bot]'` which is correct. When migrating, remove the old per-repo `sync_tx.yml` and replace with a call to this reusable workflow.
-
----
-
 ## `notify-matrix.yml`
 
 Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](https://github.com/fadenb/matrix-chat-message).

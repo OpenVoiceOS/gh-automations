@@ -32,7 +32,6 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
 | `type-check.yml` | Run mypy; post 🔎 Type Check section to PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
 | `docs-check.yml` | Verify required docs files exist; optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
@@ -68,7 +67,6 @@ For OVOS **skill repos**, also add:
 ```
 .github/workflows/
   skill_check.yml            # locale coverage + skill.json validity
-  sync_translations.yml      # gitlocalize translation sync
 ```
 
 ---
