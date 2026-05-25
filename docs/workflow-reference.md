@@ -442,7 +442,9 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `runner` | string | `ubuntu-latest` | Runner label |
 | `python_version` | string | `3.11` | Python version to run tests under |
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
-| `install_extras` | string | `""` | Extra pip install arguments run before tests, e.g. `.[dev]` or `-r requirements/test.txt`. If empty, the package is installed via `pip install -e .[dev]` (falling back to bare install). |
+| `test_extras` | string | `dev` | Pyproject extras key declaring test deps. Tried first via `pip install -e .[<key>]` |
+| `test_extras_fallback` | string | `test` | Extras key tried if `test_extras` is not declared. Empty to skip |
+| `install_extras` | string | `""` | Extra pip install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
