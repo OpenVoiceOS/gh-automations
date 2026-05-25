@@ -43,6 +43,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |
 | `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos — `repo_health.yml` |
 | `skill-check.yml` | Locale coverage and skill.json validity | Skill repos — `skill_check.yml` |
+| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1/-2 via `ovos-spec-lint` | Skill repos — `spec_lint.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | Superseded by `build-tests.yml` for most repos |
 | `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |

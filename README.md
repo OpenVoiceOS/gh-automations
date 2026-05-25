@@ -28,6 +28,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
 | `skill-check.yml` | Locale coverage and skill.json validity | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1/-2 via `ovos-spec-lint` | [reference](docs/workflow-reference.md#spec-lintyml) |
 | `locale-check.yml` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) | [reference](docs/workflow-reference.md#locale-checkyml) |
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |

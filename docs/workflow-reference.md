@@ -1040,6 +1040,44 @@ Runs an install matrix across Python versions and install modes (regular + edita
 
 ---
 
+## `spec-lint.yml`
+
+Runs [`ovos-spec-lint`](https://github.com/OpenVoiceOS/ovos-spec-tools) against a skill's `locale/` folder to validate template syntax (OVOS-INTENT-1) and file naming/layout (OVOS-INTENT-2). Posts a `🧪 Spec Lint` section to the shared OVOS PR Checks comment.
+
+**Source:** `.github/workflows/spec-lint.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.14` | Python version |
+| `locale_path` | string | `locale` | Path to the locale folder (or a single `<lang>/` directory) |
+| `spec_version` | string | `""` | OVOS spec version to target (`0`/`1`/`2`/`3`). Empty = linter default |
+| `strict` | boolean | `false` | Treat warnings as errors (`--strict`) |
+| `skip_if_no_locale` | boolean | `true` | Silently pass if `locale_path` does not exist |
+| `ovos_spec_tools_spec` | string | `ovos-spec-tools` | Pip requirement spec (pin a version or use a git URL) |
+| `pr_comment` | boolean | `true` | Post the section to the PR comment (PR events only) |
+
+### Typical usage
+
+```yaml
+name: Spec Lint
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  spec_lint:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/spec-lint.yml@dev
+    secrets: inherit
+```
+
+The job exits non-zero only when `ovos-spec-lint` reports errors. Use `strict: true` to also fail on warnings. Use `skip_if_no_locale: false` to fail loudly when the folder is missing.
+
+---
+
 ## `notify-matrix.yml`
 
 Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](https://github.com/fadenb/matrix-chat-message).
