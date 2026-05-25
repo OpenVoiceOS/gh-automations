@@ -56,6 +56,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Checkout gh-automations scripts
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -64,6 +66,7 @@ jobs:
           repository: OpenVoiceOS/gh-automations
           ref: dev
           path: _gh_automations/
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -72,8 +75,10 @@ jobs:
 
       - name: Resolve locale path
         id: resolve
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
         run: |
-          if [ -d "${{ inputs.locale_path }}" ]; then
+          if [ -d "$LOCALE_PATH" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -81,16 +86,20 @@ jobs:
 
       - name: Skip if locale folder is missing
         if: ${{ inputs.skip_if_no_locale && steps.resolve.outputs.exists == 'false' }}
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
         run: |
-          echo "ℹ️ locale folder '${{ inputs.locale_path }}' not found — spec-lint skipped." \
+          printf 'ℹ️ locale folder %q not found — spec-lint skipped.\n' "$LOCALE_PATH" \
             > /tmp/spec-lint-section.md
           echo "SKIPPED=true" >> "$GITHUB_ENV"
 
       - name: Install ovos-spec-tools
         if: ${{ env.SKIPPED != 'true' }}
+        env:
+          OVOS_SPEC_TOOLS_SPEC: ${{ inputs.ovos_spec_tools_spec }}
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "${{ inputs.ovos_spec_tools_spec }}"
+          python -m pip install "$OVOS_SPEC_TOOLS_SPEC"
 
       - name: Run ovos-spec-lint
         id: lint
@@ -98,17 +107,19 @@ jobs:
         # continue-on-error so the PR comment step always runs.
         # The job still fails at the end via the outcome check below.
         continue-on-error: true
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
+          STRICT: ${{ inputs.strict }}
+          SPEC_VERSION: ${{ inputs.spec_version }}
         run: |
-          STRICT_FLAG=""
-          if [ "${{ inputs.strict }}" = "true" ]; then
-            STRICT_FLAG="--strict"
+          ARGS=("$LOCALE_PATH")
+          if [ "$STRICT" = "true" ]; then
+            ARGS+=(--strict)
           fi
-          SPEC_FLAG=""
-          if [ -n "${{ inputs.spec_version }}" ]; then
-            SPEC_FLAG="--spec-version ${{ inputs.spec_version }}"
+          if [ -n "$SPEC_VERSION" ]; then
+            ARGS+=(--spec-version "$SPEC_VERSION")
           fi
-          ovos-spec-lint "${{ inputs.locale_path }}" $STRICT_FLAG $SPEC_FLAG \
-            | tee /tmp/spec-lint.out
+          ovos-spec-lint "${ARGS[@]}" | tee /tmp/spec-lint.out
 
       - name: Format spec-lint section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && env.SKIPPED != 'true' }}
