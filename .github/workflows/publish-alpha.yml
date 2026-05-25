@@ -104,6 +104,7 @@ jobs:
       ) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -179,6 +180,7 @@ jobs:
   update_changelog:
     needs: bump_version
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     if: ${{ inputs.update_changelog && needs.bump_version.result == 'success' }}
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
@@ -217,6 +219,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_prerelease }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -238,6 +241,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.propose_release }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -278,6 +282,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_pypi }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -302,6 +307,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix && github.event.pull_request.merged == true }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Pick message
         id: msg

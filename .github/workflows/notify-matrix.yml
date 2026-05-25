@@ -23,6 +23,7 @@ on:
 jobs:
   notify:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     steps:
       - name: Send message to Matrix
         env:

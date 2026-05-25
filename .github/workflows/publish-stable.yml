@@ -68,6 +68,7 @@ jobs:
     # git-auto-commit-action pushes the version bump back to master)
     if: github.actor != 'github-actions[bot]'
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
       actual_branch: ${{ steps.branch_detect.outputs.actual_branch }}
@@ -125,6 +126,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_release }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -145,6 +147,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.publish_pypi }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -170,6 +173,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.tag_release.result == 'success' }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Delete release branch
         continue-on-error: true   # branch may already be deleted by GitHub or manually
@@ -190,6 +194,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.sync_dev }}
     runs-on: ${{inputs.runner}}
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -207,6 +212,7 @@ jobs:
       - bump_version
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.notify_matrix }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Pick message
         id: msg

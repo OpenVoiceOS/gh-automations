@@ -117,6 +117,7 @@ on:
 jobs:
   ovoscope:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     permissions:
       pull-requests: write
       contents: read

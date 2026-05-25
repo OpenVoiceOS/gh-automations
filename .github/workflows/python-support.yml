@@ -57,6 +57,7 @@ jobs:
         python-version: ${{ fromJson(inputs.python_versions) }}
         install-mode: ${{ fromJson(inputs.install_modes) }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Setup Python ${{ matrix.python-version }}
@@ -125,6 +126,7 @@ jobs:
     needs: check_compatibility
     if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     permissions:
       pull-requests: write
       contents: read

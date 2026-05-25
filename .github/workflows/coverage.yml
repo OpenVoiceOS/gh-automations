@@ -72,6 +72,7 @@ on:
 jobs:
   coverage:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     permissions:
       pull-requests: write
       contents: write   # needed for deploy_pages git push; harmless when deploy_pages: false

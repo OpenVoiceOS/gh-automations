@@ -38,6 +38,7 @@ on:
 jobs:
   check_downstream:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     permissions:
       pull-requests: write
       contents: read

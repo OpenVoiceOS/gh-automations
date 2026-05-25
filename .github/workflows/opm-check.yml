@@ -65,6 +65,7 @@ on:
 jobs:
   opm_check:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -195,6 +196,7 @@ jobs:
     needs: opm_check
     if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     permissions:
       pull-requests: write
       contents: read
