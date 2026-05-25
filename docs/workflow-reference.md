@@ -237,7 +237,8 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated) |
 | `install_extras` | string | `""` | pip extras appended when installing the built package, e.g. `dev` |
 | `plugin_type` | string | `auto` | Plugin type to detect: `auto` (reads from entry points), `skill`, `tts`, `stt`, `wake_word`, `vad`, `phal`, `pipeline`, `utterance_transformer`, `tts_transformer`, `g2p` |
-| `entry_point` | string | `""` | Legacy: specific entry point ID to verify (bypasses `plugin_type` auto-detection) |
+| `entry_point` | string | `""` | Legacy: a single entry point ID to verify. Prefer `entry_points` for multi-plugin packages, or leave empty for auto-detection |
+| `entry_points` | string | `""` | JSON array of entry point IDs to verify (one OPM check per entry, results aggregated into the PR comment). Use for packages that ship multiple OPM plugins in one wheel |
 | `opm_require_found` | boolean | `true` | Fail the job if OPM cannot discover the plugin |
 | `opm_validate_interface` | boolean | `true` | Check that the plugin class inherits from the correct abstract base class |
 | `opm_test_import` | boolean | `true` | Test that the plugin class is importable and measure import time in ms |
