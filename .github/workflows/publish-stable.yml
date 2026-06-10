@@ -28,6 +28,14 @@ on:
         type: boolean
         default: false
         description: "Push master -> dev to keep branches in sync after stable release"
+      codename:
+        type: boolean
+        default: false
+        description: >
+          When true, resolve the active OVOS release codename from the gh-automations
+          registry (codenames/CURRENT + codenames/CODENAMES) and include it in the
+          GitHub release name/notes as 'OVOS <version> "<Codename>"'.
+          No effect when publish_release is false.
       notify_matrix:
         type: boolean
         default: false
@@ -62,6 +70,9 @@ on:
       version:
         description: Updated version
         value: ${{jobs.bump_version.outputs.version}}
+      codename:
+        description: "Active codename used for this release (empty when codename input is false)"
+        value: ${{jobs.bump_version.outputs.codename}}
 jobs:
   bump_version:
     # Guard: skip if triggered by a bot commit (prevents infinite loop when
@@ -72,6 +83,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       actual_branch: ${{ steps.branch_detect.outputs.actual_branch }}
+      codename: ${{ steps.codename.outputs.codename }}
     steps:
       - name: Checkout Scripts Repo
         uses: actions/checkout@v7
@@ -117,6 +129,14 @@ jobs:
           python remove_alpha.py --version-file ../../package/${{ inputs.version_file }}
           echo "version=$(python get_version.py --version-file ../../package/${{ inputs.version_file }})" >> $GITHUB_OUTPUT
 
+      - name: Resolve codename
+        id: codename
+        if: ${{ inputs.codename }}
+        working-directory: action/github/scripts
+        run: |
+          NAME=$(python resolve_codename.py --codenames-dir ../codenames)
+          echo "codename=${NAME}" >> $GITHUB_OUTPUT
+
       - name: Push Version Change
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
@@ -136,14 +156,35 @@ jobs:
         with:
           ref: ${{ needs.bump_version.outputs.actual_branch }}
           path: action/package/
+
+      - name: Set release name
+        id: release_name
+        run: |
+          VERSION="${{ needs.bump_version.outputs.version }}"
+          CODENAME="${{ needs.bump_version.outputs.codename }}"
+          if [ -n "$CODENAME" ]; then
+            echo "name=OVOS ${VERSION} \"${CODENAME}\"" >> $GITHUB_OUTPUT
+            {
+              echo "body<<NOTESEOF"
+              echo "## ${CODENAME} release"
+              echo ""
+              echo "NOTESEOF"
+            } >> $GITHUB_OUTPUT
+          else
+            echo "name=${VERSION}" >> $GITHUB_OUTPUT
+            echo "body=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           tag: ${{needs.bump_version.outputs.version}}
+          name: ${{ steps.release_name.outputs.name }}
           commit: ${{ needs.bump_version.outputs.actual_branch }}
           prerelease: false
           generateReleaseNotes: true
+          body: ${{ steps.release_name.outputs.body }}
 
   publish_pypi:
     needs:
@@ -222,7 +263,16 @@ jobs:
         run: |
           POOL="${{ inputs.matrix_message_pool }}"
           CUSTOM="${{ inputs.matrix_message }}"
-          DEFAULT="🎉 ${{ github.event.repository.name }} stable release published! https://github.com/${{ github.repository }}/releases"
+          CODENAME="${{ needs.bump_version.outputs.codename }}"
+          VERSION="${{ needs.bump_version.outputs.version }}"
+          REPO="${{ github.event.repository.name }}"
+          REPO_URL="https://github.com/${{ github.repository }}/releases"
+
+          if [ -n "$CODENAME" ]; then
+            DEFAULT="🎉 ${REPO} stable release published: OVOS ${VERSION} \"${CODENAME}\" ${REPO_URL}"
+          else
+            DEFAULT="🎉 ${REPO} stable release published! ${REPO_URL}"
+          fi
 
           if [ -n "$CUSTOM" ]; then
             MSG="$CUSTOM"
