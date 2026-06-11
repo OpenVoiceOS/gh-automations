@@ -24,8 +24,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# Mapping of plugin type names to ovos-plugin-manager finder functions
+# Mapping of plugin type names to ovos-plugin-manager finder functions.
+# Keys are the entry-point group name with the leading "opm." stripped
+# (e.g. "opm.agents.chat" -> "agents.chat").
 PLUGIN_TYPE_FINDERS = {
+    # Core plugins
     "skill": "ovos_plugin_manager.skills:find_skill_plugins",
     "tts": "ovos_plugin_manager.tts:find_tts_plugins",
     "stt": "ovos_plugin_manager.stt:find_stt_plugins",
@@ -36,6 +39,23 @@ PLUGIN_TYPE_FINDERS = {
     "utterance_transformer": "ovos_plugin_manager.transformers:find_utterance_transformer_plugins",
     "tts_transformer": "ovos_plugin_manager.transformers:find_tts_transformer_plugins",
     "g2p": "ovos_plugin_manager.g2p:find_g2p_plugins",
+    # Agent plugin families (opm.agents.*)
+    "agents.chat": "ovos_plugin_manager.agents:find_chat_plugins",
+    "agents.chat.multimodal": "ovos_plugin_manager.agents:find_multimodal_chat_plugins",
+    "agents.memory": "ovos_plugin_manager.agents:find_memory_plugins",
+    "agents.multimodal_adapter": "ovos_plugin_manager.agents:find_multimodal_adapter_plugins",
+    "agents.retrieval": "ovos_plugin_manager.agents:find_retrieval_plugins",
+    "agents.retrieval.documents": "ovos_plugin_manager.agents:find_document_indexer_plugins",
+    "agents.retrieval.qa": "ovos_plugin_manager.agents:find_qa_indexer_plugins",
+    "agents.reranker": "ovos_plugin_manager.agents:find_reranker_plugins",
+    "agents.summarizer": "ovos_plugin_manager.agents:find_summarizer_plugins",
+    "agents.summarizer.chat": "ovos_plugin_manager.agents:find_chat_summarizer_plugins",
+    "agents.extractive_qa": "ovos_plugin_manager.agents:find_extractive_qa_plugins",
+    "agents.nli": "ovos_plugin_manager.agents:find_natural_language_inference_plugins",
+    "agents.coref": "ovos_plugin_manager.agents:find_coreference_plugins",
+    "agents.yesno": "ovos_plugin_manager.agents:find_yesno_plugins",
+    "agents.option_matcher": "ovos_plugin_manager.agents:find_option_matcher_plugins",
+    "agents.toolbox": "ovos_plugin_manager.persona:find_toolbox_plugins",
 }
 
 # Mapping of plugin types to their abstract base classes
@@ -50,6 +70,23 @@ ABSTRACT_BASES = {
     "utterance_transformer": ("ovos_plugin_manager.templates.transformers", "UtteranceTransformer"),
     "tts_transformer": ("ovos_plugin_manager.templates.transformers", "TTSTransformer"),
     "g2p": ("ovos_plugin_manager.templates.g2p", "Grapheme2PhonemePlugin"),
+    # Agent plugin families
+    "agents.chat": ("ovos_plugin_manager.templates.agents", "ChatEngine"),
+    "agents.chat.multimodal": ("ovos_plugin_manager.templates.agents", "MultimodalChatEngine"),
+    "agents.memory": ("ovos_plugin_manager.templates.agents", "AgentContextManager"),
+    "agents.multimodal_adapter": ("ovos_plugin_manager.templates.agents", "MultimodalAdapter"),
+    "agents.retrieval": ("ovos_plugin_manager.templates.agents", "RetrievalEngine"),
+    "agents.retrieval.documents": ("ovos_plugin_manager.templates.agents", "DocumentIndexerEngine"),
+    "agents.retrieval.qa": ("ovos_plugin_manager.templates.agents", "QAIndexerEngine"),
+    "agents.reranker": ("ovos_plugin_manager.templates.agents", "ReRankerEngine"),
+    "agents.summarizer": ("ovos_plugin_manager.templates.agents", "SummarizerEngine"),
+    "agents.summarizer.chat": ("ovos_plugin_manager.templates.agents", "ChatSummarizerEngine"),
+    "agents.extractive_qa": ("ovos_plugin_manager.templates.agents", "ExtractiveQAEngine"),
+    "agents.nli": ("ovos_plugin_manager.templates.agents", "NaturalLanguageInferenceEngine"),
+    "agents.coref": ("ovos_plugin_manager.templates.agents", "CoreferenceEngine"),
+    "agents.yesno": ("ovos_plugin_manager.templates.agents", "YesNoEngine"),
+    "agents.option_matcher": ("ovos_plugin_manager.templates.agents", "OptionMatcherEngine"),
+    "agents.toolbox": ("ovos_plugin_manager.templates.agent_tools", "ToolBox"),
 }
 
 
@@ -547,10 +584,17 @@ def check_opm(
 
         try:
             # Dynamically import the finder function
-            module_path, func_name = PLUGIN_TYPE_FINDERS.get(short_type, "").split(":")
-            if not module_path:
-                print(f"⚠️  Unknown plugin type: {short_type}", file=sys.stderr)
+            finder_spec = PLUGIN_TYPE_FINDERS.get(short_type)
+            if not finder_spec or ":" not in finder_spec:
+                print(
+                    f"⚠️  Unknown plugin type '{short_type}' — no finder registered. "
+                    f"If this is a new entry-point family, add it to PLUGIN_TYPE_FINDERS "
+                    f"in check_opm.py.",
+                    file=sys.stderr,
+                )
+                result["opm_found"][full_type] = False
                 continue
+            module_path, func_name = finder_spec.split(":", 1)
 
             module = __import__(module_path, fromlist=[func_name])
             finder = getattr(module, func_name)
