@@ -56,6 +56,8 @@ PLUGIN_TYPE_FINDERS = {
     "agents.yesno": "ovos_plugin_manager.agents:find_yesno_plugins",
     "agents.option_matcher": "ovos_plugin_manager.agents:find_option_matcher_plugins",
     "agents.toolbox": "ovos_plugin_manager.persona:find_toolbox_plugins",
+    # Voice-clone plugins (audio-to-audio; opm.vc)
+    "vc": "ovos_plugin_manager.vc:find_voice_clone_plugins",
 }
 
 # Mapping of plugin types to their abstract base classes
@@ -87,6 +89,8 @@ ABSTRACT_BASES = {
     "agents.yesno": ("ovos_plugin_manager.templates.agents", "YesNoEngine"),
     "agents.option_matcher": ("ovos_plugin_manager.templates.agents", "OptionMatcherEngine"),
     "agents.toolbox": ("ovos_plugin_manager.templates.agent_tools", "ToolBox"),
+    # Voice-clone plugins (audio-to-audio; opm.vc)
+    "vc": ("ovos_plugin_manager.templates.vc", "VoiceClonePlugin"),
 }
 
 
