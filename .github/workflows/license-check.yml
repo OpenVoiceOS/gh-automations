@@ -31,7 +31,9 @@ on:
       exclude_packages:
         type: string
         default: ""
-        description: "PCRE regex of package names to exclude from the check (e.g. '^(tqdm).*')"
+        description: >
+          PCRE regex of additional package names to exclude from the check (e.g. '^(tqdm).*').
+          The package under test is always auto-excluded (derived from pyproject.toml/setup.py).
       exclude_licenses:
         type: string
         default: "^Mozilla Public License.*"
@@ -93,6 +95,69 @@ jobs:
       - name: Collect transitive dependencies
         run: pip freeze > requirements-all.txt
 
+      - name: Derive package name and build exclude regex
+        id: pkg_exclude
+        run: |
+          # Derive the name of the package being tested so it can be excluded from the
+          # license check (the package itself is Apache 2.0; checking its own license
+          # causes pilosus to error on PEP 639 `license = {text = ...}` metadata).
+          PKG_NAME=$(python3 - <<'PYEOF'
+          import sys
+          try:
+              import tomllib
+          except ImportError:
+              try:
+                  import tomli as tomllib
+              except ImportError:
+                  tomllib = None
+          from pathlib import Path
+
+          name = None
+          if tomllib is not None:
+              pyproject = Path("pyproject.toml")
+              if pyproject.exists():
+                  try:
+                      with open(pyproject, "rb") as f:
+                          cfg = tomllib.load(f)
+                      name = cfg.get("project", {}).get("name")
+                  except Exception:
+                      pass
+
+          if not name:
+              import re
+              setup_py = Path("setup.py")
+              if setup_py.exists():
+                  try:
+                      m = re.search(r'name\s*=\s*["\']([^"\']+)["\']', setup_py.read_text())
+                      if m:
+                          name = m.group(1)
+                  except Exception:
+                      pass
+
+          if name:
+              # Normalise: pip canonicalises dashes/underscores/dots to hyphens.
+              import re as _re
+              canonical = _re.sub(r'[-_.]+', '-', name).lower()
+              print(canonical)
+          PYEOF
+          )
+
+          # Build combined PCRE exclude: always exclude the package under test;
+          # append any caller-supplied extra pattern with an OR (|).
+          if [ -n "$PKG_NAME" ]; then
+            SELF_PATTERN="^${PKG_NAME}$"
+            EXTRA="${{ inputs.exclude_packages }}"
+            if [ -n "$EXTRA" ]; then
+              COMBINED_EXCLUDE="(${SELF_PATTERN})|(${EXTRA})"
+            else
+              COMBINED_EXCLUDE="$SELF_PATTERN"
+            fi
+          else
+            COMBINED_EXCLUDE="${{ inputs.exclude_packages }}"
+          fi
+          echo "combined_exclude=$COMBINED_EXCLUDE" >> $GITHUB_OUTPUT
+          echo "Excluding packages matching: $COMBINED_EXCLUDE"
+
       - name: Check licenses
         id: license_check_report
         uses: pilosus/action-pip-license-checker@v3
@@ -105,18 +170,21 @@ jobs:
           fails-only: true
           totals: true
           headers: true
-          exclude: ${{ inputs.exclude_packages }}
+          exclude: ${{ steps.pkg_exclude.outputs.combined_exclude }}
           exclude-license: ${{ inputs.exclude_licenses }}
 
       - name: Generate full license breakdown
         id: license_breakdown
         run: |
-          # Run pip-licenses to get the full per-package breakdown as JSON
+          # Run pip-licenses to get the full per-package breakdown as JSON.
+          # Use the same combined exclude (self + caller-supplied) as the pilosus check.
           EXCLUDE_ARGS=""
-          if [ -n "${{ inputs.exclude_packages }}" ]; then
-            # Convert PCRE regex to a plain list best-effort; pip-licenses uses --ignore-packages
-            # We pass the raw regex as a single ignore pattern using --filter-strings
-            EXCLUDE_ARGS="--ignore-packages ${{ inputs.exclude_packages }}"
+          COMBINED="${{ steps.pkg_exclude.outputs.combined_exclude }}"
+          if [ -n "$COMBINED" ]; then
+            # pip-licenses uses --ignore-packages with space-separated names; the combined
+            # pattern is a PCRE regex intended for pilosus.  Pass it via --filter-strings
+            # which also supports regex-style matching in pip-licenses.
+            EXCLUDE_ARGS="--filter-strings $COMBINED"
           fi
           pip-licenses \
             --format=json \
