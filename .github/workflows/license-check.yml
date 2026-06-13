@@ -11,6 +11,11 @@ name: License Check
 #   - MPL (Mozilla Public License) is allowed: file-level copyleft, safe for Apache 2.0
 #     when used as a library without modifying MPL files. Excluded by exclude_licenses.
 #
+# A central whitelist of license-flagged-but-safe packages (e.g. tqdm, dual-licensed
+# MPL-2.0 AND MIT) is applied by default and unioned with the caller's exclude_packages,
+# so most repos can leave exclude_packages empty. The audited source of truth with a
+# justification per package is docs/license-whitelist.md.
+#
 on:
   workflow_call:
     inputs:
@@ -31,7 +36,10 @@ on:
       exclude_packages:
         type: string
         default: ""
-        description: "PCRE regex of package names to exclude from the check (e.g. '^(tqdm).*')"
+        description: >
+          PCRE regex of repo-specific package names to exclude, unioned with the
+          central whitelist (docs/license-whitelist.md). Leave empty to use the
+          central whitelist only. Example: '^my-internal-pkg$'.
       exclude_licenses:
         type: string
         default: "^Mozilla Public License.*"
@@ -93,6 +101,34 @@ jobs:
       - name: Collect transitive dependencies
         run: pip freeze > requirements-all.txt
 
+      - name: Build exclude regex
+        id: exclude
+        # Union the central whitelist of license-flagged-but-safe packages with the
+        # caller's repo-specific exclude_packages. Each branch stays anchored, so an
+        # empty caller input produces no leading/trailing '|' and no empty alternation.
+        # Source of truth + justifications: docs/license-whitelist.md.
+        env:
+          CALLER_EXCLUDE: ${{ inputs.exclude_packages }}
+        run: |
+          python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import os
+
+          # Central whitelist (one anchored alternation per package).
+          #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
+          #          used as an unmodified imported library (pulled by huggingface_hub).
+          central = r"(?i:^tqdm$)"
+
+          caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
+          parts = [p for p in (central.strip(), caller) if p]
+          if not parts:
+              merged = ""
+          elif len(parts) == 1:
+              merged = parts[0]
+          else:
+              merged = "|".join(f"({p})" for p in parts)
+          print(f"regex={merged}")
+          PYEOF
+
       - name: Check licenses
         id: license_check_report
         uses: pilosus/action-pip-license-checker@v3
@@ -105,7 +141,7 @@ jobs:
           fails-only: true
           totals: true
           headers: true
-          exclude: ${{ inputs.exclude_packages }}
+          exclude: ${{ steps.exclude.outputs.regex }}
           exclude-license: ${{ inputs.exclude_licenses }}
 
       - name: Generate full license breakdown
@@ -113,10 +149,10 @@ jobs:
         run: |
           # Run pip-licenses to get the full per-package breakdown as JSON
           EXCLUDE_ARGS=""
-          if [ -n "${{ inputs.exclude_packages }}" ]; then
-            # Convert PCRE regex to a plain list best-effort; pip-licenses uses --ignore-packages
-            # We pass the raw regex as a single ignore pattern using --filter-strings
-            EXCLUDE_ARGS="--ignore-packages ${{ inputs.exclude_packages }}"
+          if [ -n "${{ steps.exclude.outputs.regex }}" ]; then
+            # Same merged regex the pilosus exclude uses, kept consistent here.
+            # pip-licenses --ignore-packages takes the value best-effort.
+            EXCLUDE_ARGS="--ignore-packages ${{ steps.exclude.outputs.regex }}"
           fi
           pip-licenses \
             --format=json \
