@@ -96,7 +96,15 @@ jobs:
           sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
 
       - name: Install package
-        run: pip install ".${{ inputs.install_extras }}"
+        run: |
+          EXTRAS="${{ inputs.install_extras }}"
+          # accept extras with or without surrounding brackets; tolerate empty
+          EXTRAS="${EXTRAS#[}"; EXTRAS="${EXTRAS%]}"
+          if [ -n "$EXTRAS" ]; then
+            pip install ".[${EXTRAS}]"
+          else
+            pip install "."
+          fi
 
       - name: Collect transitive dependencies
         run: pip freeze > requirements-all.txt
