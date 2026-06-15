@@ -683,6 +683,139 @@ class TestCheckOpm:
 # check_opm.py — new feature tests (g2p, multi-ep, requires_python)
 # ---------------------------------------------------------------------------
 
+class TestCheckOpmAgentPlugins:
+    """Tests for opm.agents.* plugin family support (Issue #37)."""
+
+    AGENT_TYPES = [
+        "agents.chat",
+        "agents.chat.multimodal",
+        "agents.memory",
+        "agents.multimodal_adapter",
+        "agents.retrieval",
+        "agents.retrieval.documents",
+        "agents.retrieval.qa",
+        "agents.reranker",
+        "agents.summarizer",
+        "agents.summarizer.chat",
+        "agents.extractive_qa",
+        "agents.nli",
+        "agents.coref",
+        "agents.yesno",
+        "agents.option_matcher",
+        "agents.toolbox",
+    ]
+
+    def test_all_agent_types_in_plugin_type_finders(self) -> None:
+        """Every opm.agents.* short type must be registered in PLUGIN_TYPE_FINDERS."""
+        from check_opm import PLUGIN_TYPE_FINDERS
+        for short_type in self.AGENT_TYPES:
+            assert short_type in PLUGIN_TYPE_FINDERS, (
+                f"Missing PLUGIN_TYPE_FINDERS entry for '{short_type}'"
+            )
+            spec = PLUGIN_TYPE_FINDERS[short_type]
+            assert ":" in spec, f"Finder spec for '{short_type}' has no ':' separator"
+
+    def test_all_agent_types_in_abstract_bases(self) -> None:
+        """Every opm.agents.* short type must have a registered abstract base class."""
+        from check_opm import ABSTRACT_BASES
+        for short_type in self.AGENT_TYPES:
+            assert short_type in ABSTRACT_BASES, (
+                f"Missing ABSTRACT_BASES entry for '{short_type}'"
+            )
+            module, cls = ABSTRACT_BASES[short_type]
+            assert module and cls, f"Empty module or class for '{short_type}'"
+
+    def test_auto_detect_agents_chat_plugin(self, tmp_path: Path) -> None:
+        """auto_detect_plugin_types should find opm.agents.chat entry points."""
+        import os
+        from check_opm import auto_detect_plugin_types
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\n"
+            "name = \"ovos-agentic-loop\"\n"
+            "\n"
+            "[project.entry-points.\"opm.agents.chat\"]\n"
+            "\"ovos-react-loop\" = \"ovos_agentic_loop.factory:ReActLoopEnginePlugin\"\n"
+        )
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = auto_detect_plugin_types()
+        finally:
+            os.chdir(original_dir)
+        assert "opm.agents.chat" in result
+
+    def test_auto_detect_agents_toolbox_plugin(self, tmp_path: Path) -> None:
+        """auto_detect_plugin_types should find opm.agents.toolbox entry points."""
+        import os
+        from check_opm import auto_detect_plugin_types
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\n"
+            "name = \"ovos-agentic-loop\"\n"
+            "\n"
+            "[project.entry-points.\"opm.agents.toolbox\"]\n"
+            "\"ovos-shell-tools\" = \"ovos_agentic_loop.tools.shell:ShellToolBox\"\n"
+        )
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = auto_detect_plugin_types()
+        finally:
+            os.chdir(original_dir)
+        assert "opm.agents.toolbox" in result
+
+    def test_unknown_plugin_type_is_non_fatal(self, tmp_path: Path) -> None:
+        """An unknown opm.* entry-point group must produce a warning, not a crash."""
+        import os
+        import json
+        from check_opm import check_opm
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\n"
+            "name = \"ovos-future-plugin\"\n"
+            "\n"
+            "[project.entry-points.\"opm.agents.future_family\"]\n"
+            "\"ovos-future-plugin\" = \"os:getcwd\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            # Must not raise; exit code may be non-zero but no exception
+            check_opm("auto", output_json=str(json_file), test_import=False, validate_interface=False)
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        # The type should appear as detected but opm_found should be False (no finder)
+        assert "opm.agents.future_family" in result["detected_types"]
+        assert result["opm_found"].get("opm.agents.future_family") is False
+
+    def test_check_opm_multi_agent_types(self, tmp_path: Path) -> None:
+        """A package registering both agents.chat and agents.toolbox is fully checked."""
+        import os
+        import json
+        from check_opm import check_opm
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\n"
+            "name = \"ovos-agentic-loop\"\n"
+            "\n"
+            "[project.entry-points.\"opm.agents.chat\"]\n"
+            "\"ovos-react-loop\" = \"os:getcwd\"\n"
+            "\n"
+            "[project.entry-points.\"opm.agents.toolbox\"]\n"
+            "\"ovos-shell-tools\" = \"os:getenv\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm("auto", output_json=str(json_file), test_import=True, validate_interface=False)
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        validation = result["validation"]
+        assert "ovos-react-loop" in validation["import_ok"]
+        assert "ovos-shell-tools" in validation["import_ok"]
+
+
 class TestCheckOpmNewFeatures:
     """Tests for features added in the OPM check improvements commit."""
 

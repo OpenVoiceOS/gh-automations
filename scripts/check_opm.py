@@ -24,18 +24,41 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# Mapping of plugin type names to ovos-plugin-manager finder functions
+# Mapping of plugin type names to ovos-plugin-manager finder functions.
+# Keys are the entry-point group name with the leading "opm." stripped
+# (e.g. "opm.agents.chat" -> "agents.chat").
 PLUGIN_TYPE_FINDERS = {
+    # Core plugins
     "skill": "ovos_plugin_manager.skills:find_skill_plugins",
     "tts": "ovos_plugin_manager.tts:find_tts_plugins",
     "stt": "ovos_plugin_manager.stt:find_stt_plugins",
     "wake_word": "ovos_plugin_manager.wakewords:find_wake_word_plugins",
+    "wake_word.verifier": "ovos_plugin_manager.wakewords:find_wake_word_verifier_plugins",
     "vad": "ovos_plugin_manager.vad:find_vad_plugins",
     "phal": "ovos_plugin_manager.phal:find_phal_plugins",
     "pipeline": "ovos_plugin_manager.pipeline:find_pipeline_plugins",
     "utterance_transformer": "ovos_plugin_manager.transformers:find_utterance_transformer_plugins",
     "tts_transformer": "ovos_plugin_manager.transformers:find_tts_transformer_plugins",
     "g2p": "ovos_plugin_manager.g2p:find_g2p_plugins",
+    # Agent plugin families (opm.agents.*)
+    "agents.chat": "ovos_plugin_manager.agents:find_chat_plugins",
+    "agents.chat.multimodal": "ovos_plugin_manager.agents:find_multimodal_chat_plugins",
+    "agents.memory": "ovos_plugin_manager.agents:find_memory_plugins",
+    "agents.multimodal_adapter": "ovos_plugin_manager.agents:find_multimodal_adapter_plugins",
+    "agents.retrieval": "ovos_plugin_manager.agents:find_retrieval_plugins",
+    "agents.retrieval.documents": "ovos_plugin_manager.agents:find_document_indexer_plugins",
+    "agents.retrieval.qa": "ovos_plugin_manager.agents:find_qa_indexer_plugins",
+    "agents.reranker": "ovos_plugin_manager.agents:find_reranker_plugins",
+    "agents.summarizer": "ovos_plugin_manager.agents:find_summarizer_plugins",
+    "agents.summarizer.chat": "ovos_plugin_manager.agents:find_chat_summarizer_plugins",
+    "agents.extractive_qa": "ovos_plugin_manager.agents:find_extractive_qa_plugins",
+    "agents.nli": "ovos_plugin_manager.agents:find_natural_language_inference_plugins",
+    "agents.coref": "ovos_plugin_manager.agents:find_coreference_plugins",
+    "agents.yesno": "ovos_plugin_manager.agents:find_yesno_plugins",
+    "agents.option_matcher": "ovos_plugin_manager.agents:find_option_matcher_plugins",
+    "agents.toolbox": "ovos_plugin_manager.persona:find_toolbox_plugins",
+    # Voice-clone plugins (audio-to-audio; opm.vc)
+    "vc": "ovos_plugin_manager.vc:find_voice_clone_plugins",
 }
 
 # Mapping of plugin types to their abstract base classes
@@ -44,12 +67,32 @@ ABSTRACT_BASES = {
     "tts": ("ovos_plugin_manager.templates.tts", "TTS"),
     "stt": ("ovos_plugin_manager.templates.stt", "STT"),
     "wake_word": ("ovos_plugin_manager.templates.hotwords", "HotWordEngine"),
+    "wake_word.verifier": ("ovos_plugin_manager.templates.hotwords", "HotWordVerifier"),
     "vad": ("ovos_plugin_manager.templates.vad", "VADEngine"),
     "phal": ("ovos_plugin_manager.templates.phal", "PHALPlugin"),
     "pipeline": ("ovos_plugin_manager.templates.pipeline", "IntentHandlerPlugin"),
     "utterance_transformer": ("ovos_plugin_manager.templates.transformers", "UtteranceTransformer"),
     "tts_transformer": ("ovos_plugin_manager.templates.transformers", "TTSTransformer"),
     "g2p": ("ovos_plugin_manager.templates.g2p", "Grapheme2PhonemePlugin"),
+    # Agent plugin families
+    "agents.chat": ("ovos_plugin_manager.templates.agents", "ChatEngine"),
+    "agents.chat.multimodal": ("ovos_plugin_manager.templates.agents", "MultimodalChatEngine"),
+    "agents.memory": ("ovos_plugin_manager.templates.agents", "AgentContextManager"),
+    "agents.multimodal_adapter": ("ovos_plugin_manager.templates.agents", "MultimodalAdapter"),
+    "agents.retrieval": ("ovos_plugin_manager.templates.agents", "RetrievalEngine"),
+    "agents.retrieval.documents": ("ovos_plugin_manager.templates.agents", "DocumentIndexerEngine"),
+    "agents.retrieval.qa": ("ovos_plugin_manager.templates.agents", "QAIndexerEngine"),
+    "agents.reranker": ("ovos_plugin_manager.templates.agents", "ReRankerEngine"),
+    "agents.summarizer": ("ovos_plugin_manager.templates.agents", "SummarizerEngine"),
+    "agents.summarizer.chat": ("ovos_plugin_manager.templates.agents", "ChatSummarizerEngine"),
+    "agents.extractive_qa": ("ovos_plugin_manager.templates.agents", "ExtractiveQAEngine"),
+    "agents.nli": ("ovos_plugin_manager.templates.agents", "NaturalLanguageInferenceEngine"),
+    "agents.coref": ("ovos_plugin_manager.templates.agents", "CoreferenceEngine"),
+    "agents.yesno": ("ovos_plugin_manager.templates.agents", "YesNoEngine"),
+    "agents.option_matcher": ("ovos_plugin_manager.templates.agents", "OptionMatcherEngine"),
+    "agents.toolbox": ("ovos_plugin_manager.templates.agent_tools", "ToolBox"),
+    # Voice-clone plugins (audio-to-audio; opm.vc)
+    "vc": ("ovos_plugin_manager.templates.vc", "VoiceClonePlugin"),
 }
 
 
@@ -228,14 +271,20 @@ def validate_config_docs(repo_root: str = ".") -> Tuple[bool, List[str], Optiona
         return (False, [], f"Error scanning for settingsmeta.json: {str(e)}")
 
 
-def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
+def collect_issues(result: Dict[str, Any], perf_threshold_ms: int = 500) -> List[Dict[str, str]]:
     """
     Collect validation issues from OPM check result.
+
+    Args:
+        result: The OPM check result dict.
+        perf_threshold_ms: Import time (ms) above which an import is flagged as an
+            error; half of it is the warning boundary.
 
     Returns list of dicts with keys: severity, message, check.
     Severity is one of: "error", "warning", "info".
     """
     issues = []
+    warn_threshold_ms = max(perf_threshold_ms // 2, 1)
 
     # Check if OPM found the plugin
     opm_found = result.get("opm_found", {})
@@ -261,13 +310,13 @@ def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
             })
         elif ok is True and ep_name in import_time_ms:
             time_val = import_time_ms[ep_name]
-            if time_val and time_val > 500:
+            if time_val and time_val > perf_threshold_ms:
                 issues.append({
                     "severity": "error",
-                    "message": f"Import time for {ep_name} exceeds 500ms ({time_val}ms)",
+                    "message": f"Import time for {ep_name} exceeds {perf_threshold_ms}ms ({time_val}ms)",
                     "check": "import_perf"
                 })
-            elif time_val and time_val > 200:
+            elif time_val and time_val > warn_threshold_ms:
                 issues.append({
                     "severity": "warning",
                     "message": f"Import time for {ep_name} is slow ({time_val}ms)",
@@ -547,10 +596,17 @@ def check_opm(
 
         try:
             # Dynamically import the finder function
-            module_path, func_name = PLUGIN_TYPE_FINDERS.get(short_type, "").split(":")
-            if not module_path:
-                print(f"⚠️  Unknown plugin type: {short_type}", file=sys.stderr)
+            finder_spec = PLUGIN_TYPE_FINDERS.get(short_type)
+            if not finder_spec or ":" not in finder_spec:
+                print(
+                    f"⚠️  Unknown plugin type '{short_type}' — no finder registered. "
+                    f"If this is a new entry-point family, add it to PLUGIN_TYPE_FINDERS "
+                    f"in check_opm.py.",
+                    file=sys.stderr,
+                )
+                result["opm_found"][full_type] = False
                 continue
+            module_path, func_name = finder_spec.split(":", 1)
 
             module = __import__(module_path, fromlist=[func_name])
             finder = getattr(module, func_name)
@@ -591,7 +647,7 @@ def check_opm(
             pass
 
     # Step 5: Collect issues and compute status
-    result["issues"] = collect_issues(result)
+    result["issues"] = collect_issues(result, perf_threshold_ms)
     result["status"] = compute_status(result["issues"])
 
     # Step 6: Summarize results

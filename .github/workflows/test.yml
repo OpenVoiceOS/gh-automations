@@ -26,6 +26,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
-        run: pip install pytest
+        run: pip install pytest ovos-plugin-manager
       - name: Run script tests
         run: pytest test/test_scripts.py -v
