@@ -33,6 +33,7 @@ PLUGIN_TYPE_FINDERS = {
     "tts": "ovos_plugin_manager.tts:find_tts_plugins",
     "stt": "ovos_plugin_manager.stt:find_stt_plugins",
     "wake_word": "ovos_plugin_manager.wakewords:find_wake_word_plugins",
+    "wake_word.verifier": "ovos_plugin_manager.wakewords:find_wake_word_verifier_plugins",
     "vad": "ovos_plugin_manager.vad:find_vad_plugins",
     "phal": "ovos_plugin_manager.phal:find_phal_plugins",
     "pipeline": "ovos_plugin_manager.pipeline:find_pipeline_plugins",
@@ -66,6 +67,7 @@ ABSTRACT_BASES = {
     "tts": ("ovos_plugin_manager.templates.tts", "TTS"),
     "stt": ("ovos_plugin_manager.templates.stt", "STT"),
     "wake_word": ("ovos_plugin_manager.templates.hotwords", "HotWordEngine"),
+    "wake_word.verifier": ("ovos_plugin_manager.templates.hotwords", "HotWordVerifier"),
     "vad": ("ovos_plugin_manager.templates.vad", "VADEngine"),
     "phal": ("ovos_plugin_manager.templates.phal", "PHALPlugin"),
     "pipeline": ("ovos_plugin_manager.templates.pipeline", "IntentHandlerPlugin"),
@@ -269,14 +271,20 @@ def validate_config_docs(repo_root: str = ".") -> Tuple[bool, List[str], Optiona
         return (False, [], f"Error scanning for settingsmeta.json: {str(e)}")
 
 
-def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
+def collect_issues(result: Dict[str, Any], perf_threshold_ms: int = 500) -> List[Dict[str, str]]:
     """
     Collect validation issues from OPM check result.
+
+    Args:
+        result: The OPM check result dict.
+        perf_threshold_ms: Import time (ms) above which an import is flagged as an
+            error; half of it is the warning boundary.
 
     Returns list of dicts with keys: severity, message, check.
     Severity is one of: "error", "warning", "info".
     """
     issues = []
+    warn_threshold_ms = max(perf_threshold_ms // 2, 1)
 
     # Check if OPM found the plugin
     opm_found = result.get("opm_found", {})
@@ -302,13 +310,13 @@ def collect_issues(result: Dict[str, Any]) -> List[Dict[str, str]]:
             })
         elif ok is True and ep_name in import_time_ms:
             time_val = import_time_ms[ep_name]
-            if time_val and time_val > 500:
+            if time_val and time_val > perf_threshold_ms:
                 issues.append({
                     "severity": "error",
-                    "message": f"Import time for {ep_name} exceeds 500ms ({time_val}ms)",
+                    "message": f"Import time for {ep_name} exceeds {perf_threshold_ms}ms ({time_val}ms)",
                     "check": "import_perf"
                 })
-            elif time_val and time_val > 200:
+            elif time_val and time_val > warn_threshold_ms:
                 issues.append({
                     "severity": "warning",
                     "message": f"Import time for {ep_name} is slow ({time_val}ms)",
@@ -639,7 +647,7 @@ def check_opm(
             pass
 
     # Step 5: Collect issues and compute status
-    result["issues"] = collect_issues(result)
+    result["issues"] = collect_issues(result, perf_threshold_ms)
     result["status"] = compute_status(result["issues"])
 
     # Step 6: Summarize results
