@@ -1,0 +1,161 @@
+name: TTS Intelligibility
+# Reusable workflow for end-to-end TTS intelligibility scoring.
+#
+# Synthesises speech with the TTS plugin under test, transcribes the rendered
+# audio back with a reference STT (faster-whisper tiny), scores the round-trip
+# with WER/CER, and posts a '🗣️ TTS Intelligibility' section to the OVOS PR
+# Checks comment.
+#
+# Report-only by default: `max_wer` defaults to 1.0 so the test never hard-fails
+# on a poor score. The job still fails if the test process itself errors
+# (import error, crash) so genuine breakage is surfaced.
+#
+# The plugin's pyproject [test]/dev extra must pull in `ovoscope[tts]`. As a CI
+# safety net this workflow also installs `ovoscope[tts]` explicitly (from PyPI,
+# or from the `@dev` GitHub branch when `pre_release: true`).
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      python_version:
+        type: string
+        default: "3.11"
+        description: "Python version to use"
+      system_deps:
+        type: string
+        default: ""
+        description: >
+          Extra apt packages to install before testing (space-separated), e.g.
+          'espeak-ng sox'. Engines backed by a system binary need this.
+      install_extras:
+        type: string
+        default: "test"
+        description: >
+          pip extras used when installing the package, e.g. 'test' or 'dev,test'.
+          The extras should pull in ovoscope[tts].
+      test_path:
+        type: string
+        default: "test/end2end/test_tts_intelligibility.py"
+        description: "Path passed to pytest — the intelligibility test file"
+      max_wer:
+        type: string
+        default: "1.0"
+        description: >
+          Report-only WER threshold (exported as TTS_MAX_WER). Defaults to 1.0
+          so the test never hard-fails on a poor score.
+      pre_release:
+        type: boolean
+        default: false
+        description: >
+          Install ovoscope[tts] from its GitHub `dev` branch instead of PyPI.
+          Use to validate against unreleased ovoscope changes.
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '🗣️ TTS Intelligibility' section in the OVOS PR Checks comment.
+          Only runs on pull_request events.
+
+jobs:
+  tts-intelligibility:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v6
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Setup Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Cache models (huggingface + plugin data)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.local/share
+          key: tts-intel-models-${{ runner.os }}-${{ inputs.python_version }}-v1
+          restore-keys: |
+            tts-intel-models-${{ runner.os }}-${{ inputs.python_version }}-
+
+      - name: Install Package with Test Extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-json-report
+          if [ "${{ inputs.pre_release }}" == "true" ]; then
+            echo "Installing ovoscope[tts] from GitHub dev (pre_release)..."
+            pip install --force-reinstall \
+              "ovoscope[tts] @ git+https://github.com/TigreGotico/ovoscope@dev"
+          else
+            pip install "ovoscope[tts]"
+          fi
+          EXTRAS="${{ inputs.install_extras }}"
+          if [ -n "$EXTRAS" ]; then
+            pip install ".[$EXTRAS]"
+          else
+            pip install .
+          fi
+          python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
+
+      - name: Run TTS intelligibility tests
+        id: run_tests
+        # continue-on-error so the PR comment step always runs even on failure
+        continue-on-error: true
+        env:
+          TTS_MAX_WER: ${{ inputs.max_wer }}
+        run: |
+          python -m pytest \
+            ${{ inputs.test_path }} \
+            --json-report \
+            --json-report-file=/tmp/tts-intel-results.json \
+            -v -s 2>&1 | tee /tmp/tts-intel-stdout.txt
+
+      - name: Format TTS intelligibility section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/format_tts_intel.py \
+            --json /tmp/tts-intel-results.json \
+            --log /tmp/tts-intel-stdout.txt \
+            --max-wer "${{ inputs.max_wer }}" \
+            --out /tmp/tts-intel-section.md
+
+      - name: Post TTS intelligibility section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "tts-intelligibility" \
+            --title "🗣️ TTS Intelligibility" \
+            --content-file /tmp/tts-intel-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so check status is correct.
+      # Report-only on the WER score itself — only fails if the test PROCESS
+      # failed (crash / import error / hard assertion).
+      - name: Fail job if tests failed
+        if: ${{ steps.run_tests.outcome == 'failure' }}
+        run: |
+          echo "TTS intelligibility test process failed — see report above."
+          exit 1
