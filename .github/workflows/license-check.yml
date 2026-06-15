@@ -38,8 +38,9 @@ on:
         default: ""
         description: >
           PCRE regex of repo-specific package names to exclude, unioned with the
-          central whitelist (docs/license-whitelist.md). Leave empty to use the
-          central whitelist only. Example: '^my-internal-pkg$'.
+          central whitelist (docs/license-whitelist.md) and the package under test
+          (auto-derived from pyproject.toml/setup.py). Leave empty to use the
+          central whitelist plus self-exclusion only. Example: '^my-internal-pkg$'.
       exclude_licenses:
         type: string
         default: "^Mozilla Public License.*"
@@ -103,23 +104,60 @@ jobs:
 
       - name: Build exclude regex
         id: exclude
-        # Union the central whitelist of license-flagged-but-safe packages with the
-        # caller's repo-specific exclude_packages. Each branch stays anchored, so an
-        # empty caller input produces no leading/trailing '|' and no empty alternation.
-        # Source of truth + justifications: docs/license-whitelist.md.
+        # Union three sources into one anchored PCRE alternation:
+        #   1. the package under test (auto-derived from pyproject.toml/setup.py) — its
+        #      own Apache-2.0 metadata trips pilosus on PEP 639 `license = {text = ...}`;
+        #   2. the central whitelist of license-flagged-but-safe packages;
+        #   3. the caller's repo-specific exclude_packages.
+        # Each branch stays anchored, so an empty caller input produces no leading/
+        # trailing '|' and no empty alternation. Source of truth: docs/license-whitelist.md.
         env:
           CALLER_EXCLUDE: ${{ inputs.exclude_packages }}
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import os
+          import re
+          from pathlib import Path
 
-          # Central whitelist (one anchored alternation per package).
+          # 1. Package under test (derived from pyproject.toml, falling back to setup.py).
+          try:
+              import tomllib
+          except ImportError:
+              try:
+                  import tomli as tomllib
+              except ImportError:
+                  tomllib = None
+
+          name = None
+          if tomllib is not None and Path("pyproject.toml").exists():
+              try:
+                  with open("pyproject.toml", "rb") as f:
+                      name = tomllib.load(f).get("project", {}).get("name")
+              except Exception:
+                  pass
+          if not name and Path("setup.py").exists():
+              try:
+                  m = re.search(r'name\s*=\s*["\']([^"\']+)["\']',
+                                Path("setup.py").read_text())
+                  if m:
+                      name = m.group(1)
+              except Exception:
+                  pass
+          self_pattern = ""
+          if name:
+              # pip canonicalises dashes/underscores/dots to hyphens.
+              canonical = re.sub(r'[-_.]+', '-', name).lower()
+              self_pattern = rf"(?i:^{re.escape(canonical)}$)"
+
+          # 2. Central whitelist (one anchored alternation per package).
           #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
           #          used as an unmodified imported library (pulled by huggingface_hub).
           central = r"(?i:^tqdm$)"
 
+          # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
-          parts = [p for p in (central.strip(), caller) if p]
+
+          parts = [p for p in (self_pattern, central.strip(), caller) if p]
           if not parts:
               merged = ""
           elif len(parts) == 1:
@@ -147,12 +185,14 @@ jobs:
       - name: Generate full license breakdown
         id: license_breakdown
         run: |
-          # Run pip-licenses to get the full per-package breakdown as JSON
-          EXCLUDE_ARGS=""
-          if [ -n "${{ steps.exclude.outputs.regex }}" ]; then
-            # Same merged regex the pilosus exclude uses, kept consistent here.
-            # pip-licenses --ignore-packages takes the value best-effort.
-            EXCLUDE_ARGS="--ignore-packages ${{ steps.exclude.outputs.regex }}"
+          # Run pip-licenses to get the full per-package breakdown as JSON.
+          # Use the same combined exclude (self + caller-supplied) as the pilosus check.
+          COMBINED="${{ steps.exclude.outputs.regex }}"
+          if [ -n "$COMBINED" ]; then
+            # pip-licenses uses --ignore-packages with space-separated names; the combined
+            # pattern is a PCRE regex intended for pilosus.  Pass it via --filter-strings
+            # which also supports regex-style matching in pip-licenses.
+            EXCLUDE_ARGS="--filter-strings $COMBINED"
           fi
           pip-licenses \
             --format=json \
