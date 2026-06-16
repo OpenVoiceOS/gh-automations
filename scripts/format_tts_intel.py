@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -25,6 +26,23 @@ MARKER = "::TTS-INTELLIGIBILITY::"
 MARKER_RE = re.compile(re.escape(MARKER) + r"\s*(\{.*\})")
 
 
+def _parse_marker(blob: str) -> Optional[dict]:
+    """Parse a marker payload as JSON, falling back to a Python dict literal.
+
+    Older test files emitted ``str(report.to_dict())`` (a Python repr with single
+    quotes / ``None`` / ``True``) which is not valid JSON, so ``ast.literal_eval``
+    is used as a fallback to keep their scores visible.
+    """
+    try:
+        obj = json.loads(blob)
+    except (ValueError, TypeError):
+        try:
+            obj = ast.literal_eval(blob)
+        except (ValueError, SyntaxError, TypeError):
+            return None
+    return obj if isinstance(obj, dict) else None
+
+
 def _scrape_text(text: str) -> List[dict]:
     """Extract all marker-tagged report dicts from a blob of text."""
     reports = []
@@ -32,10 +50,9 @@ def _scrape_text(text: str) -> List[dict]:
         m = MARKER_RE.search(line)
         if not m:
             continue
-        try:
-            reports.append(json.loads(m.group(1)))
-        except (ValueError, TypeError):
-            continue
+        obj = _parse_marker(m.group(1))
+        if obj is not None:
+            reports.append(obj)
     return reports
 
 
