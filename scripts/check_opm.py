@@ -67,6 +67,7 @@ PLUGIN_TYPE_FINDERS = {
     "transformer.text": "ovos_plugin_manager.text_transformers:find_utterance_transformer_plugins",
     "transformer.metadata": "ovos_plugin_manager.metadata_transformers:find_metadata_transformer_plugins",
     "transformer.dialog": "ovos_plugin_manager.dialog_transformers:find_dialog_transformer_plugins",
+    "transformer.tts": "ovos_plugin_manager.dialog_transformers:find_tts_transformer_plugins",
     "transformer.intent": "ovos_plugin_manager.intent_transformers:find_intent_transformer_plugins",
     # OCP stream extractors / media
     "ocp.extractor": "ovos_plugin_manager.ocp:find_ocp_plugins",
@@ -674,7 +675,9 @@ def check_opm(
 
         try:
             # Dynamically import the finder function
-            finder_spec = PLUGIN_TYPE_FINDERS.get(short_type)
+            # case-insensitive lookup: PluginTypes mixes case (e.g. opm.VAD vs the
+            # lowercase finder key "vad"), so fall back to the lowercased short type.
+            finder_spec = PLUGIN_TYPE_FINDERS.get(short_type) or PLUGIN_TYPE_FINDERS.get(short_type.lower())
             if not finder_spec or ":" not in finder_spec:
                 print(
                     f"⚠️  Unknown plugin type '{short_type}' — no finder registered. "
