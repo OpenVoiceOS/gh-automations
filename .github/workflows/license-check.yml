@@ -148,11 +148,16 @@ jobs:
           if name:
               # pip canonicalises dashes/underscores/dots to hyphens.
               canonical = re.sub(r'[-_.]+', '-', name).lower()
+              # The resolved requirement may report the name with EITHER separator
+              # (e.g. "ovos_stt_plugin_azure==1.0"), so make each separator match
+              # any of -_. — otherwise a hyphen-canonical anchor misses the
+              # underscore form and the self-package is not excluded.
+              name_re = re.escape(canonical).replace(r"\-", "[-_.]")
               # pilosus excludes via re-matches (full-string) against the resolved
               # "name==version" requirement, so anchor the name then allow a version
               # specifier / marker / url suffix or end-of-string. A bare "^name$" or a
               # ":"-separated anchor never matches "name==1.2.3".
-              self_pattern = rf"(?i:^{re.escape(canonical)}([=<>!~ @;].*)?$)"
+              self_pattern = rf"(?i:^{name_re}([=<>!~ @;].*)?$)"
 
           # 2. Central whitelist (one anchored alternation per package).
           #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
