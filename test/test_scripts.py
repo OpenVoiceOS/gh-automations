@@ -447,6 +447,49 @@ class TestCheckOpm:
         finally:
             os.chdir(original_dir)
 
+    def test_legacy_entry_point_non_skill_not_failed_as_skill(self, tmp_path: Path) -> None:
+        """A non-skill plugin passed via the legacy `entry_point` input must not be
+        reported as a missing skill.
+
+        The deprecated `entry_point` workflow input is still used by OCP/PHAL/TTS repos.
+        The legacy code path previously checked only ``find_skill_plugins`` and returned
+        exit 1 for every entry point absent from it — hard-failing every non-skill plugin.
+        Such a plugin must instead fall through to the normal detection result (exit 0).
+        """
+        import os
+        import json
+
+        original_dir = os.getcwd()
+        json_file = tmp_path / "result.json"
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                'name = "ovos-ocp-fake-plugin"\n'
+                "\n"
+                '[project.entry-points."opm.ocp.extractor"]\n'
+                '"ovos-ocp-fake-plugin" = "ovos_ocp_fake_plugin:FakeExtractor"\n'
+            )
+            # entry_point names a non-skill plugin; with no skill group declared it must
+            # not be flagged as a missing skill (would have returned 1 previously).
+            exit_code = check_opm(
+                "auto",
+                entry_point="ovos-ocp-fake-plugin",
+                output_json=str(json_file),
+                test_import=False,
+                validate_interface=False,
+            )
+            assert exit_code == 0
+            result = json.loads(json_file.read_text())
+            # Detected as an OCP extractor, not mislabeled as a missing skill.
+            assert "opm.ocp.extractor" in result["detected_types"]
+            assert not any(
+                "NOT detected" in (i.get("message") or "")
+                for i in result.get("issues", [])
+            )
+        finally:
+            os.chdir(original_dir)
+
     def test_extract_metadata_name(self, tmp_path: Path) -> None:
         """Extract metadata should read project name from pyproject.toml."""
         import os
