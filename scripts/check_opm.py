@@ -708,26 +708,54 @@ def check_opm(
             result["opm_found"][full_type] = None
 
     # Step 4: Legacy entry_point support (backward compatibility)
+    #
+    # A single entry-point ID was passed (the deprecated `entry_point` workflow input).
+    # The package may register ANY plugin type, not just a skill — e.g. OCP stream
+    # extractors (opm.ocp.extractor), PHAL plugins (opm.phal), TTS/STT, etc. The
+    # per-type finders in Step 3b already ran against every declared group, so reuse
+    # their result instead of assuming the entry point is a skill.
+    #
+    # Only treat this as an authoritative pass/fail when the named entry point belongs
+    # to the SKILL group (the only family the legacy path was ever meant to verify).
+    # For every other plugin family, fall through to the Step 5/6 detection result so a
+    # non-skill plugin is not mis-reported as a missing skill (which previously hard-failed
+    # opm-check for all non-skill plugins that still used the legacy `entry_point` input).
     if entry_point:
-        try:
-            from ovos_plugin_manager.skills import find_skill_plugins
-            plugins = find_skill_plugins()
-            if entry_point in plugins:
-                print(f"✅ Skill '{entry_point}' detected by ovos-plugin-manager.")
-                result["is_ovos_plugin"] = True
-                result["summary"] = f"Skill: {entry_point} (found by OPM)"
-                if output_json:
-                    with open(output_json, "w") as f:
-                        json.dump(result, f, indent=2)
-                return 0
-            else:
-                print(f"❌ Skill '{entry_point}' NOT detected by ovos-plugin-manager.")
-                if output_json:
-                    with open(output_json, "w") as f:
-                        json.dump(result, f, indent=2)
-                return 1
-        except Exception:
-            pass
+        ep_groups = {
+            group: list(entries.keys()) if isinstance(entries, dict) else (entries or [])
+            for group, entries in result.get("entry_points", {}).items()
+        }
+        ep_is_skill = any(
+            canonical_opm_group(group) == "opm.skill" and entry_point in names
+            for group, names in ep_groups.items()
+        )
+        # Packages with no parseable entry points (legacy setup.py skills) default to
+        # the historical skill check so existing skill repos keep working.
+        no_declared_groups = not ep_groups
+
+        if ep_is_skill or no_declared_groups:
+            try:
+                from ovos_plugin_manager.skills import find_skill_plugins
+                plugins = find_skill_plugins()
+                if entry_point in plugins:
+                    print(f"✅ Skill '{entry_point}' detected by ovos-plugin-manager.")
+                    result["is_ovos_plugin"] = True
+                    result["summary"] = f"Skill: {entry_point} (found by OPM)"
+                    if output_json:
+                        with open(output_json, "w") as f:
+                            json.dump(result, f, indent=2)
+                    return 0
+                elif ep_is_skill:
+                    print(f"❌ Skill '{entry_point}' NOT detected by ovos-plugin-manager.")
+                    if output_json:
+                        with open(output_json, "w") as f:
+                            json.dump(result, f, indent=2)
+                    return 1
+                # no_declared_groups and not a registered skill → fall through to Step 5/6
+            except Exception:
+                pass
+        # Non-skill plugin (OCP extractor, PHAL, TTS, …): the Step 3b finders already
+        # validated it; let the normal detection summary decide the exit code below.
 
     # Step 5: Collect issues and compute status
     result["issues"] = collect_issues(result, perf_threshold_ms)
