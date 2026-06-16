@@ -6,9 +6,10 @@ name: TTS Intelligibility
 # with WER/CER, and posts a '🗣️ TTS Intelligibility' section to the OVOS PR
 # Checks comment.
 #
-# Report-only by default: `max_wer` defaults to 1.0 so the test never hard-fails
-# on a poor score. The job still fails if the test process itself errors
-# (import error, crash) so genuine breakage is surfaced.
+# Gates by default: the job FAILS when the round-trip is unintelligible — i.e.
+# when mean WER exceeds `max_wer` (the test asserts it) or the test process
+# errors (import error, crash). Set `warn_only: true` to downgrade to report-only
+# (post the score, never fail) for engines/langs still being tuned.
 #
 # The plugin's pyproject [test]/dev extra must pull in `ovoscope[tts]`. As a CI
 # safety net this workflow also installs `ovoscope[tts]` explicitly (from PyPI,
@@ -43,10 +44,13 @@ on:
         description: "Path passed to pytest — the intelligibility test file"
       max_wer:
         type: string
-        default: "1.0"
+        default: "0.5"
         description: >
-          Report-only WER threshold (exported as TTS_MAX_WER). Defaults to 1.0
-          so the test never hard-fails on a poor score.
+          Intelligibility gate (exported as TTS_MAX_WER): the test fails when the
+          mean word-error-rate of the STT round-trip exceeds this. Default 0.5 —
+          more than half the words wrong is treated as unintelligible. Raise it
+          per-plugin for engines/voices/low-resource langs the reference STT
+          transcribes weakly; lower it to tighten the bar.
       pre_release:
         type: boolean
         default: false
@@ -59,6 +63,14 @@ on:
         description: >
           Post a '🗣️ TTS Intelligibility' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
+      warn_only:
+        type: boolean
+        default: false
+        description: >
+          When false (default), the check GATES: an unintelligible round-trip
+          (mean WER > max_wer) or a test-process error fails the PR. Set true to
+          downgrade to report-only — the score is still posted to the PR comment
+          but the check never fails — for engines/langs still being tuned.
 
 jobs:
   tts-intelligibility:
@@ -151,11 +163,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Fail the job after posting the PR comment so check status is correct.
-      # Report-only on the WER score itself — only fails if the test PROCESS
-      # failed (crash / import error / hard assertion).
+      # Fail the job after posting the PR comment so the check status is correct.
+      # The test fails when mean WER exceeds TTS_MAX_WER (unintelligible) or the
+      # process crashes. `warn_only: true` downgrades this to report-only.
       - name: Fail job if tests failed
-        if: ${{ steps.run_tests.outcome == 'failure' }}
+        if: ${{ steps.run_tests.outcome == 'failure' && inputs.warn_only != true }}
         run: |
-          echo "TTS intelligibility test process failed — see report above."
+          echo "TTS intelligibility check failed — round-trip unintelligible (mean WER > ${{ inputs.max_wer }}) or the test process errored. See report above."
           exit 1
+
+      - name: Report-only notice
+        if: ${{ steps.run_tests.outcome == 'failure' && inputs.warn_only == true }}
+        run: |
+          echo "::warning::TTS intelligibility below threshold (mean WER > ${{ inputs.max_wer }}) — not failing because warn_only=true."
