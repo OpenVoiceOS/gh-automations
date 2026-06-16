@@ -25,6 +25,7 @@ on:
 jobs:
   locale_check:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     permissions:
       pull-requests: write
       contents: read

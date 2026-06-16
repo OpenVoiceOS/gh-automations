@@ -43,9 +43,9 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `release-preview.yml` | Predict next version from PR labels/title | All repos — `release_preview.yml` |
 | `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos — `repo_health.yml` |
 | `skill-check.yml` | Locale coverage and skill.json validity | Skill repos — `skill_check.yml` |
+| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1/-2 via `ovos-spec-lint` | Skill repos — `spec_lint.yml` |
 | `downstream-check.yml` | Report which packages depend on a given package | 13 repos — `downstream.yml` |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | Superseded by `build-tests.yml` for most repos |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | Skill repos — `sync_translations.yml` |
 | `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
 | `type-check.yml` | Run mypy and post 🔎 Type Check section to PR comment | Repos with type hints |
 | `docs-check.yml` | Verify required docs files exist; optional markdownlint | All repos |
@@ -99,11 +99,11 @@ VERSION_ALPHA = 4   # 0 = stable
 
 | Resource | Path |
 |----------|------|
-| Machine-readable facts | [`../QUICK_FACTS.md`](../QUICK_FACTS.md) |
-| Common questions | [`../FAQ.md`](../FAQ.md) |
-| Change log | [`../MAINTENANCE_REPORT.md`](../MAINTENANCE_REPORT.md) |
-| Known issues | [`../AUDIT.md`](../AUDIT.md) |
-| Improvement proposals | [`../SUGGESTIONS.md`](../SUGGESTIONS.md) |
+| Maintenance notes | [`maintenance.md`](maintenance.md) |
+| Workflow reference | [`workflow-reference.md`](workflow-reference.md) |
+| Repo setup guide | [`repo-setup.md`](repo-setup.md) |
+| Release flow | [`release-flow.md`](release-flow.md) |
+| Caller repos | [`repos.md`](repos.md) |
 
 ---
 

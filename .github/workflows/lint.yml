@@ -35,6 +35,7 @@ on:
 jobs:
   lint:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     permissions:
       pull-requests: write
       contents: read

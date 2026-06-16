@@ -52,6 +52,7 @@ on:
 jobs:
   pip_audit:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     permissions:
       pull-requests: write
       contents: read

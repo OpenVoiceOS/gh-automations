@@ -1,0 +1,168 @@
+name: Spec Lint
+# Runs ovos-spec-lint against a skill's locale folder to validate it against
+# OVOS-INTENT-1 (template syntax) and OVOS-INTENT-2 (file naming and layout).
+#
+# Follows the same 3-phase pattern as skill-check.yml:
+#   continue-on-error → format section → post comment → re-raise
+#
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      python_version:
+        type: string
+        default: "3.14"
+        description: "Python version"
+      locale_path:
+        type: string
+        default: "locale"
+        description: "Path to the locale folder (or a single <lang>/ directory)"
+      spec_version:
+        type: string
+        default: ""
+        description: >
+          OVOS spec version to target. Empty = ovos-spec-lint default.
+          Set to '0', '1', '2', or '3' to flag features newer than that version.
+      strict:
+        type: boolean
+        default: false
+        description: "Treat warnings as errors (passes --strict to ovos-spec-lint)"
+      skip_if_no_locale:
+        type: boolean
+        default: true
+        description: "Silently pass if locale_path does not exist"
+      ovos_spec_tools_spec:
+        type: string
+        default: "ovos-spec-tools"
+        description: >
+          Pip requirement spec for the linter. Override to pin a version or
+          install from a git URL during alpha.
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '🧪 Spec Lint' section in the shared 'OVOS PR Checks' comment.
+          Only runs when the workflow is triggered by a pull_request event.
+
+jobs:
+  spec_lint:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Checkout gh-automations scripts
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v6
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Resolve locale path
+        id: resolve
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
+        run: |
+          if [ -d "$LOCALE_PATH" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if locale folder is missing
+        if: ${{ inputs.skip_if_no_locale && steps.resolve.outputs.exists == 'false' }}
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
+        run: |
+          printf 'ℹ️ locale folder %q not found — spec-lint skipped.\n' "$LOCALE_PATH" \
+            > /tmp/spec-lint-section.md
+          echo "SKIPPED=true" >> "$GITHUB_ENV"
+
+      - name: Install ovos-spec-tools
+        if: ${{ env.SKIPPED != 'true' }}
+        env:
+          OVOS_SPEC_TOOLS_SPEC: ${{ inputs.ovos_spec_tools_spec }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$OVOS_SPEC_TOOLS_SPEC"
+
+      - name: Run ovos-spec-lint
+        id: lint
+        if: ${{ env.SKIPPED != 'true' }}
+        # continue-on-error so the PR comment step always runs.
+        # The job still fails at the end via the outcome check below.
+        continue-on-error: true
+        env:
+          LOCALE_PATH: ${{ inputs.locale_path }}
+          STRICT: ${{ inputs.strict }}
+          SPEC_VERSION: ${{ inputs.spec_version }}
+        run: |
+          ARGS=("$LOCALE_PATH")
+          if [ "$STRICT" = "true" ]; then
+            ARGS+=(--strict)
+          fi
+          if [ -n "$SPEC_VERSION" ]; then
+            ARGS+=(--spec-version "$SPEC_VERSION")
+          fi
+          ovos-spec-lint "${ARGS[@]}" | tee /tmp/spec-lint.out
+
+      - name: Format spec-lint section for PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && env.SKIPPED != 'true' }}
+        run: |
+          python3 - <<'PYEOF'
+          from pathlib import Path
+
+          out = Path("/tmp/spec-lint.out")
+          lines = out.read_text().splitlines() if out.exists() else []
+
+          # Last non-empty line is "N error(s), M warning(s)" or "0 errors found".
+          summary = ""
+          for ln in reversed(lines):
+              if ln.strip():
+                  summary = ln.strip()
+                  break
+          findings = [ln for ln in lines if ln.strip() and ln is not summary][:-1] if summary else lines
+
+          out_md = Path("/tmp/spec-lint-section.md")
+          if not findings:
+              out_md.write_text(f"✅ {summary or 'No findings.'}\n")
+          else:
+              body = ["**" + summary + "**", "", "```"]
+              body.extend(findings)
+              body.append("```")
+              out_md.write_text("\n".join(body) + "\n")
+          PYEOF
+
+      - name: Post spec-lint section to PR comment
+        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "spec-lint" \
+            --title "🧪 Spec Lint" \
+            --content-file /tmp/spec-lint-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fail the job after posting the PR comment so the check status is correct.
+      - name: Fail job if spec-lint reported errors
+        if: ${{ env.SKIPPED != 'true' && steps.lint.outcome == 'failure' }}
+        run: |
+          echo "ovos-spec-lint reported errors — see report above."
+          exit 1

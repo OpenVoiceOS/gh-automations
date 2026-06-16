@@ -342,11 +342,11 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/docs-check.yml@dev
     secrets: inherit
     with:
-      required_files: 'docs/index.md,FAQ.md,QUICK_FACTS.md'   # default
+      required_files: 'README.md'   # default
       fail_on_missing: false    # informational only (default)
 ```
 
-Posts a 📚 Docs section showing which required files are present or missing. Set `fail_on_missing: true` to enforce the CLAUDE.md docs-must-exist rule.
+Posts a 📚 Docs section showing which required files are present or missing. Set `fail_on_missing: true` to fail the job when any listed file is absent.
 
 ### `release_preview.yml` — Next-version prediction
 
@@ -378,23 +378,6 @@ jobs:
     secrets: inherit
     with:
       version_file: 'my_package/version.py'  # if empty, auto-detects
-```
-
-### `sync_translations.yml` — Gitlocalize sync (skill repos only)
-
-```yaml
-name: Sync Translations
-on:
-  workflow_dispatch:
-  push:
-    branches: [dev]
-
-jobs:
-  sync_translations:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
-    secrets: inherit
-    with:
-      branch: dev
 ```
 
 ---
@@ -470,7 +453,7 @@ jobs:
 **Step 3:** Remove the `CODECOV_TOKEN` secret from the repo if it was only used for coverage uploads.
 
 **Why migrate?** `coverage.yml` is self-hosted (no external account required), uses only `GITHUB_TOKEN`,
-and produces a consistent PR comment format across all 209 OVOS repos. See `SUGGESTIONS.md #8` for full context.
+and produces a consistent PR comment format across caller repos.
 
 **Note:** Do NOT do a bulk migration wave — migrate opportunistically when touching a repo's `.github/workflows/` for another reason.
 

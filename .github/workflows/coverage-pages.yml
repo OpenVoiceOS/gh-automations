@@ -43,6 +43,7 @@ on:
 jobs:
   coverage_pages:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:

@@ -94,6 +94,27 @@ class TestWorkflowYaml:
         jobs = content.get("jobs", {})
         assert jobs, f"{wf_path.name}: no jobs defined"
 
+    def test_every_job_has_timeout_minutes(self, wf_path: Path) -> None:
+        """
+        Every job must declare `timeout-minutes:` so a hung step cannot consume
+        the GitHub default 6-hour runner quota. Reusable workflows that defer
+        the timeout to a callee via `uses:` are exempt.
+        """
+        content = load_workflow(wf_path)
+        jobs = content.get("jobs", {}) or {}
+        missing = []
+        for job_name, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            # Jobs that call another reusable workflow inherit its timeouts.
+            if "uses" in job:
+                continue
+            if "timeout-minutes" not in job:
+                missing.append(job_name)
+        assert not missing, (
+            f"{wf_path.name}: jobs missing `timeout-minutes:`: {missing}"
+        )
+
     def test_no_floating_uses_refs(self, wf_path: Path) -> None:
         """
         Steps must not use floating action refs (@latest, @main, @master).

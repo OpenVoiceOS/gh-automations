@@ -32,7 +32,18 @@ on:
       entry_point:
         type: string
         default: ""
-        description: "Legacy: entry point ID to verify"
+        description: >
+          Legacy: a single entry point ID to verify. For packages that ship
+          multiple OPM plugins from one wheel, prefer `entry_points` (plural)
+          or leave both empty — auto-detection enumerates every `opm.*` entry
+          point declared in pyproject.toml.
+      entry_points:
+        type: string
+        default: ""
+        description: >
+          JSON array of entry point IDs to verify, e.g. '["foo", "bar"]'.
+          When set, runs the OPM check once per entry point and aggregates
+          results into the PR comment. Takes precedence over `entry_point`.
       opm_require_found:
         type: boolean
         default: true
@@ -65,6 +76,7 @@ on:
 jobs:
   opm_check:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -119,27 +131,61 @@ jobs:
       - name: Verify OPM Detection (wheel install)
         id: opm_wheel
         continue-on-error: true
+        env:
+          PLUGIN_TYPE: ${{ inputs.plugin_type }}
+          OPM_VALIDATE_INTERFACE: ${{ inputs.opm_validate_interface }}
+          OPM_TEST_IMPORT: ${{ inputs.opm_test_import }}
+          OPM_PERF_THRESHOLD_MS: ${{ inputs.opm_perf_threshold_ms }}
+          ENTRY_POINT: ${{ inputs.entry_point }}
+          ENTRY_POINTS_JSON: ${{ inputs.entry_points }}
         run: |
-          OPM_FLAGS=""
-          if [ "${{ inputs.opm_validate_interface }}" = "true" ]; then
-            OPM_FLAGS="$OPM_FLAGS --validate-interface"
+          OPM_FLAGS=()
+          if [ "$OPM_VALIDATE_INTERFACE" = "true" ]; then
+            OPM_FLAGS+=(--validate-interface)
           else
-            OPM_FLAGS="$OPM_FLAGS --no-validate-interface"
+            OPM_FLAGS+=(--no-validate-interface)
           fi
-          if [ "${{ inputs.opm_test_import }}" = "true" ]; then
-            OPM_FLAGS="$OPM_FLAGS --test-import"
+          if [ "$OPM_TEST_IMPORT" = "true" ]; then
+            OPM_FLAGS+=(--test-import)
           else
-            OPM_FLAGS="$OPM_FLAGS --no-test-import"
+            OPM_FLAGS+=(--no-test-import)
           fi
-          OPM_FLAGS="$OPM_FLAGS --perf-threshold-ms ${{ inputs.opm_perf_threshold_ms }}"
+          OPM_FLAGS+=(--perf-threshold-ms "$OPM_PERF_THRESHOLD_MS")
 
-          if [ -n "${{ inputs.entry_point }}" ]; then
-            python3 _gh_automations/scripts/check_opm.py --entry-point "${{ inputs.entry_point }}" $OPM_FLAGS
+          if [ -n "$ENTRY_POINTS_JSON" ]; then
+            # Plural: iterate every entry point and save one JSON per check.
+            mapfile -t EPS < <(ENTRY_POINTS_JSON="$ENTRY_POINTS_JSON" python3 -c '
+            import json, os, sys
+            try:
+                for ep in json.loads(os.environ["ENTRY_POINTS_JSON"]):
+                    print(ep)
+            except Exception as e:
+                sys.exit("invalid entry_points JSON: " + str(e))
+            ')
+            i=0
+            for ep in "${EPS[@]}"; do
+              i=$((i+1))
+              echo "::group::OPM check — entry point $ep"
+              python3 _gh_automations/scripts/check_opm.py \
+                --plugin-type "$PLUGIN_TYPE" \
+                --entry-point "$ep" \
+                --output-json "/tmp/opm_result_${i}.json" \
+                "${OPM_FLAGS[@]}"
+              echo "::endgroup::"
+            done
+            # Also write opm_result.json so the report's primary loader finds something.
+            cp "/tmp/opm_result_1.json" /tmp/opm_result.json
+          elif [ -n "$ENTRY_POINT" ]; then
+            python3 _gh_automations/scripts/check_opm.py \
+              --plugin-type "$PLUGIN_TYPE" \
+              --entry-point "$ENTRY_POINT" \
+              --output-json /tmp/opm_result.json \
+              "${OPM_FLAGS[@]}"
           else
             python3 _gh_automations/scripts/check_opm.py \
-              --plugin-type "${{ inputs.plugin_type }}" \
+              --plugin-type "$PLUGIN_TYPE" \
               --output-json /tmp/opm_result.json \
-              $OPM_FLAGS
+              "${OPM_FLAGS[@]}"
           fi
 
       - name: Verify OPM Detection (editable install)
@@ -195,6 +241,7 @@ jobs:
     needs: opm_check
     if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
     permissions:
       pull-requests: write
       contents: read
@@ -229,11 +276,41 @@ jobs:
                           pass
               return None
 
-          # Wheel install result (full validation)
+          def load_all_opm_jsons(patterns):
+              results = []
+              seen = set()
+              for pattern in patterns:
+                  for path in sorted(glob.glob(pattern)):
+                      if path in seen:
+                          continue
+                      seen.add(path)
+                      try:
+                          with open(path) as f:
+                              results.append(json.load(f))
+                      except Exception:
+                          pass
+              return results
+
+          # Per-entry-point results from the entry_points (plural) loop.
+          extras = load_all_opm_jsons([
+              "opm_artifacts/opm-results/opm_result_*.json",
+              "opm_artifacts/opm_result_*.json",
+          ])
+          # Wheel install result (full validation) — primary aggregate.
           opm_data = load_opm_json([
               "opm_artifacts/opm-results/opm_result.json",
               "opm_artifacts/opm_result.json",
           ])
+          # Merge per-entry-point validation maps from each per-entry JSON.
+          if opm_data and extras:
+              merged_val = opm_data.setdefault("validation", {})
+              for sub in extras:
+                  sub_val = sub.get("validation", {}) or {}
+                  for key in ("ep_type", "import_ok", "import_time_ms",
+                              "interface_ok", "abstract_base"):
+                      merged_val.setdefault(key, {}).update(sub_val.get(key, {}) or {})
+                  opm_data.setdefault("opm_found", {}).update(sub.get("opm_found", {}) or {})
+                  opm_data.setdefault("issues", []).extend(sub.get("issues", []) or [])
           # Editable install result (detection only)
           opm_editable = load_opm_json([
               "opm_artifacts/opm-results/opm_result_editable.json",

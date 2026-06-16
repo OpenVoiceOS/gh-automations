@@ -28,11 +28,11 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
 | `skill-check.yml` | Locale coverage and skill.json validity | [reference](docs/workflow-reference.md#skill-checkyml) |
+| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1/-2 via `ovos-spec-lint` | [reference](docs/workflow-reference.md#spec-lintyml) |
 | `locale-check.yml` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) | [reference](docs/workflow-reference.md#locale-checkyml) |
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
 | `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
-| `sync-translations.yml` | Sync gitlocalize-app[bot] translation commits | [reference](docs/workflow-reference.md#sync-translationsyml) |
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
 | `type-check.yml` | Run mypy; post 🔎 Type Check section to PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
 | `docs-check.yml` | Verify required docs files exist; optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
@@ -68,7 +68,6 @@ For OVOS **skill repos**, also add:
 ```
 .github/workflows/
   skill_check.yml            # locale coverage + skill.json validity
-  sync_translations.yml      # gitlocalize translation sync
 ```
 
 ---
@@ -133,10 +132,7 @@ All workflows include guards against accidental bot-triggered runs:
 | [docs/workflow-reference.md](docs/workflow-reference.md) | All inputs, outputs, and jobs for each reusable workflow |
 | [docs/repo-setup.md](docs/repo-setup.md) | Step-by-step setup guide for new repos |
 | [docs/repos.md](docs/repos.md) | All repos currently using these automations |
-| [FAQ.md](FAQ.md) | Common questions and answers |
-| [QUICK_FACTS.md](QUICK_FACTS.md) | Machine-readable facts for RAG retrieval |
-| [AUDIT.md](AUDIT.md) | Known issues, technical debt, security risks |
-| [SUGGESTIONS.md](SUGGESTIONS.md) | Proposed improvements |
+| [docs/maintenance.md](docs/maintenance.md) | Open technical debt and opportunistic rollouts |
 
 ---
 
@@ -146,31 +142,27 @@ If you have just inherited or taken ownership of this repo, complete these steps
 
 ### Day 1 — Get oriented
 
-1. **Read [`docs/index.md`](docs/index.md)** — 20-workflow overview, scripts reference, and cross-references.
-2. **Read [`QUICK_FACTS.md`](QUICK_FACTS.md)** — Machine-readable summary: all scripts with line citations, all PR comment section IDs, required secrets.
-3. **Read [`AUDIT.md`](AUDIT.md)** — Known issues and technical debt with severity labels. Resolve any `High` items first.
-4. **Run the test suite** to confirm nothing is broken:
+1. **Read [`docs/index.md`](docs/index.md)** — workflow overview, scripts reference, and cross-references.
+2. **Read [`docs/maintenance.md`](docs/maintenance.md)** — open technical debt and opportunistic rollouts.
+3. **Run the test suite** to confirm nothing is broken:
    ```bash
    cd gh-automations
    pip install pytest pyyaml
    pytest test/ -v
    ```
-5. **Check [`docs/repos.md`](docs/repos.md)** — 209 repos depend on this library. Understand the caller blast radius before any change.
+4. **Check [`docs/repos.md`](docs/repos.md)** — many repos depend on this library. Understand the caller blast radius before any change.
 
 ### Before making changes
 
 - **Check `dev` vs `master` semantics:** `dev` is active development; `master` is the frozen v1 stable baseline. All PRs target `dev`.
-- **Check SUGGESTIONS.md** for prior proposals — do not re-invent solutions already evaluated.
-- **Test locally** before pushing: the test suite covers all 13 Python scripts. Add tests for any new scripts.
-- **Never force-push `master`** — 209 repos use `@master` or `@dev` refs; a rewrite would break them.
+- **Test locally** before pushing: the test suite covers every Python script. Add tests for any new scripts.
+- **Never force-push `master`** — caller repos use `@master` or `@dev` refs; a rewrite would break them.
+- **Do not commit root-level `*.md` files.** Planning, audit, FAQ, and session-log files belong in `docs/` or in chat — not at the repo root. `README.md` is the only allowed root-level Markdown file.
 
 ### After making changes
 
-1. Update `FAQ.md` first — highest priority per AGENTS.md.
-2. Update `MAINTENANCE_REPORT.md` with the session log and AI model used.
-3. Update `AUDIT.md` and `SUGGESTIONS.md` if issues were found or resolved.
-4. Run `pytest test/ -v` — must be green before committing.
-5. Review `docs/workflow-reference.md` — if inputs/outputs changed, update the reference.
+1. Run `pytest test/ -v` — must be green before committing.
+2. Review `docs/workflow-reference.md` — if inputs/outputs changed, update the reference.
 
 ### Deprecated workflows
 

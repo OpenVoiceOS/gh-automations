@@ -12,6 +12,20 @@ on:
         type: string
         default: ""
         description: "Extra apt packages to install before testing (space-separated)"
+      test_extras:
+        type: string
+        default: "dev"
+        description: >
+          Name of the pyproject.toml extras key that declares the package's test
+          dependencies (e.g. 'dev' or 'test'). Tried first via 'pip install -e
+          .[<test_extras>]'. Override per repo if the package uses a different
+          convention.
+      test_extras_fallback:
+        type: string
+        default: "test"
+        description: >
+          Extras key tried if `test_extras` is not declared. Default 'test'.
+          Set to empty to skip the fallback.
       install_extras:
         type: string
         default: ""
@@ -72,6 +86,7 @@ on:
 jobs:
   coverage:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     permissions:
       pull-requests: write
       contents: write   # needed for deploy_pages git push; harmless when deploy_pages: false
@@ -111,10 +126,14 @@ jobs:
 
       - name: Install Package
         run: |
-          if python -m pip install -e ".[dev]" 2>/dev/null; then
-            echo "Installed package with [dev] extras"
+          PRIMARY="${{ inputs.test_extras }}"
+          FALLBACK="${{ inputs.test_extras_fallback }}"
+          if [ -n "$PRIMARY" ] && python -m pip install -e ".[$PRIMARY]" 2>/dev/null; then
+            echo "Installed package with [$PRIMARY] extras"
+          elif [ -n "$FALLBACK" ] && python -m pip install -e ".[$FALLBACK]" 2>/dev/null; then
+            echo "Installed package with [$FALLBACK] extras"
           elif python -m pip install -e . 2>/dev/null; then
-            echo "Installed package (no [dev] extras)"
+            echo "Installed package (no test extras found)"
           else
             echo "No installable package found at repo root — continuing without install"
           fi

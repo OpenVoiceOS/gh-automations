@@ -19,10 +19,20 @@ on:
         description: >
           Arguments passed to mypy (e.g. 'my_package' or '. --ignore-missing-imports').
           Default checks the entire repository.
+      test_extras:
+        type: string
+        default: "dev"
+        description: >
+          Name of the pyproject.toml extras key that declares the package's
+          test/typing dependencies. Tried first via 'pip install -e .[<key>]'.
+      test_extras_fallback:
+        type: string
+        default: "test"
+        description: "Extras key tried if `test_extras` is not declared. Empty to skip."
       install_extras:
         type: string
         default: ""
-        description: "pip extras to install before type-checking, e.g. '[dev]'"
+        description: "Extra pip install arguments appended after the package install (e.g. '-r requirements/typing.txt')"
       system_deps:
         type: string
         default: ""
@@ -43,6 +53,7 @@ on:
 jobs:
   type_check:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     permissions:
       pull-requests: write
       contents: read
@@ -72,12 +83,19 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip mypy
-          if python -m pip install -e ".[dev]${{ inputs.install_extras }}" 2>/dev/null; then
-            echo "Installed package with [dev] extras"
-          elif python -m pip install -e ".${{ inputs.install_extras }}" 2>/dev/null; then
-            echo "Installed package"
+          PRIMARY="${{ inputs.test_extras }}"
+          FALLBACK="${{ inputs.test_extras_fallback }}"
+          if [ -n "$PRIMARY" ] && python -m pip install -e ".[$PRIMARY]" 2>/dev/null; then
+            echo "Installed package with [$PRIMARY] extras"
+          elif [ -n "$FALLBACK" ] && python -m pip install -e ".[$FALLBACK]" 2>/dev/null; then
+            echo "Installed package with [$FALLBACK] extras"
+          elif python -m pip install -e . 2>/dev/null; then
+            echo "Installed package (no test extras found)"
           else
             echo "No installable package found — type-checking source tree directly"
+          fi
+          if [ -n "${{ inputs.install_extras }}" ]; then
+            python -m pip install ${{ inputs.install_extras }}
           fi
 
       - name: Run mypy

@@ -237,7 +237,8 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated) |
 | `install_extras` | string | `""` | pip extras appended when installing the built package, e.g. `dev` |
 | `plugin_type` | string | `auto` | Plugin type to detect: `auto` (reads from entry points), `skill`, `tts`, `stt`, `wake_word`, `vad`, `phal`, `pipeline`, `utterance_transformer`, `tts_transformer`, `g2p` |
-| `entry_point` | string | `""` | Legacy: specific entry point ID to verify (bypasses `plugin_type` auto-detection) |
+| `entry_point` | string | `""` | Legacy: a single entry point ID to verify. Prefer `entry_points` for multi-plugin packages, or leave empty for auto-detection |
+| `entry_points` | string | `""` | JSON array of entry point IDs to verify (one OPM check per entry, results aggregated into the PR comment). Use for packages that ship multiple OPM plugins in one wheel |
 | `opm_require_found` | boolean | `true` | Fail the job if OPM cannot discover the plugin |
 | `opm_validate_interface` | boolean | `true` | Check that the plugin class inherits from the correct abstract base class |
 | `opm_test_import` | boolean | `true` | Test that the plugin class is importable and measure import time in ms |
@@ -441,7 +442,9 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `runner` | string | `ubuntu-latest` | Runner label |
 | `python_version` | string | `3.11` | Python version to run tests under |
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
-| `install_extras` | string | `""` | Extra pip install arguments run before tests, e.g. `.[dev]` or `-r requirements/test.txt`. If empty, the package is installed via `pip install -e .[dev]` (falling back to bare install). |
+| `test_extras` | string | `dev` | Pyproject extras key declaring test deps. Tried first via `pip install -e .[<key>]` |
+| `test_extras_fallback` | string | `test` | Extras key tried if `test_extras` is not declared. Empty to skip |
+| `install_extras` | string | `""` | Extra pip install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
@@ -1040,44 +1043,41 @@ Runs an install matrix across Python versions and install modes (regular + edita
 
 ---
 
-## `sync-translations.yml`
+## `spec-lint.yml`
 
-Synchronises [gitlocalize-app](https://gitlocalize.com/) translation commits. Runs `scripts/sync_translations.py` in the calling repo when triggered by a push from `gitlocalize-app[bot]` or by manual `workflow_dispatch`.
+Runs [`ovos-spec-lint`](https://github.com/OpenVoiceOS/ovos-spec-tools) against a skill's `locale/` folder to validate template syntax (OVOS-INTENT-1) and file naming/layout (OVOS-INTENT-2). Posts a `🧪 Spec Lint` section to the shared OVOS PR Checks comment.
 
-**Source:** `.github/workflows/sync-translations.yml`
+**Source:** `.github/workflows/spec-lint.yml`
 
 ### Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `branch` | string | `dev` | Branch to checkout, run the script on, and commit back to |
-| `python_version` | string | `3.11` | Python version |
 | `runner` | string | `ubuntu-latest` | Runner label |
-| `script_path` | string | `scripts/sync_translations.py` | Relative path to the sync script in the calling repo |
+| `python_version` | string | `3.14` | Python version |
+| `locale_path` | string | `locale` | Path to the locale folder (or a single `<lang>/` directory) |
+| `spec_version` | string | `""` | OVOS spec version to target (`0`/`1`/`2`/`3`). Empty = linter default |
+| `strict` | boolean | `false` | Treat warnings as errors (`--strict`) |
+| `skip_if_no_locale` | boolean | `true` | Silently pass if `locale_path` does not exist |
+| `ovos_spec_tools_spec` | string | `ovos-spec-tools` | Pip requirement spec (pin a version or use a git URL) |
+| `pr_comment` | boolean | `true` | Post the section to the PR comment (PR events only) |
 
 ### Typical usage
 
-Replace the per-repo `sync_tx.yml` with:
-
 ```yaml
-name: Sync Translations
+name: Spec Lint
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
     branches: [dev]
+  workflow_dispatch:
 
 jobs:
-  sync_translations:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/sync-translations.yml@dev
+  spec_lint:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/spec-lint.yml@dev
     secrets: inherit
-    with:
-      branch: dev
-      # script_path: scripts/sync_translations.py  # default
 ```
 
-### Known issues
-
-Some existing `sync_tx.yml` files use `github.event.head_commit.author.username == 'gitlocalize-app[bot]'` for bot detection. This field is not reliable. The reusable workflow uses `github.actor == 'gitlocalize-app[bot]'` which is correct. When migrating, remove the old per-repo `sync_tx.yml` and replace with a call to this reusable workflow.
+The job exits non-zero only when `ovos-spec-lint` reports errors. Use `strict: true` to also fail on warnings. Use `skip_if_no_locale: false` to fail loudly when the folder is missing.
 
 ---
 
