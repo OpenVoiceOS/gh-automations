@@ -148,15 +148,16 @@ jobs:
           if name:
               # pip canonicalises dashes/underscores/dots to hyphens.
               canonical = re.sub(r'[-_.]+', '-', name).lower()
-              # pilosus matches the full "name:version:license" identifier, so anchor the
-              # name then allow the version separator or end-of-string (a bare ^name$ never
-              # matches "name:1.2.3:License").
-              self_pattern = rf"(?i:^{re.escape(canonical)}(?::|$))"
+              # pilosus excludes via re-matches (full-string) against the resolved
+              # "name==version" requirement, so anchor the name then allow a version
+              # specifier / marker / url suffix or end-of-string. A bare "^name$" or a
+              # ":"-separated anchor never matches "name==1.2.3".
+              self_pattern = rf"(?i:^{re.escape(canonical)}([=<>!~ @;].*)?$)"
 
           # 2. Central whitelist (one anchored alternation per package).
           #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
           #          used as an unmodified imported library (pulled by huggingface_hub).
-          central = r"(?i:^tqdm(?::|$))"
+          central = r"(?i:^tqdm([=<>!~ @;].*)?$)"
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
