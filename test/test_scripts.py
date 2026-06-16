@@ -784,9 +784,49 @@ class TestCheckOpmAgentPlugins:
             result = json.loads(json_file.read_text())
         finally:
             os.chdir(original_dir)
-        # The type should appear as detected but opm_found should be False (no finder)
+        # The type is detected, but with no registry finder opm_found is None (skipped),
+        # which must NOT make the overall status fail — that is what "non-fatal" means.
         assert "opm.agents.future_family" in result["detected_types"]
-        assert result["opm_found"].get("opm.agents.future_family") is False
+        assert result["opm_found"].get("opm.agents.future_family") is None
+        assert result["status"] != "fail"
+
+    def test_legacy_entrypoint_groups_resolve_to_opm(self) -> None:
+        """Legacy/deprecated entry-point groups map to their canonical opm.* group."""
+        from check_opm import canonical_opm_group
+        assert canonical_opm_group("opm.tts") == "opm.tts"
+        assert canonical_opm_group("mycroft.plugin.tts") == "opm.tts"
+        assert canonical_opm_group("mycroft.plugin.stt") == "opm.stt"
+        assert canonical_opm_group("ovos.plugin.skill") == "opm.skill"
+        assert canonical_opm_group("ovos.plugin.microphone") == "opm.microphone"
+        assert canonical_opm_group("neon.plugin.audio") == "opm.transformer.audio"
+        assert canonical_opm_group("ovos.ocp.extractor") == "opm.ocp.extractor"
+        # non-plugin groups are ignored
+        assert canonical_opm_group("console_scripts") is None
+        assert canonical_opm_group("pytest11") is None
+
+    def test_auto_detect_recognizes_legacy_group(self, tmp_path: Path) -> None:
+        """A plugin declaring only a legacy group is still detected, not dismissed."""
+        import os
+        import json
+        from check_opm import check_opm
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\n"
+            "name = \"ovos-legacy-tts\"\n"
+            "\n"
+            "[project.entry-points.\"mycroft.plugin.tts\"]\n"
+            "\"ovos-legacy-tts\" = \"os:getcwd\"\n"
+        )
+        json_file = tmp_path / "result.json"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            check_opm("auto", output_json=str(json_file), test_import=False, validate_interface=False)
+            result = json.loads(json_file.read_text())
+        finally:
+            os.chdir(original_dir)
+        # legacy mycroft.plugin.tts must resolve to opm.tts in detected types
+        assert "opm.tts" in result["detected_types"]
+        assert result.get("is_ovos_plugin") is not False
 
     def test_check_opm_multi_agent_types(self, tmp_path: Path) -> None:
         """A package registering both agents.chat and agents.toolbox is fully checked."""

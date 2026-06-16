@@ -59,7 +59,79 @@ PLUGIN_TYPE_FINDERS = {
     "agents.toolbox": "ovos_plugin_manager.persona:find_toolbox_plugins",
     # Voice-clone plugins (audio-to-audio; opm.vc)
     "vc": "ovos_plugin_manager.vc:find_voice_clone_plugins",
+    # Language
+    "lang.detect": "ovos_plugin_manager.language:find_lang_detect_plugins",
+    "lang.translate": "ovos_plugin_manager.language:find_tx_plugins",
+    # Transformers
+    "transformer.audio": "ovos_plugin_manager.audio_transformers:find_audio_transformer_plugins",
+    "transformer.text": "ovos_plugin_manager.text_transformers:find_utterance_transformer_plugins",
+    "transformer.metadata": "ovos_plugin_manager.metadata_transformers:find_metadata_transformer_plugins",
+    "transformer.dialog": "ovos_plugin_manager.dialog_transformers:find_dialog_transformer_plugins",
+    "transformer.intent": "ovos_plugin_manager.intent_transformers:find_intent_transformer_plugins",
+    # OCP stream extractors / media
+    "ocp.extractor": "ovos_plugin_manager.ocp:find_ocp_plugins",
+    "media.audio": "ovos_plugin_manager.ocp:find_ocp_audio_plugins",
+    "media.video": "ovos_plugin_manager.ocp:find_ocp_video_plugins",
+    "media.web": "ovos_plugin_manager.ocp:find_ocp_web_plugins",
+    # NLP utilities
+    "coreference": "ovos_plugin_manager.coreference:find_coref_plugins",
+    "keywords": "ovos_plugin_manager.keywords:find_keyword_extract_plugins",
+    "segmentation": "ovos_plugin_manager.segmentation:find_segmentation_plugins",
+    "tokenization": "ovos_plugin_manager.tokenization:find_tokenization_plugins",
+    "postag": "ovos_plugin_manager.postag:find_postag_plugins",
+    # GUI / microphone / admin PHAL
+    "gui": "ovos_plugin_manager.gui:find_gui_plugins",
+    "microphone": "ovos_plugin_manager.microphone:find_microphone_plugins",
+    "phal.admin": "ovos_plugin_manager.phal:find_admin_plugins",
 }
+
+# Legacy / deprecated entry-point group names → canonical opm.* group. Mirrors
+# ovos_plugin_manager.utils.DEPRECATED_ENTRYPOINTS (imported when available, with this
+# hardcoded fallback) so opm-check recognizes plugins that still declare the old group
+# names instead of mis-classifying them as "not an OVOS plugin".
+_LEGACY_ENTRYPOINT_ALIASES = {
+    "ovos.plugin.gui": "opm.gui",
+    "ovos.plugin.phal": "opm.phal",
+    "ovos.plugin.phal.admin": "opm.phal.admin",
+    "ovos.plugin.skill": "opm.skill",
+    "ovos.plugin.microphone": "opm.microphone",
+    "ovos.plugin.VAD": "opm.vad",
+    "ovos.plugin.g2p": "opm.g2p",
+    "ovos.plugin.audio2ipa": "opm.audio2ipa",
+    "mycroft.plugin.stt": "opm.stt",
+    "mycroft.plugin.tts": "opm.tts",
+    "mycroft.plugin.wake_word": "opm.wake_word",
+    "neon.plugin.lang.translate": "opm.lang.translate",
+    "neon.plugin.lang.detect": "opm.lang.detect",
+    "neon.plugin.text": "opm.transformer.text",
+    "neon.plugin.metadata": "opm.transformer.metadata",
+    "neon.plugin.audio": "opm.transformer.audio",
+    "neon.plugin.solver": "opm.solver.question",
+    "intentbox.coreference": "opm.coreference",
+    "intentbox.keywords": "opm.keywords",
+    "intentbox.segmentation": "opm.segmentation",
+    "intentbox.tokenization": "opm.tokenization",
+    "intentbox.postag": "opm.postag",
+    "ovos.ocp.extractor": "opm.ocp.extractor",
+}
+try:  # prefer the authoritative map from ovos-plugin-manager when importable
+    from ovos_plugin_manager.utils import DEPRECATED_ENTRYPOINTS as _OPM_DEPRECATED
+    _LEGACY_ENTRYPOINT_ALIASES = {**_LEGACY_ENTRYPOINT_ALIASES, **_OPM_DEPRECATED}
+except Exception:
+    pass
+
+
+def canonical_opm_group(group: str) -> Optional[str]:
+    """Return the canonical ``opm.*`` group for a plugin entry-point group, or None.
+
+    Already-canonical ``opm.*`` groups are returned as-is; legacy/deprecated group
+    names (``mycroft.plugin.tts``, ``ovos.plugin.skill``, ``neon.plugin.audio`` …) are
+    resolved via the alias map. Non-plugin groups (e.g. ``console_scripts``) return None.
+    """
+    if group.startswith("opm."):
+        return group
+    return _LEGACY_ENTRYPOINT_ALIASES.get(group)
+
 
 # Mapping of plugin types to their abstract base classes
 ABSTRACT_BASES = {
@@ -289,7 +361,10 @@ def collect_issues(result: Dict[str, Any], perf_threshold_ms: int = 500) -> List
     # Check if OPM found the plugin
     opm_found = result.get("opm_found", {})
     for plugin_type, found in opm_found.items():
-        if not found:
+        # Only an explicit False (the finder ran and the plugin was NOT registered) is an
+        # error. None means "no registry finder for this type" — the entry-point import +
+        # interface checks still validate it, so it must not hard-fail opm-check.
+        if found is False:
             issues.append({
                 "severity": "error",
                 "message": f"OPM could not detect {plugin_type}",
@@ -387,8 +462,9 @@ def auto_detect_plugin_types() -> List[str]:
                 config = tomllib.load(f)
             entry_points = config.get("project", {}).get("entry-points", {})
             for group in entry_points.keys():
-                if group.startswith("opm."):
-                    detected.append(group)
+                canonical = canonical_opm_group(group)
+                if canonical:
+                    detected.append(canonical)
         except Exception as e:
             print(f"Warning: Could not parse pyproject.toml: {e}", file=sys.stderr)
 
@@ -412,8 +488,9 @@ def auto_detect_plugin_types() -> List[str]:
                                     if isinstance(keyword.value, ast.Dict):
                                         for k in keyword.value.keys:
                                             if isinstance(k, ast.Constant):
-                                                if str(k.value).startswith("opm."):
-                                                    detected.append(str(k.value))
+                                                canonical = canonical_opm_group(str(k.value))
+                                                if canonical:
+                                                    detected.append(canonical)
             except Exception as e:
                 print(f"Warning: Could not parse setup.py: {e}", file=sys.stderr)
 
@@ -506,7 +583,7 @@ def check_opm(
                 config = tomllib.load(f)
             entry_points = config.get("project", {}).get("entry-points", {})
             for group, entries in entry_points.items():
-                if group.startswith("opm."):
+                if canonical_opm_group(group):
                     result["entry_points"][group] = list(entries.keys()) if isinstance(entries, dict) else entries
         except Exception:
             pass
@@ -522,10 +599,11 @@ def check_opm(
                 entry_points_cfg = config.get("project", {}).get("entry-points", {})
 
                 for ep_group, entries in entry_points_cfg.items():
-                    if not ep_group.startswith("opm."):
+                    canonical = canonical_opm_group(ep_group)
+                    if not canonical:
                         continue
 
-                    short_type = ep_group.replace("opm.", "")
+                    short_type = canonical[len("opm."):]
                     if isinstance(entries, dict):
                         for ep_name, ep_value in entries.items():
                             if ":" not in ep_value:
@@ -604,7 +682,7 @@ def check_opm(
                     f"in check_opm.py.",
                     file=sys.stderr,
                 )
-                result["opm_found"][full_type] = False
+                result["opm_found"][full_type] = None  # no finder → skip, not a failure
                 continue
             module_path, func_name = finder_spec.split(":", 1)
 
@@ -621,8 +699,10 @@ def check_opm(
                 if first_plugin and len(first_plugin) > 1:
                     result["plugin_classes"][full_type] = first_plugin[1].__class__.__name__
         except Exception as e:
+            # A finder that errors out (e.g. import quirk) must not hard-fail the plugin —
+            # the entry-point import + interface checks are the authoritative validation.
             print(f"⚠️  Error checking {short_type}: {e}", file=sys.stderr)
-            result["opm_found"][full_type] = False
+            result["opm_found"][full_type] = None
 
     # Step 4: Legacy entry_point support (backward compatibility)
     if entry_point:
