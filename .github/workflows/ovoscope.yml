@@ -46,6 +46,14 @@ on:
         description: >
           pip extras used when installing the package, e.g. 'test' or 'dev,test'.
           The extras must pull in ovoscope (e.g. ovoscope>=0.7.0 in [test]).
+      pre_install_pip:
+        type: string
+        default: ""
+        description: >
+          Optional space-separated pip requirement specs to install BEFORE the
+          package install step. Use to override transitive deps with git URLs
+          (e.g. to test against an unreleased sibling package). Mirrors the
+          build-tests workflow input.
       test_path:
         type: string
         default: "test/end2end/"
@@ -246,6 +254,12 @@ jobs:
           fi
           # Show installed pipeline entry points
           python3 -c "import importlib.metadata; eps = importlib.metadata.entry_points(group='opm.pipeline'); print('Installed pipelines:', [ep.name for ep in eps])"
+
+      - name: Pre-install pip requirements
+        if: ${{ inputs.pre_install_pip != '' }}
+        run: |
+          # shellcheck disable=SC2086
+          python -m pip install ${{ inputs.pre_install_pip }}
 
       - name: Install Package with Test Extras
         run: |
