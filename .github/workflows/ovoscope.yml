@@ -183,8 +183,12 @@ jobs:
               SRC="git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev"
               EXTRA="--force-reinstall"
             else
-              echo "Installing ovos-adapt-parser (CI fallback)..."
-              SRC="ovos-adapt-parser"
+              echo "Installing ovos-adapt-parser (CI fallback, prerelease floor)..."
+              # Prerelease-floor pin: stable ovos-adapt-parser still caps
+              # ovos-workshop<8, unresolvable against published workshop 9.x.
+              # The workshop-free line ships as prereleases; the >=…a1 floor
+              # makes pip resolve them with no --pre.
+              SRC="ovos-adapt-parser>=1.3.3a1"
               EXTRA=""
             fi
             pip install $EXTRA "$SRC" || {
@@ -200,8 +204,12 @@ jobs:
               SRC="git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev"
               EXTRA="--force-reinstall"
             else
-              echo "Installing ovos-padatious (CI fallback)..."
-              SRC="ovos-padatious"
+              echo "Installing ovos-padatious (CI fallback, prerelease floor)..."
+              # Prerelease-floor pin: stable ovos-padatious still caps
+              # ovos-workshop<8 (unresolvable vs published workshop 9.x). The
+              # workshop-free line ships as prereleases; the >=…a1 floor makes
+              # pip resolve them with no --pre.
+              SRC="ovos-padatious>=1.6.2a1"
               EXTRA=""
             fi
             pip install $EXTRA "$SRC" || {
