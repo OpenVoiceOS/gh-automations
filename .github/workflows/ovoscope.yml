@@ -54,6 +54,15 @@ on:
           package install step. Use to override transitive deps with git URLs
           (e.g. to test against an unreleased sibling package). Mirrors the
           build-tests workflow input.
+      post_install_pip:
+        type: string
+        default: ""
+        description: >
+          Optional space-separated pip requirement specs installed AFTER the
+          package + test-extras install, with --force-reinstall --no-deps so the
+          dependency resolver cannot revert them. Use to pin an unreleased
+          prerelease (e.g. a sibling at the same version as a published wheel)
+          that the test-extras resolution would otherwise downgrade.
       test_path:
         type: string
         default: "test/end2end/"
@@ -285,6 +294,15 @@ jobs:
           # Force the local checkout to win, without disturbing resolved deps.
           pip install --force-reinstall --no-deps .
           python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
+
+      - name: Post-install pip pins
+        if: ${{ inputs.post_install_pip != '' }}
+        run: |
+          # Re-pin prerelease siblings the test-extras resolution would revert.
+          # --no-deps keeps these exact builds without re-resolving (which would
+          # pull a same-version published wheel that carries a stricter cap).
+          # shellcheck disable=SC2086
+          python -m pip install --force-reinstall --no-deps ${{ inputs.post_install_pip }}
 
       - name: Check required pipeline availability
         run: |
