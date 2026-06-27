@@ -278,6 +278,12 @@ jobs:
           else
             pip install .
           fi
+          # The checked-out source MUST be what gets tested. When the local
+          # version equals a published release (e.g. dev is at the same alpha
+          # already on PyPI), the prior installs can leave pip resolving the
+          # package back to the PyPI wheel, silently discarding the PR's source.
+          # Force the local checkout to win, without disturbing resolved deps.
+          pip install --force-reinstall --no-deps .
           python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
 
       - name: Check required pipeline availability
