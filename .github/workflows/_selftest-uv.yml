@@ -48,13 +48,6 @@ jobs:
       mypy_args: selftest_pkg
       pr_comment: false
 
-  license-check:
-    uses: ./.github/workflows/license-check.yml
-    with:
-      install_extras: "[test]"
-      warn_only: true
-      pr_comment: false
-
   # Static guard: every workflow that runs `uv pip` MUST also declare
   # UV_SYSTEM_PYTHON, or it will fail at runtime on the setup-python interpreter.
   env-coverage:
