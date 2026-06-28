@@ -89,8 +89,11 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install Build Tools
-        run: python -m pip install build wheel pip-licenses
+        run: uv pip install build wheel pip-licenses
 
       - name: Install System Dependencies
         run: |
@@ -98,10 +101,10 @@ jobs:
           sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
 
       - name: Install package
-        run: pip install ".${{ inputs.install_extras }}"
+        run: uv pip install ".${{ inputs.install_extras }}"
 
       - name: Collect transitive dependencies
-        run: pip freeze > requirements-all.txt
+        run: uv pip freeze > requirements-all.txt
 
       - name: Build exclude regex
         id: exclude

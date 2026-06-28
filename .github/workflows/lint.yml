@@ -56,9 +56,12 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install ruff
         if: ${{ inputs.ruff }}
-        run: python -m pip install ruff
+        run: uv pip install ruff
 
       - name: Run ruff
         if: ${{ inputs.ruff }}
@@ -68,7 +71,7 @@ jobs:
 
       - name: Install pre-commit
         if: ${{ inputs.pre_commit }}
-        run: python -m pip install pre-commit
+        run: uv pip install pre-commit
 
       - name: Run pre-commit
         if: ${{ inputs.pre_commit }}

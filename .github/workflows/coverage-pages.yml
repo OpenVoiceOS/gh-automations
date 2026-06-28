@@ -55,6 +55,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install System Dependencies
         if: ${{ inputs.system_deps != '' }}
         run: |
@@ -63,17 +66,16 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov coverage[toml] ovoscope
-          if python -m pip install -e ".[dev]" 2>/dev/null; then
+          uv pip install pytest pytest-cov coverage[toml] ovoscope
+          if uv pip install -e ".[dev]" 2>/dev/null; then
             echo "Installed package with [dev] extras"
-          elif python -m pip install -e . 2>/dev/null; then
+          elif uv pip install -e . 2>/dev/null; then
             echo "Installed package (no [dev] extras)"
           else
             echo "No installable package found at repo root — continuing without install"
           fi
           if [ -n "${{ inputs.install_extras }}" ]; then
-            python -m pip install ${{ inputs.install_extras }}
+            uv pip install ${{ inputs.install_extras }}
           fi
 
       - name: Run Tests with Coverage

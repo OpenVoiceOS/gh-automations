@@ -134,6 +134,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install System Dependencies
         if: ${{ inputs.system_deps != '' || inputs.require_padatious }}
         run: |
@@ -152,10 +155,10 @@ jobs:
           install_plugin() {
             local name="$1" pypi="$2" gh="$3"
             if [ "$PRE_RELEASE" == "true" ]; then
-              pip install --force-reinstall "git+https://github.com/${gh}@dev" || {
+              uv pip install --force-reinstall "git+https://github.com/${gh}@dev" || {
                 echo "::error::Failed to install $name from GitHub dev"; exit 1; }
             else
-              pip install "$pypi" || {
+              uv pip install "$pypi" || {
                 echo "::error::Failed to install $name from PyPI"; exit 1; }
             fi
           }
@@ -178,18 +181,17 @@ jobs:
 
       - name: Install Package with Test Extras
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-json-report
+          uv pip install pytest pytest-json-report
           if [ "${{ inputs.pre_release }}" == "true" ]; then
-            pip install --force-reinstall "git+https://github.com/TigreGotico/ovoscope@dev"
+            uv pip install --force-reinstall "git+https://github.com/TigreGotico/ovoscope@dev"
           else
-            pip install ovoscope
+            uv pip install ovoscope
           fi
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
-            pip install ".[$EXTRAS]"
+            uv pip install ".[$EXTRAS]"
           else
-            pip install .
+            uv pip install .
           fi
           python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
 

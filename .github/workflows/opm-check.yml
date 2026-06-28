@@ -85,6 +85,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Checkout gh-automations scripts
         uses: actions/checkout@v6
         with:
@@ -100,7 +103,6 @@ jobs:
 
       - name: Install Build Tools
         run: |
-          python -m pip install --upgrade pip
           OPM_SPEC="ovos-plugin-manager"
           MIN="${{ inputs.opm_min_version }}"
           MAX="${{ inputs.opm_max_version }}"
@@ -108,11 +110,11 @@ jobs:
           if [ -n "$MAX" ]; then OPM_SPEC="${OPM_SPEC},<${MAX}"; fi
           PIP_FLAGS=""
           if [ -n "$MIN" ] && echo "$MIN" | grep -qE '[a-zA-Z]'; then PIP_FLAGS="--pre"; fi
-          python -m pip install build wheel "${OPM_SPEC}" $PIP_FLAGS
+          uv pip install build wheel "${OPM_SPEC}" $PIP_FLAGS
 
       - name: Build Distribution Packages
         run: |
-          python -m build
+          uv build
 
       - name: Install Built Package
         run: |
@@ -120,12 +122,12 @@ jobs:
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$WHEEL" ]; then
             if [ -n "$EXTRAS" ]; then
-              pip install "${WHEEL}[${EXTRAS}]"
+              uv pip install "${WHEEL}[${EXTRAS}]"
             else
-              pip install "$WHEEL"
+              uv pip install "$WHEEL"
             fi
           else
-            pip install dist/*.tar.gz
+            uv pip install dist/*.tar.gz
           fi
 
       - name: Verify OPM Detection (wheel install)
@@ -212,9 +214,9 @@ jobs:
 
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
-            pip install -e ".[$EXTRAS]"
+            uv pip install -e ".[$EXTRAS]"
           else
-            pip install -e .
+            uv pip install -e .
           fi
 
           python3 _gh_automations/scripts/check_opm.py \

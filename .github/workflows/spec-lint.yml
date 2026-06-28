@@ -73,6 +73,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Resolve locale path
         id: resolve
         env:
@@ -98,8 +101,7 @@ jobs:
         env:
           OVOS_SPEC_TOOLS_SPEC: ${{ inputs.ovos_spec_tools_spec }}
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "$OVOS_SPEC_TOOLS_SPEC"
+          uv pip install "$OVOS_SPEC_TOOLS_SPEC"
 
       - name: Run ovos-spec-lint
         id: lint

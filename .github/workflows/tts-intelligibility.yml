@@ -94,6 +94,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install System Dependencies
         if: ${{ inputs.system_deps != '' }}
         run: |
@@ -112,20 +115,19 @@ jobs:
 
       - name: Install Package with Test Extras
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-json-report
+          uv pip install pytest pytest-json-report
           if [ "${{ inputs.pre_release }}" == "true" ]; then
             echo "Installing ovoscope[tts] from GitHub dev (pre_release)..."
-            pip install --force-reinstall \
+            uv pip install --force-reinstall \
               "ovoscope[tts] @ git+https://github.com/TigreGotico/ovoscope@dev"
           else
-            pip install "ovoscope[tts]"
+            uv pip install "ovoscope[tts]"
           fi
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
-            pip install ".[$EXTRAS]"
+            uv pip install ".[$EXTRAS]"
           else
-            pip install .
+            uv pip install .
           fi
           python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
 

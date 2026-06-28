@@ -154,6 +154,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install System Dependencies
         if: ${{ inputs.system_deps != '' || inputs.require_padatious }}
         run: |
@@ -191,7 +194,7 @@ jobs:
               SRC="ovos-adapt-parser>=1.3.3a1"
               EXTRA=""
             fi
-            pip install $EXTRA "$SRC" || {
+            uv pip install $EXTRA "$SRC" || {
               echo "::error::Failed to install ovos-adapt-parser from $SRC"
               echo "::error::Note: Entry point is 'ovos-adapt-pipeline-plugin'"
               echo "::error::Add 'ovos-adapt-parser' to your [test] extras in pyproject.toml"
@@ -212,7 +215,7 @@ jobs:
               SRC="ovos-padatious>=1.6.2a1"
               EXTRA=""
             fi
-            pip install $EXTRA "$SRC" || {
+            uv pip install $EXTRA "$SRC" || {
               echo "::error::Failed to install ovos-padatious from $SRC"
               echo "::error::Note: Entry point is 'ovos-padatious-pipeline-plugin'"
               echo "::error::Add 'ovos-padatious' to your [test] extras in pyproject.toml"
@@ -229,7 +232,7 @@ jobs:
               SRC="ovos-m2v-pipeline"
               EXTRA=""
             fi
-            pip install $EXTRA "$SRC" || {
+            uv pip install $EXTRA "$SRC" || {
               echo "::error::Failed to install ovos-m2v-pipeline from $SRC"
               echo "::error::Add 'ovos-m2v-pipeline' to your [test] extras in pyproject.toml"
               exit 1
@@ -245,7 +248,7 @@ jobs:
               SRC="nebulento"
               EXTRA=""
             fi
-            pip install $EXTRA "$SRC" || {
+            uv pip install $EXTRA "$SRC" || {
               echo "::error::Failed to install nebulento from $SRC"
               echo "::error::Note: Entry point is 'ovos-nebulento-pipeline-plugin'"
               echo "::error::Add 'nebulento' to your [test] extras in pyproject.toml"
@@ -262,7 +265,7 @@ jobs:
               SRC="palavreado"
               EXTRA=""
             fi
-            pip install $EXTRA "$SRC" || {
+            uv pip install $EXTRA "$SRC" || {
               echo "::error::Failed to install palavreado from $SRC"
               echo "::error::Note: Entry point is 'palavreado'"
               echo "::error::Add 'palavreado' to your [test] extras in pyproject.toml"
@@ -276,31 +279,30 @@ jobs:
         if: ${{ inputs.pre_install_pip != '' }}
         run: |
           # shellcheck disable=SC2086
-          python -m pip install ${{ inputs.pre_install_pip }}
+          uv pip install ${{ inputs.pre_install_pip }}
 
       - name: Install Package with Test Extras
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-json-report
+          uv pip install pytest pytest-json-report
           if [ "${{ inputs.pre_release }}" == "true" ]; then
             echo "Installing ovoscope from GitHub dev (pre_release)..."
-            pip install --force-reinstall \
+            uv pip install --force-reinstall \
               "git+https://github.com/TigreGotico/ovoscope@dev"
           else
-            pip install ovoscope
+            uv pip install ovoscope
           fi
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
-            pip install ".[$EXTRAS]"
+            uv pip install ".[$EXTRAS]"
           else
-            pip install .
+            uv pip install .
           fi
           # The checked-out source MUST be what gets tested. When the local
           # version equals a published release (e.g. dev is at the same alpha
           # already on PyPI), the prior installs can leave pip resolving the
           # package back to the PyPI wheel, silently discarding the PR's source.
           # Force the local checkout to win, without disturbing resolved deps.
-          pip install --force-reinstall --no-deps .
+          uv pip install --force-reinstall --no-deps .
           python -c "import ovoscope; print('ovoscope path:', ovoscope.__file__)"
 
       - name: Post-install pip pins
@@ -310,7 +312,7 @@ jobs:
           # --no-deps keeps these exact builds without re-resolving (which would
           # pull a same-version published wheel that carries a stricter cap).
           # shellcheck disable=SC2086
-          python -m pip install --force-reinstall --no-deps ${{ inputs.post_install_pip }}
+          uv pip install --force-reinstall --no-deps ${{ inputs.post_install_pip }}
 
       - name: Check required pipeline availability
         run: |

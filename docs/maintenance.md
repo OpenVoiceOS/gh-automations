@@ -7,7 +7,7 @@ Tracker for open technical debt and opportunistic improvements in `gh-automation
 ### Deprecated workflows pending removal
 **Files:** `.github/workflows/coverage-pages.yml`, `.github/workflows/python-support.yml`
 
-Both carry a `REMOVE AFTER: 2027-01-01` banner. Before removal, confirm zero active callers via `docs/repos.md`. Both still use `python -m pip install` directly (rather than `uv`) — frozen for back-compat until removal.
+Both carry a `REMOVE AFTER: 2027-01-01` banner. Before removal, confirm zero active callers via `docs/repos.md`. Both still use `uv pip install` — frozen for back-compat until removal.
 
 ### `continue-on-error: true` requires discipline
 **Files:** `skill-check.yml`, `pip-audit.yml`, `coverage.yml`, `opm-check.yml`, `spec-lint.yml`

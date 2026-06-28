@@ -87,7 +87,7 @@ release_workflow.yml  (per-repo)
     │                   curl → open PR to master
     │
     ├─► publish_pypi job  (per-repo, inline)
-    │       python -m pip install build
+    │       uv pip install build
     │       python -m build
     │       pypa/gh-action-pypi-publish → PyPI (alpha)
     │

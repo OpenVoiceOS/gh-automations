@@ -107,6 +107,9 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Declare Alpha stable
         id: version
         working-directory: action/github/scripts
@@ -158,10 +161,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - name: Install Build Tools
-        run: python -m pip install build
       - name: Build Distribution Packages
-        run: python -m build
+        run: uv build
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
