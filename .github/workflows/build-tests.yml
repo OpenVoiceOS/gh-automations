@@ -8,6 +8,13 @@ name: Build Tests
 on:
   workflow_call:
     inputs:
+      uv_prerelease:
+        type: string
+        default: "allow"
+        description: >
+          uv prerelease resolution mode (allow | if-necessary | explicit |
+          disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas
+          and relies on prerelease floor-pins resolving the way pip did.
       runner:
         type: string
         default: "ubuntu-latest"
@@ -55,7 +62,7 @@ env:
   # a package also has stable releases (e.g. ovos-PHAL's ovos-phal-plugin-ipgeo
   # >=0.1.9a1, which has a coexisting stable 0.1.7). Allow prereleases so the
   # floor-pins resolve as they did under pip — version caps still bound them.
-  UV_PRERELEASE: "allow"
+  UV_PRERELEASE: ${{ inputs.uv_prerelease }}
 
 jobs:
   build_tests:
