@@ -21,8 +21,13 @@ on:
     branches: [migrate-to-uv]
   workflow_dispatch:
 
+# Must cover the union of permissions the called reusable workflows declare,
+# or GitHub rejects the call at compile time (startup failure) — even though
+# the features needing them are disabled here (pr_comment/deploy_pages/sarif).
 permissions:
-  contents: read
+  contents: write          # coverage.yml job declares contents: write (deploy_pages)
+  pull-requests: write     # PR-comment jobs
+  security-events: write   # pip-audit.yml SARIF upload
 
 jobs:
   # Build sdist+wheel under `uv build`, install the wheel with extras under
