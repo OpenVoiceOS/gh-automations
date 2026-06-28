@@ -35,6 +35,10 @@ on:
         default: "dev"
         description: "Deprecated — ignored. Report is now uploaded as an artifact instead of committed."
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   check_downstream:
     runs-on: ${{ inputs.runner }}
@@ -55,6 +59,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
+      - name: Install uv
+        run: pip install uv
       - name: Install System Dependencies
         run: |
           sudo apt-get update -q
@@ -71,12 +77,11 @@ jobs:
             ${{ inputs.system_deps }}
       - name: Install OVOS ecosystem and pipdeptree
         run: |
-          python -m pip install build wheel pipdeptree
           curl -fsSL -o constraints.txt "${{ inputs.constraints_url }}"
           # Install the full OVOS ecosystem so pipdeptree can find all reverse deps
-          pip install -r constraints.txt || true
+          uv pip install -r constraints.txt || true
           # Re-install the target package pinned to the constraints version
-          pip install -c constraints.txt "${{ inputs.package_name }}" || true
+          uv pip install -c constraints.txt "${{ inputs.package_name }}" || true
       - name: Generate downstream report
         run: |
           python action/github/scripts/check_downstream.py \

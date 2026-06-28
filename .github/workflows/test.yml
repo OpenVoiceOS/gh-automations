@@ -13,6 +13,10 @@ on:
       - 'test/**'
   workflow_dispatch:
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   test:
     strategy:
@@ -25,7 +29,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: pip install uv
       - name: Install test dependencies
-        run: pip install pytest ovos-plugin-manager
+        run: uv pip install pytest ovos-plugin-manager
       - name: Run script tests
         run: pytest test/test_scripts.py -v

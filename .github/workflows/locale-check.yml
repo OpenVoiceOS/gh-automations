@@ -22,6 +22,10 @@ on:
           Post sections in the shared 'OVOS PR Checks' comment.
           Only runs when triggered by a pull_request event.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   locale_check:
     runs-on: ${{ inputs.runner }}
@@ -45,13 +49,16 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install build dependencies
         run: |
-          python -m pip install build setuptools
+          uv pip install build setuptools
 
       - name: Run build to generate SOURCES.txt
         run: |
-          python -m build --no-isolation --outdir dist/ 2>&1 | tail -20
+          uv build --no-build-isolation --out-dir dist/ 2>&1 | tail -20
         continue-on-error: true
 
       - name: Run locale build check

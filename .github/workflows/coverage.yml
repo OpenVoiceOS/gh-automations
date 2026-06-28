@@ -83,6 +83,10 @@ on:
         default: 14
         description: "Days to retain the coverage XML artifact"
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   coverage:
     runs-on: ${{ inputs.runner }}
@@ -107,6 +111,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install System Dependencies
         if: ${{ inputs.system_deps != '' }}
         run: |
@@ -114,31 +121,29 @@ jobs:
           sudo apt-get install -yq ${{ inputs.system_deps }}
 
       - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov coverage[toml]
+        run: uv pip install pytest pytest-cov coverage[toml]
 
       - name: Pre-install pip requirements
         if: ${{ inputs.pre_install_pip != '' }}
         run: |
           # shellcheck disable=SC2086
-          python -m pip install ${{ inputs.pre_install_pip }}
+          uv pip install ${{ inputs.pre_install_pip }}
 
       - name: Install Package
         run: |
           PRIMARY="${{ inputs.test_extras }}"
           FALLBACK="${{ inputs.test_extras_fallback }}"
-          if [ -n "$PRIMARY" ] && python -m pip install -e ".[$PRIMARY]" 2>/dev/null; then
+          if [ -n "$PRIMARY" ] && uv pip install -e ".[$PRIMARY]" 2>/dev/null; then
             echo "Installed package with [$PRIMARY] extras"
-          elif [ -n "$FALLBACK" ] && python -m pip install -e ".[$FALLBACK]" 2>/dev/null; then
+          elif [ -n "$FALLBACK" ] && uv pip install -e ".[$FALLBACK]" 2>/dev/null; then
             echo "Installed package with [$FALLBACK] extras"
-          elif python -m pip install -e . 2>/dev/null; then
+          elif uv pip install -e . 2>/dev/null; then
             echo "Installed package (no test extras found)"
           else
             echo "No installable package found at repo root — continuing without install"
           fi
           if [ -n "${{ inputs.install_extras }}" ]; then
-            python -m pip install ${{ inputs.install_extras }}
+            uv pip install ${{ inputs.install_extras }}
           fi
 
       - name: Run Tests with Coverage

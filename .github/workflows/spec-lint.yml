@@ -47,6 +47,10 @@ on:
           Post a '🧪 Spec Lint' section in the shared 'OVOS PR Checks' comment.
           Only runs when the workflow is triggered by a pull_request event.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   spec_lint:
     runs-on: ${{ inputs.runner }}
@@ -73,6 +77,9 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Resolve locale path
         id: resolve
         env:
@@ -98,8 +105,7 @@ jobs:
         env:
           OVOS_SPEC_TOOLS_SPEC: ${{ inputs.ovos_spec_tools_spec }}
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "$OVOS_SPEC_TOOLS_SPEC"
+          uv pip install "$OVOS_SPEC_TOOLS_SPEC"
 
       - name: Run ovos-spec-lint
         id: lint

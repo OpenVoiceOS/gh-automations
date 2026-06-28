@@ -363,7 +363,7 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | Checkout gh-automations scripts | Checks out `OpenVoiceOS/gh-automations@dev` into `_gh_automations/` (PR events only) |
 | Setup Python | `actions/setup-python@v5` |
 | Install System Dependencies | `apt-get install` the `system_deps` list (skipped if empty) |
-| Install Package with Test Extras | `pip install ".[test]"` (or the configured extras) plus `pytest pytest-json-report ovoscope` |
+| Install Package with Test Extras | `uv pip install ".[test]"` (or the configured extras) plus `pytest pytest-json-report ovoscope` |
 | Check required pipeline availability | Inline Python reads `opm.pipeline` entry points and exits 1 if any `require_*` pipeline is absent |
 | Run ovoscope tests | `pytest --json-report` with `continue-on-error: true` so the PR comment step always runs |
 | Format ovoscope section for PR comment | Inline Python reads the JSON report and generates `ovoscope-section.md` grouped by test class |
@@ -442,9 +442,9 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `runner` | string | `ubuntu-latest` | Runner label |
 | `python_version` | string | `3.11` | Python version to run tests under |
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
-| `test_extras` | string | `dev` | Pyproject extras key declaring test deps. Tried first via `pip install -e .[<key>]` |
+| `test_extras` | string | `dev` | Pyproject extras key declaring test deps. Tried first via `uv pip install -e .[<key>]` |
 | `test_extras_fallback` | string | `test` | Extras key tried if `test_extras` is not declared. Empty to skip |
-| `install_extras` | string | `""` | Extra pip install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
+| `install_extras` | string | `""` | Extra uv install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
@@ -515,7 +515,7 @@ Runs `pytest --cov` and deploys the HTML coverage report to GitHub Pages. Design
 | `runner` | string | `ubuntu-latest` | Runner label |
 | `python_version` | string | `3.11` | Python version to run tests under |
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
-| `install_extras` | string | `""` | Extra pip install arguments run before tests |
+| `install_extras` | string | `""` | Extra uv install arguments run before tests |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory |
 | `gh_pages_subdir` | string | `coverage` | Sub-directory within the Pages site, e.g. `coverage` → `https://org.github.io/repo/coverage/`. Empty string = deploy at root. |
@@ -903,8 +903,8 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 |------|-------------|
 | Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
 | Setup Python | `actions/setup-python@v5` |
-| Install build dependencies | `pip install build setuptools` |
-| Run build to generate SOURCES.txt | `python -m build --no-isolation`. `continue-on-error: true`. |
+| Install build dependencies | `uv pip install build setuptools` |
+| Run build to generate SOURCES.txt | `uv build --no-isolation`. `continue-on-error: true`. |
 | Run locale build check | `check_locale_build.py --repo-root . --locale-path … --output-json /tmp/locale-report.json --verbose`. `continue-on-error: true`. |
 | Format locale section | Inline Python reads `locale-report.json` → `locale-section.md` |
 | Post locale section to PR comment | Calls `update_pr_comment.py` with `--section-id locale` |
