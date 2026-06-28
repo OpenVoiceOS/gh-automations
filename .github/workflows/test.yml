@@ -13,6 +13,10 @@ on:
       - 'test/**'
   workflow_dispatch:
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   test:
     strategy:

@@ -49,6 +49,10 @@ on:
           Upload a SARIF report to GitHub's Security tab (Code scanning alerts).
           Requires the repo to have GitHub Advanced Security enabled, or be public.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   pip_audit:
     runs-on: ${{ inputs.runner }}

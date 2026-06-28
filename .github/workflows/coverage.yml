@@ -83,6 +83,10 @@ on:
         default: 14
         description: "Days to retain the coverage XML artifact"
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   coverage:
     runs-on: ${{ inputs.runner }}

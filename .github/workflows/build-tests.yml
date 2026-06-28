@@ -47,6 +47,10 @@ on:
         description: >
           Post a '🔨 Build Tests' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   build_tests:
     strategy:

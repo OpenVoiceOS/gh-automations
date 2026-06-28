@@ -107,6 +107,10 @@ on:
           Minimum overall pass rate (0.0-1.0). Fails the shard when the
           observed rate is below this value.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   intent_case_tests:
     runs-on: ${{ inputs.runner }}

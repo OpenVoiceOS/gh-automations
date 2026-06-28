@@ -49,6 +49,10 @@ on:
         default: true
         description: "Post/update the '🐍 Python Support' section in the PR comment"
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   check_compatibility:
     strategy:

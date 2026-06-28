@@ -73,6 +73,10 @@ on:
         default: ""
         description: "Maximum ovos-plugin-manager version (exclusive upper bound), e.g. '3.0.0'. Leave empty for no upper bound."
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   opm_check:
     runs-on: ${{ inputs.runner }}

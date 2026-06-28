@@ -66,6 +66,10 @@ on:
           Post a section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   license_tests:
     runs-on: ${{ inputs.runner }}

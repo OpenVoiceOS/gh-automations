@@ -40,6 +40,10 @@ on:
         default: "gh-pages"
         description: "Branch to push the HTML coverage report to."
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   coverage_pages:
     runs-on: ${{ inputs.runner }}

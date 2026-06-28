@@ -131,6 +131,10 @@ on:
       # sibling `intent-case-tests.yml` reusable workflow. Use both
       # workflows in tandem (or only one) depending on what the skill ships.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   ovoscope:
     runs-on: ${{ inputs.runner }}

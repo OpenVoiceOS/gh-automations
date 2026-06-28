@@ -32,6 +32,10 @@ on:
         default: true
         description: "Post a section in the OVOS PR Checks comment on pull_request events"
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   lint:
     runs-on: ${{ inputs.runner }}

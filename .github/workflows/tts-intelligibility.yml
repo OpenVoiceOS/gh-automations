@@ -72,6 +72,10 @@ on:
           downgrade to report-only — the score is still posted to the PR comment
           but the check never fails — for engines/langs still being tuned.
 
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+
 jobs:
   tts-intelligibility:
     runs-on: ${{ inputs.runner }}
