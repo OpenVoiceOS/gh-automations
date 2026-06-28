@@ -35,6 +35,13 @@ on:
           uv prerelease resolution mode (allow | if-necessary | explicit |
           disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas
           and relies on prerelease floor-pins resolving the way pip did.
+      pytest_workers:
+        type: string
+        default: "auto"
+        description: >
+          pytest-xdist worker count for the e2e suite. Each ovoscope test boots its
+          own in-process MiniCroft and is independent, so they parallelize cleanly.
+          "auto" = one worker per core; "0" runs serially (disable xdist).
       runner:
         type: string
         default: "ubuntu-latest"
@@ -295,7 +302,7 @@ jobs:
 
       - name: Install Package with Test Extras
         run: |
-          uv pip install pytest pytest-json-report
+          uv pip install pytest pytest-json-report pytest-xdist
           if [ "${{ inputs.pre_release }}" == "true" ]; then
             echo "Installing ovoscope from GitHub dev (pre_release)..."
             uv pip install --force-reinstall \
@@ -407,8 +414,14 @@ jobs:
               COV_ARGS="$COV_ARGS --ovoscope-bus-cov-exclude='${{ inputs.bus_coverage_exclude }}'"
             fi
           fi
+          XDIST_ARGS=""
+          if [ -n "${{ inputs.pytest_workers }}" ] && [ "${{ inputs.pytest_workers }}" != "0" ]; then
+            XDIST_ARGS="-n ${{ inputs.pytest_workers }}"
+          fi
+          # shellcheck disable=SC2086
           python -m pytest \
             ${{ inputs.test_path }} \
+            $XDIST_ARGS \
             --json-report \
             --json-report-file=/tmp/ovoscope-results.json \
             $COV_ARGS \
