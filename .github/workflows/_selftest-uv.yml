@@ -1,13 +1,19 @@
-# TEMPORARY — validation harness for the pip→uv migration (PR #60).
-# Delete this file before merging to dev; it is not a reusable workflow and
-# has no downstream consumers.
+# TEMPORARY — validation harness for the pip->uv migration (PR #60).
+# Delete this file (plus the root pyproject.toml and selftest_pkg/) before
+# merging to dev. It is not a reusable workflow and has no downstream consumers.
 #
-# Why this exists: `actions/setup-python` provides a bare interpreter with no
-# active virtualenv. `uv pip install` refuses to touch a non-venv interpreter
-# unless `--system` / `UV_SYSTEM_PYTHON=1` is set. The migration relies on the
-# workflow-level `env: UV_SYSTEM_PYTHON: "1"` block added to every uv workflow.
-# These jobs prove that (a) the uv command surface works on real runners under
-# that env, and (b) no uv workflow is missing the env block.
+# It drives the REAL reusable workflows via local `uses:` against the in-repo
+# dummy package (root pyproject.toml + selftest_pkg/), so the actual build /
+# install / coverage / audit / type-check plumbing runs under uv on real
+# runners — not just isolated uv commands.
+#
+# Why the fix under test matters: actions/setup-python gives a bare interpreter
+# with no active virtualenv, and `uv pip install` refuses a non-venv install
+# unless UV_SYSTEM_PYTHON=1 / --system is set. Every uv workflow now declares
+# that env at workflow level; these jobs prove it works end to end.
+#
+# Triggered on push to this branch only, with pr_comment:false everywhere, so
+# nothing is posted to PR #60.
 name: "[selftest] uv migration"
 
 on:
@@ -19,71 +25,48 @@ permissions:
   contents: read
 
 jobs:
-  # Exercise every uv verb the migration introduces (install, install -e,
-  # build, freeze) against a throwaway package generated at runtime — no
-  # fixture files committed, nothing downstream touched.
-  uv-runtime:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-    steps:
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
+  # Build sdist+wheel under `uv build`, install the wheel with extras under
+  # `uv pip install`, run pytest — across every supported Python.
+  build-tests:
+    uses: ./.github/workflows/build-tests.yml
+    with:
+      python_versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
+      install_extras: test
+      test_path: selftest_pkg/tests
+      pr_comment: false
 
-      - name: Install uv
-        run: pip install uv
+  # Editable install with extras under `uv pip install -e .[dev]` + pytest-cov.
+  coverage:
+    uses: ./.github/workflows/coverage.yml
+    with:
+      test_extras: dev
+      test_path: selftest_pkg/tests
+      coverage_source: selftest_pkg
+      pr_comment: false
 
-      - name: Create throwaway package
-        run: |
-          PKG="${RUNNER_TEMP}/uv_selftest_pkg"
-          mkdir -p "$PKG/src/uv_selftest"
-          echo "__version__ = '0.0.0'" > "$PKG/src/uv_selftest/__init__.py"
-          cat > "$PKG/pyproject.toml" <<'EOF'
-          [build-system]
-          requires = ["setuptools>=61"]
-          build-backend = "setuptools.build_meta"
+  # Editable install under uv, then mypy against the dummy package.
+  type-check:
+    uses: ./.github/workflows/type-check.yml
+    with:
+      test_extras: dev
+      mypy_args: selftest_pkg
+      pr_comment: false
 
-          [project]
-          name = "uv-selftest"
-          version = "0.0.0"
-          requires-python = ">=3.10"
+  # `uv pip install ".[test]"` then `uv pip freeze` -> pip-licenses.
+  license-check:
+    uses: ./.github/workflows/license-check.yml
+    with:
+      install_extras: "[test]"
+      warn_only: true
+      pr_comment: false
 
-          [project.optional-dependencies]
-          test = ["pytest"]
-
-          [tool.setuptools.packages.find]
-          where = ["src"]
-          EOF
-          mkdir -p "$PKG/test"
-          echo "def test_ok(): assert True" > "$PKG/test/test_smoke.py"
-          echo "PKG=$PKG" >> "$GITHUB_ENV"
-
-      - name: Document the failure mode (without UV_SYSTEM_PYTHON)
-        # Informational only: shows that uv refuses a non-venv install by
-        # default, which is exactly what the workflow-level env block fixes.
-        # Not a hard assertion, so it stays robust across uv versions.
-        run: |
-          if env -u UV_SYSTEM_PYTHON uv pip install --quiet pytest 2>err.log; then
-            echo "::notice::uv allowed a system install without UV_SYSTEM_PYTHON (uv default may have changed)"
-          else
-            echo "::notice::Confirmed: uv refuses system install without UV_SYSTEM_PYTHON —"
-            sed 's/^/  /' err.log || true
-          fi
-
-      - name: uv command surface (with UV_SYSTEM_PYTHON, as the workflows set it)
-        env:
-          UV_SYSTEM_PYTHON: "1"
-        run: |
-          set -euxo pipefail
-          uv pip install pytest build wheel
-          uv build --out-dir "${PKG}/dist" "${PKG}"
-          uv pip install "${PKG}"[test]
-          uv pip install -e "${PKG}"[test]
-          uv pip freeze | grep -i uv-selftest
-          python -m pytest "${PKG}/test" -v
+  # `uv pip install ".[test]"` then pip-audit over the resolved deps.
+  pip-audit:
+    uses: ./.github/workflows/pip-audit.yml
+    with:
+      install_extras: "[test]"
+      warn_only: true
+      pr_comment: false
 
   # Static guard: every workflow that runs `uv pip` MUST also declare
   # UV_SYSTEM_PYTHON, or it will fail at runtime on the setup-python interpreter.
