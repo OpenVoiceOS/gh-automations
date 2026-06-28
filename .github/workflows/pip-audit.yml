@@ -70,11 +70,11 @@ jobs:
       contents: read
       security-events: write  # needed for SARIF upload
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Checkout gh-automations scripts
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev

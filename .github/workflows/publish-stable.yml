@@ -74,7 +74,7 @@ jobs:
       actual_branch: ${{ steps.branch_detect.outputs.actual_branch }}
     steps:
       - name: Checkout Scripts Repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: action/github/
           repository: OpenVoiceOS/gh-automations
@@ -97,7 +97,7 @@ jobs:
           echo "actual_branch=${REQUESTED}" >> $GITHUB_OUTPUT
 
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.branch_detect.outputs.actual_branch }}
           path: action/package/
@@ -132,7 +132,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.bump_version.outputs.actual_branch }}
           path: action/package/
@@ -153,7 +153,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.bump_version.outputs.actual_branch }}
           fetch-depth: 0
@@ -198,7 +198,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.bump_version.outputs.actual_branch }}
           fetch-depth: 0

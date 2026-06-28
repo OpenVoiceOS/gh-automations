@@ -90,7 +90,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Python ${{ inputs.python_version }}
         uses: actions/setup-python@v6
@@ -101,7 +101,7 @@ jobs:
         run: pip install uv
 
       - name: Checkout gh-automations scripts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
@@ -261,7 +261,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout gh-automations
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev

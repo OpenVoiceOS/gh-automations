@@ -71,7 +71,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
@@ -81,7 +81,7 @@ jobs:
         run: pip install uv
 
       - name: Checkout gh-automations scripts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
@@ -146,14 +146,14 @@ jobs:
       contents: read
     steps:
       - name: Checkout gh-automations
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: dev
           path: _gh_automations/
 
       - name: Checkout calling repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: _calling_repo/
 
@@ -165,7 +165,7 @@ jobs:
           merge-multiple: true
       
       - name: Checkout ovos-releases
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/ovos-releases
           path: _ovos_releases/

@@ -60,7 +60,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ inputs.python_version }}
         uses: actions/setup-python@v6
