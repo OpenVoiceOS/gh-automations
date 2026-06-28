@@ -123,7 +123,6 @@ jobs:
             | tee /tmp/mypy-human.txt || true
           # Exit code from human-readable run (not tee)
           mypy ${{ inputs.mypy_args }} --show-column-numbers --no-error-summary 2>&1
-        continue-on-error: true
 
       - name: Format type check section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}

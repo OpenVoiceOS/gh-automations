@@ -114,7 +114,6 @@ jobs:
               2>&1 | tee /tmp/markdownlint-output.txt || true
           fi
           markdownlint-cli2 "**/*.md" 2>&1
-        continue-on-error: true
 
       - name: Format docs check section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
