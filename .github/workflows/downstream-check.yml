@@ -2,6 +2,13 @@ name: Downstream Dependency Check
 on:
   workflow_call:
     inputs:
+      uv_prerelease:
+        type: string
+        default: "allow"
+        description: >
+          uv prerelease resolution mode (allow | if-necessary | explicit |
+          disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas
+          and relies on prerelease floor-pins resolving the way pip did.
       package_name:
         type: string
         required: true
@@ -38,6 +45,7 @@ on:
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
   UV_SYSTEM_PYTHON: "1"
+  UV_PRERELEASE: ${{ inputs.uv_prerelease }}
 
 jobs:
   check_downstream:

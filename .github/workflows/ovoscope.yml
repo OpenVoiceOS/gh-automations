@@ -28,6 +28,13 @@ name: Ovoscope End-to-End Tests
 on:
   workflow_call:
     inputs:
+      uv_prerelease:
+        type: string
+        default: "allow"
+        description: >
+          uv prerelease resolution mode (allow | if-necessary | explicit |
+          disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas
+          and relies on prerelease floor-pins resolving the way pip did.
       runner:
         type: string
         default: "ubuntu-latest"
@@ -134,6 +141,7 @@ on:
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
   UV_SYSTEM_PYTHON: "1"
+  UV_PRERELEASE: ${{ inputs.uv_prerelease }}
 
 jobs:
   ovoscope:
