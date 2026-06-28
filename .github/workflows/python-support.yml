@@ -52,6 +52,7 @@ on:
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
   UV_SYSTEM_PYTHON: "1"
+  UV_PRERELEASE: "allow"  # OVOS ships pre-1.0 alphas; resolve prerelease floor-pins like pip did
 
 jobs:
   check_compatibility:
