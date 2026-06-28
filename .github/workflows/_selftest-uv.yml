@@ -40,7 +40,20 @@ jobs:
       test_path: selftest_pkg/tests
       pr_comment: false
 
-  # BISECT: other reusable calls temporarily removed to isolate the startup failure.
+  # BISECT step 2: add the two standard-permission calls.
+  type-check:
+    uses: ./.github/workflows/type-check.yml
+    with:
+      test_extras: dev
+      mypy_args: selftest_pkg
+      pr_comment: false
+
+  license-check:
+    uses: ./.github/workflows/license-check.yml
+    with:
+      install_extras: "[test]"
+      warn_only: true
+      pr_comment: false
 
   # Static guard: every workflow that runs `uv pip` MUST also declare
   # UV_SYSTEM_PYTHON, or it will fail at runtime on the setup-python interpreter.
