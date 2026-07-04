@@ -32,6 +32,7 @@ specific justification.
 | Package | Declared license | Flagged category | Justification |
 |---------|------------------|------------------|---------------|
 | `tqdm` | `MPL-2.0 AND MIT` | WeakCopyleft | Dual-licensed. The MIT option makes it fully permissive to use as a library; the checker flags it only because of the MPL-2.0 component. We use `tqdm` as an unmodified, imported progress-bar dependency (pulled transitively by `huggingface_hub`, and thus by many OVOS ML repos) — no MPL-2.0 files are modified or redistributed, so the MIT terms govern and it is compatible with Apache 2.0 distribution. |
+| `marisa-trie` | `MIT AND (BSD-2-Clause OR LGPL-2.1-or-later)` | WeakCopyleft | Dual-licensed. The checker flags the whole expression because of the LGPL-2.1-or-later option, but the license grants an explicit `BSD-2-Clause OR LGPL` choice — we elect the permissive BSD-2-Clause. We use `marisa-trie` as an unmodified, imported static-trie library (pulled transitively via `langcodes`/`language_data`, and thus by many OVOS repos that resolve language data) — no source is modified or redistributed, so the BSD-2-Clause terms govern and it is compatible with Apache 2.0 distribution. |
 
 ## Regex form
 
@@ -40,7 +41,7 @@ PCRE, anchored per package so it matches the exact distribution name (and is
 case-insensitive, since the checker may normalise names):
 
 ```
-(?i:^tqdm$)
+(?i:^tqdm$)|(?i:^marisa[-_]trie$)
 ```
 
 Adding a package means adding a `^name$` alternation here and in the workflow's
