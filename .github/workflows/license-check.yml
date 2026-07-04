@@ -177,7 +177,10 @@ jobs:
           # 2. Central whitelist (one anchored alternation per package).
           #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
           #          used as an unmodified imported library (pulled by huggingface_hub).
-          central = r"(?i:^tqdm([=<>!~ @;].*)?$)"
+          #   marisa-trie — MIT AND (BSD-2-Clause OR LGPL-2.1-or-later); we elect the
+          #          BSD-2-Clause option, used as an unmodified imported trie library
+          #          (pulled transitively via langcodes/language_data).
+          central = r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
