@@ -1116,6 +1116,23 @@ def main():
     with open(args.content_file, "r") as f:
         content = f.read()
 
+    try:
+        _update_comment(args, content)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            # Fork PRs run with a read-only GITHUB_TOKEN; the comment is
+            # cosmetic and must never fail the check itself.
+            print(
+                f"Warning: token cannot comment on {args.repo}#{args.pr} "
+                f"(HTTP {exc.code}); skipping PR comment.",
+                file=sys.stderr,
+            )
+            return
+        raise
+
+
+def _update_comment(args, content: str) -> None:
+
     # Retry loop to handle race conditions where multiple workflows try to create the first comment
     all_comments = []
     for attempt in range(6):
