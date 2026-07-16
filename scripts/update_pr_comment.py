@@ -29,6 +29,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+from contextlib import suppress
 
 # Invisible HTML comment used to identify the aggregated PR checks comment.
 COMMENT_MARKER = "<!-- ovos-pr-checks -->"
@@ -993,6 +994,34 @@ FLAVOR_TEXTS = {
 }
 
 
+RETRY_ATTEMPTS = 5
+RETRY_MAX_WAIT = 30.0
+
+
+def _retry_wait(exc: urllib.error.HTTPError, attempt: int) -> float:
+    """Seconds to wait before the next attempt, honouring GitHub's throttling hints."""
+    headers = exc.headers or {}
+    retry_after = headers.get("Retry-After")
+    if retry_after:
+        with suppress(ValueError):
+            return min(float(retry_after), RETRY_MAX_WAIT)
+    reset = headers.get("x-ratelimit-reset")
+    if reset:
+        with suppress(ValueError):
+            return min(max(float(reset) - time.time(), 0.0), RETRY_MAX_WAIT)
+    return min(2.0 ** attempt, RETRY_MAX_WAIT) * random.uniform(0.5, 1.5)
+
+
+def _is_transient(exc: urllib.error.HTTPError, detail: str) -> bool:
+    """5xx are always transient; 403/429 only when GitHub says it is throttling us."""
+    if exc.code in (500, 502, 503, 504):
+        return True
+    if exc.code in (403, 429):
+        headers = exc.headers or {}
+        return bool(headers.get("Retry-After") or headers.get("x-ratelimit-reset")) or "rate limit" in detail.lower()
+    return False
+
+
 def github_api(method: str, path: str, data: dict = None) -> dict | list:
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -1004,14 +1033,23 @@ def github_api(method: str, path: str, data: dict = None) -> dict | list:
         "X-GitHub-Api-Version": "2022-11-28",
     }
     body = json.dumps(data).encode("utf-8") if data is not None else None
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        print(f"GitHub API {method} {path} failed with HTTP {exc.code}: {detail}", file=sys.stderr)
-        raise
+    for attempt in range(RETRY_ATTEMPTS):
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            print(f"GitHub API {method} {path} failed with HTTP {exc.code}: {detail}", file=sys.stderr)
+            if attempt == RETRY_ATTEMPTS - 1 or not _is_transient(exc, detail):
+                raise
+            wait = _retry_wait(exc, attempt)
+            print(
+                f"Transient GitHub API failure (attempt {attempt + 1}/{RETRY_ATTEMPTS}); "
+                f"retrying in {wait:.2f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
 
 
 def find_ovos_comments(repo: str, pr_number: int) -> list[dict]:
@@ -1118,17 +1156,15 @@ def main():
 
     try:
         _update_comment(args, content)
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            # Fork PRs run with a read-only GITHUB_TOKEN; the comment is
-            # cosmetic and must never fail the check itself.
-            print(
-                f"Warning: token cannot comment on {args.repo}#{args.pr} "
-                f"(HTTP {exc.code}); skipping PR comment.",
-                file=sys.stderr,
-            )
-            return
-        raise
+    except urllib.error.URLError as exc:
+        # The comment is a cosmetic summary of work that already succeeded:
+        # an unreachable or misbehaving API must never fail the check itself.
+        # Fork PRs also run with a read-only GITHUB_TOKEN and land here.
+        print(
+            f"Warning: could not post the PR comment on {args.repo}#{args.pr} ({exc}); "
+            f"skipping PR comment.",
+            file=sys.stderr,
+        )
 
 
 def _update_comment(args, content: str) -> None:

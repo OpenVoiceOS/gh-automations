@@ -7,6 +7,7 @@ Covers: github_api, find_ovos_comments, merge_sections,
 """
 from __future__ import annotations
 
+import email.message
 import json
 import sys
 import urllib.error
@@ -21,6 +22,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from update_pr_comment import (  # noqa: E402
     COMMENT_MARKER,
+    RETRY_ATTEMPTS,
+    RETRY_MAX_WAIT,
     build_section,
     deduplicate_comments,
     find_ovos_comments,
@@ -45,15 +48,22 @@ def _urlopen_mock(response_data, status=200):
     return MagicMock(return_value=mock_resp)
 
 
-def _http_error(code: int, body: str = "error"):
+def _http_error(code: int, body: str = "error", headers: dict | None = None):
     """Build a urllib.error.HTTPError suitable for raising in tests."""
     return urllib.error.HTTPError(
         url="https://api.github.com/test",
         code=code,
         msg="HTTP Error",
-        hdrs={},  # type: ignore[arg-type]
+        hdrs=email.message.Message() if headers is None else _headers(headers),
         fp=BytesIO(body.encode()),
     )
+
+
+def _headers(values: dict) -> email.message.Message:
+    msg = email.message.Message()
+    for k, v in values.items():
+        msg[k] = str(v)
+    return msg
 
 
 FAKE_TOKEN = "ghp_testtoken"
@@ -140,6 +150,99 @@ class TestGithubApi:
 # ---------------------------------------------------------------------------
 # find_ovos_comments
 # ---------------------------------------------------------------------------
+
+class TestGithubApiRetries:
+    """Transient GitHub failures must not red-out a check whose real work passed."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        with patch("update_pr_comment.time.sleep") as sleep:
+            self.sleep = sleep
+            yield
+
+    def test_retries_5xx_then_succeeds(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        ok = _urlopen_mock([{"id": 1}])
+        with patch("urllib.request.urlopen", side_effect=[_http_error(503), ok.return_value]):
+            assert github_api("GET", "/repos/foo/bar/issues/1/comments") == [{"id": 1}]
+        assert self.sleep.call_count == 1
+
+    def test_permanent_5xx_exhausts_retries_and_raises(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        with patch("urllib.request.urlopen", side_effect=lambda req: (_ for _ in ()).throw(_http_error(503))):
+            with pytest.raises(urllib.error.HTTPError):
+                github_api("GET", "/repos/foo/bar/issues/1/comments")
+        assert self.sleep.call_count == RETRY_ATTEMPTS - 1
+
+    @pytest.mark.parametrize("code", [404, 422])
+    def test_deterministic_4xx_is_not_retried(self, monkeypatch, code):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        with patch("urllib.request.urlopen", side_effect=_http_error(code)) as opener:
+            with pytest.raises(urllib.error.HTTPError):
+                github_api("GET", "/repos/foo/bar/issues/1/comments")
+        assert opener.call_count == 1
+        self.sleep.assert_not_called()
+
+    def test_secondary_rate_limit_is_retried(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        err = _http_error(403, '{"message":"You have exceeded a secondary rate limit"}')
+        ok = _urlopen_mock({"id": 7})
+        with patch("urllib.request.urlopen", side_effect=[err, ok.return_value]):
+            assert github_api("POST", "/repos/foo/bar/issues/1/comments", data={"body": "x"}) == {"id": 7}
+
+    def test_plain_403_is_not_retried(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        with patch("urllib.request.urlopen", side_effect=_http_error(403, '{"message":"Resource not accessible"}')) as opener:
+            with pytest.raises(urllib.error.HTTPError):
+                github_api("POST", "/repos/foo/bar/issues/1/comments", data={"body": "x"})
+        assert opener.call_count == 1
+
+    def test_retry_after_header_is_honoured(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        err = _http_error(429, "slow down", headers={"Retry-After": "7"})
+        ok = _urlopen_mock({"id": 7})
+        with patch("urllib.request.urlopen", side_effect=[err, ok.return_value]):
+            github_api("GET", "/repos/foo/bar")
+        assert self.sleep.call_args[0][0] == 7.0
+
+    def test_backoff_is_bounded(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        with patch("urllib.request.urlopen", side_effect=lambda req: (_ for _ in ()).throw(_http_error(500))):
+            with pytest.raises(urllib.error.HTTPError):
+                github_api("GET", "/repos/foo/bar")
+        waits = [c[0][0] for c in self.sleep.call_args_list]
+        assert all(0 < w <= RETRY_MAX_WAIT * 1.5 for w in waits)
+
+
+class TestCommentPostingIsNonFatal:
+    """Posting the summary is cosmetic: it must never fail the calling check."""
+
+    def _args(self, tmp_path):
+        content_file = tmp_path / "section.md"
+        content_file.write_text("content")
+        return [
+            "update_pr_comment.py", "--repo", "foo/bar", "--pr", "1",
+            "--section-id", "lint", "--title", "Lint", "--content-file", str(content_file),
+        ]
+
+    @pytest.mark.parametrize("exc", [
+        urllib.error.HTTPError("u", 503, "Service Unavailable", email.message.Message(), None),
+        urllib.error.URLError("connection reset"),
+    ])
+    def test_exhausted_retries_warn_and_exit_zero(self, monkeypatch, tmp_path, capsys, exc):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        monkeypatch.setattr(sys, "argv", self._args(tmp_path))
+        with patch("update_pr_comment._update_comment", side_effect=exc):
+            main()
+        assert "Warning" in capsys.readouterr().err
+
+    def test_unrelated_errors_still_fail(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+        monkeypatch.setattr(sys, "argv", self._args(tmp_path))
+        with patch("update_pr_comment._update_comment", side_effect=ValueError("bug")):
+            with pytest.raises(ValueError):
+                main()
+
 
 class TestFindOvosComments:
     def test_returns_only_ovos_comments(self, monkeypatch):
