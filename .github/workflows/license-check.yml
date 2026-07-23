@@ -180,7 +180,11 @@ jobs:
           #   marisa-trie — MIT AND (BSD-2-Clause OR LGPL-2.1-or-later); we elect the
           #          BSD-2-Clause option, used as an unmodified imported trie library
           #          (pulled transitively via langcodes/language_data).
-          central = r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
+          #   paho-mqtt — dual-licensed EPL-2.0 OR BSD-3-Clause; we elect the
+          #          BSD-3-Clause option, used as an unmodified imported MQTT client
+          #          (direct dependency of the *2mqtt bridges).
+          central = (r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
+                     r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
