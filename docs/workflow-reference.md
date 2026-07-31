@@ -51,6 +51,9 @@ Runs on PR merge to `dev`. Bumps the version, optionally updates changelog and c
 | `bump_version` | `merged == true && not a skipped bot \|\| workflow_dispatch` | Determines bump type from PR labels, calls `update_version.py`, commits and pushes to `branch` via `git-auto-commit-action@v5`. Skips PRs from `allcontributors[bot]` and `pre-commit-ci[bot]` when `skip_bot_prs: true`. |
 | `update_changelog` | `update_changelog: true` + `bump_version` succeeded | Calls `github-changelog-generator-action@v2.3`, commits result |
 | `tag_prerelease` | `publish_prerelease: true` + `bump_version` succeeded | Creates GitHub pre-release via `ncipollo/release-action@v1` |
+
+| Job | Condition | Description |
+|-----|-----------|-------------|
 | `propose_release` | `propose_release: true` + `bump_version` succeeded | Creates `release-X.Y.ZaN` branch, opens PR to `master` via GitHub API |
 | `publish_pypi` | `publish_pypi: true` + `bump_version` succeeded | Builds with `python -m build`, publishes via `pypa/gh-action-pypi-publish@master` |
 | `notify` | `notify_matrix: true` + `bump_version` succeeded + PR merged | Calls `notify-matrix.yml` with a canned message |
@@ -67,13 +70,11 @@ This prevents spurious runs when a PR is closed without merging.
 
 ```yaml
 name: Release Alpha and Propose Stable
-
 on:
   workflow_dispatch:
   pull_request:
     types: [closed]
     branches: [dev]
-
 jobs:
   publish_alpha:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
@@ -91,7 +92,7 @@ jobs:
 ### Notes
 
 - `publish_pypi: true` uses `pypa/gh-action-pypi-publish@release/v1` (pinned to stable tag).
-- `propose_release` uses `git checkout -B` (force-create) and `gh pr create` with duplicate-check — both steps are idempotent on retry.
+- `propose_release` uses `git checkout -B` (force-create) and `gh pr create` with duplicate-check: both steps are idempotent on retry.
 
 ---
 
@@ -131,6 +132,9 @@ Runs on push to `master` (typically triggered by merging the release PR). Remove
 | `tag_release` | `publish_release: true` + `bump_version` succeeded | Creates GitHub release via `ncipollo/release-action@v1` |
 | `publish_pypi` | `publish_pypi: true` + `bump_version` succeeded | Builds and publishes to PyPI (stable) |
 | `sync_dev` | `sync_dev: true` + `bump_version` succeeded | Pushes `master` → `dev` via `ad-m/github-push-action@v0.8.0` |
+
+| Job | Condition | Description |
+|-----|-----------|-------------|
 | `notify` | `notify_matrix: true` + `bump_version` succeeded | Calls `notify-matrix.yml@dev` with configurable channel and message |
 
 ### Bot guard
@@ -147,7 +151,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-
 jobs:
   publish_stable:
     if: github.actor != 'github-actions[bot]'
@@ -188,6 +191,9 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | Job | Description |
 |-----|-------------|
 | `build_tests` | Matrix job. Runs `python -m build`, installs the resulting wheel (with extras if specified), optionally runs `pytest`. Saves per-version result as an artifact. |
+
+| Job | Description |
+|-----|-------------|
 | `post_build_report` | Runs after the matrix, only on PR events with `pr_comment: true`. Downloads all result artifacts, runs the channel compatibility check, formats and posts the `section:build` PR comment. |
 
 ### Channel compatibility check
@@ -204,7 +210,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   build_tests:
     uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
@@ -336,44 +341,42 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 | Job | Description |
 |-----|-------------|
 | `opm_check` | Installs `ovos-plugin-manager`, builds the wheel, installs it, then runs `check_opm.py` with `--validate-interface`/`--test-import` flags as configured. If the package is confirmed as an OVOS plugin, re-installs in editable mode and runs a detection-only check (no interface validation, no import test) to catch entry-point registration differences. Uploads `opm_result.json` and `opm_result_editable.json` as artifacts. |
+
+| Job | Description |
+|-----|-------------|
 | `post_opm_report` | Downloads the JSON artifacts, formats a PR comment section with status, plugin metadata, system deps, detected types, a validation table (wheel vs editable, import time, interface, config docs), and issues list. Also calls `check_downstream.py` to count dependents and appends the downstream impact note if count > 0. |
 
 ### PR comment content
 
 The report is split into two tables:
 
-**OPM Detection** — one row per plugin type (e.g. `skill`, `tts`):
+**OPM Detection**: one row per plugin type (e.g. `skill`, `tts`):
 
 ```
 ✅ Plugin Status: PASS
-
 Plugin Info:
 - Name: ovos-tts-plugin-example
 - Version: 1.2.3a4
 - Description: Example TTS plugin for OVOS
 - Requires Python: >=3.10
-
 OPM Detection:
-
 | Type | Wheel OPM | Editable OPM | Requires Python |
 |------|-----------|--------------|-----------------|
 | tts  | ✅        | ✅           | ✅ >=3.10       |
 ```
 
-**Entry Point Validation** — one row per named entry point (supports packages that register multiple entry points per type, e.g. a multi-voice TTS):
+**Entry Point Validation**: one row per named entry point (supports packages that register multiple entry points per type, e.g. a multi-voice TTS):
 
 ```
 Entry Point Validation:
-
 | Entry Point | Import | Interface | Config Docs |
 |-------------|--------|-----------|-------------|
 | ovos-tts-plugin-example | ✅ 42ms | ✅ | ✅ |
 | ovos-tts-plugin-example-neural | ✅ 38ms | ✅ | ✅ |
-
 🔗 Downstream Impact: 3 package(s) depend on this plugin
 ```
 
-Non-plugin repos: `ℹ️ Not an OVOS plugin — OPM check skipped.`
+Non-plugin repos: `ℹ️ Not an OVOS plugin: OPM check skipped.`
 
 ### Typical usage
 
@@ -383,7 +386,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   opm_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/opm-check.yml@dev
@@ -429,7 +431,7 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | `python_version` | string | `3.11` | Python version to use |
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
 | `install_extras` | string | `test` | pip extras used when installing the package. The extras must pull in `ovoscope`. |
-| `test_path` | string | `test/end2end/` | Path passed to pytest — should point at the end2end directory |
+| `test_path` | string | `test/end2end/` | Path passed to pytest: should point at the end2end directory |
 | `require_adapt` | boolean | `false` | Fail CI if `ovos-adapt-pipeline-plugin` is not installed. When `false`, Adapt tests are skipped if the plugin is absent. |
 | `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
 | `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
@@ -449,10 +451,16 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | Checkout gh-automations scripts | Checks out `OpenVoiceOS/gh-automations@dev` into `_gh_automations/` (PR events only) |
 | Setup Python | `actions/setup-python@v5` |
 | Install System Dependencies | `apt-get install` the `system_deps` list (skipped if empty) |
+
+| Step | Description |
+|------|-------------|
 | Install Package with Test Extras | `uv pip install ".[test]"` (or the configured extras) plus `pytest pytest-json-report ovoscope` |
 | Check required pipeline availability | Inline Python reads `opm.pipeline` entry points and exits 1 if any `require_*` pipeline is absent |
 | Run ovoscope tests | `pytest --json-report` with `continue-on-error: true` so the PR comment step always runs |
 | Format ovoscope section for PR comment | Inline Python reads the JSON report and generates `ovoscope-section.md` grouped by test class |
+
+| Step | Description |
+|------|-------------|
 | Post ovoscope section to PR comment | Calls `update_pr_comment.py` with `--section-id ovoscope` |
 | Fail job if tests failed | Re-raises the pytest failure after the PR comment is posted |
 
@@ -460,10 +468,9 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 
 ```
 ✅ 9/9 passed
-
-✅ **TestConfuciusAdaptEN** — 5/5
-✅ **TestConfuciusPadaciosaEN** — 2/2
-✅ **TestConfuciusFixtures** — 2/2
+✅ **TestConfuciusAdaptEN**: 5/5
+✅ **TestConfuciusPadaciosaEN**: 2/2
+✅ **TestConfuciusFixtures**: 2/2
 ```
 
 On failure, failing classes expand to a per-test table with `longrepr` for the first 3 failures.
@@ -476,7 +483,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   ovoscope:
     uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
@@ -486,7 +492,7 @@ jobs:
       require_adapt: true
 ```
 
-To require Padatious (C extension — add `swig` to system_deps):
+To require Padatious (C extension: add `swig` to system_deps):
 
 ```yaml
     with:
@@ -499,7 +505,7 @@ To require Padatious (C extension — add `swig` to system_deps):
 ### Notes
 
 - The `require_*` inputs trigger a **pre-test** pipeline availability check. If the required plugin is absent the job fails immediately with a clear error message, without running any tests.
-- The pipeline check reads the `opm.pipeline` entry point group using `importlib.metadata` — no import of the plugin itself is required.
+- The pipeline check reads the `opm.pipeline` entry point group using `importlib.metadata`: no import of the plugin itself is required.
 - `PADACIOSO_PIPELINE` (pure Python padacioso) is always available via `ovos-workshop`; there is no `require_padacioso` input.
 - Set `require_adapt: true` in skill repos that test Adapt intents so CI fails explicitly if the Adapt plugin is missing from `[test]` deps rather than silently skipping those tests.
 
@@ -517,9 +523,9 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 
 - No codecov bot, no external accounts, no `CODECOV_TOKEN`.
 - PR comment shows total coverage %, threshold pass/fail, and a collapsible table of under-covered files (files below 80%, or all files if ≤ 10). The `coverage.xml` artifact is available for deep inspection.
-- PR comment is a section in the shared [OVOS PR Checks comment](#pr-checks-comment-pattern) — one comment per PR, not a separate coverage comment.
+- PR comment is a section in the shared [OVOS PR Checks comment](#pr-checks-comment-pattern): one comment per PR, not a separate coverage comment.
 - Job summary is always written (push, dispatch, and PR events alike).
-- Pages deployment is a separate workflow (`coverage-pages.yml`) to avoid requiring `pages: write` / `id-token: write` permissions from all callers — only repos that opt in need those.
+- Pages deployment is a separate workflow (`coverage-pages.yml`) to avoid requiring `pages: write` / `id-token: write` permissions from all callers: only repos that opt in need those.
 
 ### Inputs
 
@@ -532,7 +538,7 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `test_extras_fallback` | string | `test` | Extras key tried if `test_extras` is not declared. Empty to skip |
 | `install_extras` | string | `""` | Extra uv install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
-| `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory (e.g. `ovos_core`) to measure only your own code |
+| `coverage_source` | string | `.` | `--cov=<value>`: set to your package directory (e.g. `ovos_core`) to measure only your own code |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
 | `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |
@@ -546,10 +552,16 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, `ovoscope`, and the package itself |
 | Run Tests with Coverage | `pytest --cov --cov-report=xml --cov-report=json --cov-report=html --cov-report=term-missing`. `continue-on-error: true` so the PR comment posts even when tests fail. |
 | Extract Coverage Percentage | Reads `coverage.json` for `totals.percent_covered` |
+
+| Job step | Description |
+|----------|-------------|
 | Write Job Summary | Coverage table written to `$GITHUB_STEP_SUMMARY` |
 | Format coverage section | Generates the PR comment content from `coverage.json` |
 | Post coverage section to PR comment | Calls `scripts/update_pr_comment.py` to find-or-create-and-update the OVOS PR Checks comment |
 | Upload Coverage XML Artifact | Uploads `coverage.xml` as a workflow artifact |
+
+| Job step | Description |
+|----------|-------------|
 | Enforce Minimum Coverage Threshold | Fails if `min_coverage > 0` and total is below threshold |
 | Fail job if tests failed | Re-raises test failure after the PR comment has been posted |
 
@@ -561,11 +573,9 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 permissions:
   pull-requests: write
   contents: read
-
 jobs:
   coverage:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
@@ -577,7 +587,7 @@ jobs:
 
 ### Known issues
 
-- `pr_comment` only fires on `pull_request` events — job summary is written for all events.
+- `pr_comment` only fires on `pull_request` events: job summary is written for all events.
 - If all tests are skipped and `coverage.xml` is never generated, the PR comment will note that coverage data is unavailable rather than failing.
 
 ---
@@ -603,7 +613,7 @@ Runs `pytest --cov` and deploys the HTML coverage report to GitHub Pages. Design
 | `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
 | `install_extras` | string | `""` | Extra uv install arguments run before tests |
 | `test_path` | string | `test/` | Path passed to pytest |
-| `coverage_source` | string | `.` | `--cov=<value>` — set to your package directory |
+| `coverage_source` | string | `.` | `--cov=<value>`: set to your package directory |
 | `gh_pages_subdir` | string | `coverage` | Sub-directory within the Pages site, e.g. `coverage` → `https://org.github.io/repo/coverage/`. Empty string = deploy at root. |
 
 ### Jobs
@@ -614,6 +624,9 @@ Runs `pytest --cov` and deploys the HTML coverage report to GitHub Pages. Design
 | Setup Python + Install Dependencies | Installs `pytest`, `pytest-cov`, `coverage[toml]`, `ovoscope`, and the package itself |
 | Run Tests with Coverage | `pytest --cov --cov-report=html:htmlcov`. `continue-on-error: true` so deployment proceeds even with test failures. |
 | Prepare HTML report | Copies `htmlcov/` to `_pages_output/` (with optional subdirectory) |
+
+| Job step | Description |
+|----------|-------------|
 | Upload Pages artifact | `actions/upload-pages-artifact@v3` |
 | Deploy to GitHub Pages | `actions/deploy-pages@v4` |
 
@@ -625,12 +638,10 @@ on:
   push:
     branches: [dev]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 jobs:
   coverage_pages:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage-pages.yml@dev
@@ -658,12 +669,15 @@ OVOS packages are Apache 2.0. To preserve this as a universal donor license:
 
 | Category | Examples | Default action |
 |---|---|---|
-| `StrongCopyleft` | GPL v2, GPL v3 | **Fail** — incompatible with Apache 2.0 distribution |
-| `NetworkCopyleft` | AGPL | **Fail** — triggered by network use, not just distribution |
-| `WeakCopyleft` | LGPL, EUPL | **Fail** (conservative) — safe as-a-library, but flag for review |
-| `Other` | EULA, custom | **Fail** — unknown terms = unknown risk |
-| `Error` | not found | **Fail** — can't audit what you can't see |
-| MPL (Mozilla Public License) | MPL-2.0 | **Allowed** — file-level copyleft, safe as Apache 2.0 library user |
+| `StrongCopyleft` | GPL v2, GPL v3 | **Fail**: incompatible with Apache 2.0 distribution |
+| `NetworkCopyleft` | AGPL | **Fail**: triggered by network use, not just distribution |
+| `WeakCopyleft` | LGPL, EUPL | **Fail** (conservative): safe as-a-library, but flag for review |
+| `Other` | EULA, custom | **Fail**: unknown terms = unknown risk |
+
+| Category | Examples | Default action |
+|---|---|---|
+| `Error` | not found | **Fail**: can't audit what you can't see |
+| MPL (Mozilla Public License) | MPL-2.0 | **Allowed**: file-level copyleft, safe as Apache 2.0 library user |
 
 ### Inputs
 
@@ -698,7 +712,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   license_tests:
     uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
@@ -724,7 +737,7 @@ Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](h
 | `python_version` | string | `3.14` | Python version to audit against |
 | `install_extras` | string | `""` | pip extras to install |
 | `system_deps` | string | `""` | Extra `apt-get` packages beyond `python3-dev` |
-| `ignore_vulns` | string | `GHSA-r9hx-vwmv-q579` | Newline-separated GHSA IDs to ignore. Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal — dev-only, not exploitable at OVOS runtime). |
+| `ignore_vulns` | string | `GHSA-r9hx-vwmv-q579` | Newline-separated GHSA IDs to ignore. Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal: dev-only, not exploitable at OVOS runtime). |
 | `warn_only` | boolean | `false` | When true, report vulnerabilities in the PR comment but do NOT fail the job. Useful for repos that want visibility without blocking merges. |
 | `pr_comment` | boolean | `true` | Post a `🔒 Security (pip-audit)` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `upload_sarif` | boolean | `true` | Upload a SARIF report to GitHub's Security tab (Code scanning alerts). Requires the repo to have GitHub Advanced Security enabled, or be public. Uses `github/codeql-action/upload-sarif@v3`. `continue-on-error: true` so the job does not fail for private repos without GHAS. |
@@ -737,7 +750,6 @@ on:
   push:
     branches: [dev, master]
   workflow_dispatch:
-
 jobs:
   pip_audit:
     uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@dev
@@ -774,6 +786,9 @@ Reads `version.py`, predicts the next version from PR labels and/or title using 
 | Checkout + scripts checkout | Checks out the calling repo and (on PR events) the gh-automations scripts |
 | Setup Python | `actions/setup-python@v5` |
 | Run release check | `check_release.py --version-file … --output-json /tmp/release-report.json`. Env vars: `PR_LABELS_JSON`, `PR_TITLE`. `continue-on-error: true`. |
+
+| Step | Description |
+|------|-------------|
 | Format release section | Inline Python reads `release-report.json` → `release-section.md` |
 | Post release section to PR comment | Calls `update_pr_comment.py` with `--section-id release` |
 | Fail job if release check failed | Re-raises only for malformed `version.py` (parse error) |
@@ -794,19 +809,20 @@ Labels take precedence over PR title. Priority: major > minor > build.
 | `feat:`, `feature:` | minor |
 | `fix:` | build |
 | `docs:`, `chore:`, `refactor:`, `test:`, `style:`, `perf:`, `ci:`, `build:` | alpha only |
+
+| PR title prefix | Bump |
+|-----------------|------|
 | _(no prefix)_ | alpha only |
 
 ### PR comment content (with label)
 
 ```
 **Current:** `1.2.3a4` → **Next:** `1.3.0a1`
-
 | Signal | Value |
 |--------|-------|
 | Label | `feature` |
 | PR title | `feat: add multi-language support` |
 | Bump | minor |
-
 ✅ PR title follows conventional commit format.
 ```
 
@@ -814,29 +830,25 @@ Labels take precedence over PR title. Priority: major > minor > build.
 
 ```
 **Current:** `1.2.3a4` → **Next:** `1.2.3a5`
-
 | Signal | Value |
 |--------|-------|
 | Label | _(none)_ |
 | PR title | `update readme` |
 | Bump | alpha |
-
-⚠️ No conventional commit prefix — alpha-only bump.
+⚠️ No conventional commit prefix: alpha-only bump.
 Suggested: `fix: update the thing` or `feat: update the thing`
 ```
 
-No `version.py` found: `ℹ️ No version.py found — release preview not available.`
+No `version.py` found: `ℹ️ No version.py found: release preview not available.`
 
 ### Typical usage
 
 ```yaml
 name: Release Preview
-
 on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   release_preview:
     uses: OpenVoiceOS/gh-automations/.github/workflows/release-preview.yml@dev
@@ -874,7 +886,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   repo_health:
     uses: OpenVoiceOS/gh-automations/.github/workflows/repo-health.yml@dev
@@ -917,43 +928,42 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 | Setup Python | `actions/setup-python@v5` |
 | Run skill check | `check_skill.py --repo-root . --locale-dir … --output-json /tmp/skill-report.json`. `continue-on-error: true`. |
 | Format skill section | Inline Python reads `skill-report.json` → `skill-section.md` |
+
+| Step | Description |
+|------|-------------|
 | Post skill section to PR comment | Calls `update_pr_comment.py` with `--section-id skill` |
 | Skip if not an OVOS skill repo | Exits 0 if `is_skill: false` and `skip_if_not_skill: true` |
 | Fail if en-us locale is missing | Exits 1 if `has_en_us: false` and `fail_on_missing_en_us: true` |
 | Fail if skill.json is invalid | Exits 1 if JSON malformed or required fields missing and `fail_on_invalid_skill_json: true` |
+
+| Step | Description |
+|------|-------------|
 | Fail job if skill check failed | Re-raises error after comment is posted |
 
 ### PR comment content
 
 ```
-🎙️ **ovos-skill-hello-world.openvoiceos** — 14 languages
-
+🎙️ **ovos-skill-hello-world.openvoiceos**: 14 languages
 **en-us:** 2 intents · 4 dialogs · skill.json ✅
-
 <details><summary>Translation coverage (13 languages)</summary>
-
 | Language | Coverage |
 |----------|----------|
 | ca-es | ✅ 100% (6/6) |
 | de-de | ⚠️ 83.3% (5/6) |
-
 </details>
-
 **Gitlocalize:** ✅ sync script · ✅ translations/ · ✅ sync workflow
 ```
 
-Coverage icons: ✅ ≥95% · ⚠️ 50–94% · ❌ <50%. Non-skill repos: `ℹ️ Not an OVOS skill repo — check skipped.`
+Coverage icons: ✅ ≥95% · ⚠️ 50-94% · ❌ <50%. Non-skill repos: `ℹ️ Not an OVOS skill repo: check skipped.`
 
 ### Typical usage
 
 ```yaml
 name: Skill Check
-
 on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   skill_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
@@ -991,6 +1001,9 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 | Setup Python | `actions/setup-python@v5` |
 | Install build dependencies | `uv pip install build setuptools` |
 | Run build to generate SOURCES.txt | `uv build --no-isolation`. `continue-on-error: true`. |
+
+| Step | Description |
+|------|-------------|
 | Run locale build check | `check_locale_build.py --repo-root . --locale-path … --output-json /tmp/locale-report.json --verbose`. `continue-on-error: true`. |
 | Format locale section | Inline Python reads `locale-report.json` → `locale-section.md` |
 | Post locale section to PR comment | Calls `update_pr_comment.py` with `--section-id locale` |
@@ -999,22 +1012,17 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 
 ```
 🌍 Locale Build
-
 ✅ Locale properly configured (95 files, 9 languages)
-
 **Locale directories found:**
 - `ovos_skill_ggwave/locale`
-
 **Localization coverage:**
 - `ovos_skill_ggwave/locale`: 95 files in 9 languages (en-us, pt-br, es-es, de-de, fr-fr...)
-
 **pyproject.toml:** ✅ `[tool.setuptools.package-data.ovos_skill_ggwave]` includes locale
   - `locale/*/*.voc`
   - `locale/*/*.dialog`
   - `locale/*/*.entity`
   - `locale/*/*.intent`
   - `locale/*/*.json`
-
 **Build manifest:** ✅ 95 locale files included in package
 ```
 
@@ -1022,7 +1030,7 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 
 | Condition | Status | Summary |
 |-----------|--------|---------|
-| No locale folder found | `pass` | ℹ️ No locale folder found — localization not used |
+| No locale folder found | `pass` | ℹ️ No locale folder found: localization not used |
 | Locale found, not in pyproject.toml | `fail` | ❌ Locale folder not properly configured for packaging |
 | Locale in pyproject.toml, not in build | `warning` | ⚠️ Locale configured but build verification pending |
 | Locale in both | `pass` | ✅ Locale properly configured (X files, Y languages) |
@@ -1031,12 +1039,10 @@ Follows the canonical 3-phase pattern (`continue-on-error` → format → post �
 
 ```yaml
 name: Locale Build Check
-
 on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   locale_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/locale-check.yml@dev
@@ -1047,7 +1053,7 @@ jobs:
 
 Add this workflow to any OVOS repo that includes locale files:
 
-- **Skills**: Use `skill-check.yml` (includes locale coverage analysis) — no need for both
+- **Skills**: Use `skill-check.yml` (includes locale coverage analysis): no need for both
 - **Core/Plugins**: Use `locale-check.yml` to verify locale files are packaged correctly
 - **Libraries without locale**: No workflow needed
 
@@ -1094,7 +1100,6 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
-
 jobs:
   check_downstream:
     uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
@@ -1156,7 +1161,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   spec_lint:
     uses: OpenVoiceOS/gh-automations/.github/workflows/spec-lint.yml@dev
@@ -1211,10 +1215,16 @@ The following workflows post their results as named sections in a **single share
 | `repo-health.yml` | `welcome` | `👋 Welcome` (first-time contributors only) |
 | `release-preview.yml` | `release` | `🏷️ Release Preview` |
 | `pip-audit.yml` | `security` | `🔒 Security (pip-audit)` |
+
+| Workflow | Section ID | Section title |
+|----------|-----------|---------------|
 | `license-check.yml` | `license` | `⚖️ License Check` |
 | `python-support.yml` | `python_support` | `🐍 Python Support` |
 | `build-tests.yml` | `build` | `🔨 Build Tests` |
 | `opm-check.yml` | `opm` | `🔌 Plugin Detection` |
+
+| Workflow | Section ID | Section title |
+|----------|-----------|---------------|
 | `coverage.yml` | `coverage` | `📊 Coverage` |
 | `skill-check.yml` | `skill` | `🎙️ Skill` |
 
@@ -1223,49 +1233,41 @@ The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its bo
 ```
 <!-- ovos-pr-checks -->
 ## OVOS PR Checks
-
 <!-- section:health -->
 ### 📋 Repo Health
 ✅ All required files present.
 ...
 <!-- /section:health -->
-
 <!-- section:build -->
 ### 🔨 Build Tests
 ✅ All versions pass
 ...
 <!-- /section:build -->
-
 <!-- section:opm -->
 ### 🔌 Plugin Detection
 ✅ Plugin Status: PASS
 ...
 <!-- /section:opm -->
-
 <!-- section:ovoscope -->
 ### 🔌 Skill Tests (ovoscope)
 ✅ 9/9 passed
 ...
 <!-- /section:ovoscope -->
-
 <!-- section:coverage -->
 ### 📊 Coverage
 ✅ **87.3%** total coverage
 ...
 <!-- /section:coverage -->
-
 <!-- section:license -->
 ### ⚖️ License Check
 ✅ No license violations found (42 packages).
 ...
 <!-- /section:license -->
-
 <!-- section:security -->
 ### 🔒 Security (pip-audit)
 ✅ No known vulnerabilities found.
 ...
 <!-- /section:security -->
-
 <!-- section:release -->
 ### 🏷️ Release Preview
 **Current:** `0.0.1a4` → **Next:** `0.0.2a1`
@@ -1275,7 +1277,7 @@ The comment is identified by the HTML marker `<!-- ovos-pr-checks -->` in its bo
 
 Sections appear as each workflow completes. Reruns update only the relevant section without touching others.
 
-The aggregation logic lives in `scripts/update_pr_comment.py` — see the [Scripts Reference](#scripts-reference) below.
+The aggregation logic lives in `scripts/update_pr_comment.py`: see the [Scripts Reference](#scripts-reference) below.
 
 ### Adding a new section
 
@@ -1292,7 +1294,6 @@ To add a new check type to the aggregated comment from any workflow:
     repository: OpenVoiceOS/gh-automations
     ref: dev
     path: _gh_automations/
-
 - name: Post section to PR comment
   if: github.event_name == 'pull_request'
   run: |
@@ -1319,19 +1320,18 @@ The following Python scripts are checked out from this repo at workflow run time
 Shared version-block parsing utilities imported by all other scripts.
 
 **Key functions:**
-- `read_version(version_file: str) -> tuple[int, int, int, int]` — `scripts/_version_utils.py:18` — parses `START_VERSION_BLOCK/END_VERSION_BLOCK`, returns `(major, minor, build, alpha)`
-- `format_version(major, minor, build, alpha) -> str` — `scripts/_version_utils.py:51` — formats PEP 440 string
-- `write_version_block(version_file, major, minor, build, alpha)` — `scripts/_version_utils.py:70` — rewrites only the block, preserving all surrounding content
+- `read_version(version_file: str) -> tuple[int, int, int, int]`: `scripts/_version_utils.py:18`: parses `START_VERSION_BLOCK/END_VERSION_BLOCK`, returns `(major, minor, build, alpha)`
+- `format_version(major, minor, build, alpha) -> str`: `scripts/_version_utils.py:51`: formats PEP 440 string
+- `write_version_block(version_file, major, minor, build, alpha)`: `scripts/_version_utils.py:70`: rewrites only the block, preserving all surrounding content
 
 ### `scripts/update_version.py`
 
 Bumps the version in a `version.py` file.
 
-**Key function:** `update_version(part: str, version_file: str) -> str` — `scripts/update_version.py:18`
+**Key function:** `update_version(part: str, version_file: str) -> str`: `scripts/update_version.py:18`
 
 ```
 usage: update_version.py <part> --version-file <path>
-
 part: major | minor | build | alpha
 ```
 
@@ -1348,7 +1348,7 @@ Bump rules (implemented at `scripts/update_version.py:37-52`):
 
 Sets `VERSION_ALPHA = 0` in a `version.py` file (declares stable).
 
-**Key function:** `update_alpha(version_file: str)` — `scripts/remove_alpha.py:10`
+**Key function:** `update_alpha(version_file: str)`: `scripts/remove_alpha.py:10`
 
 ```
 usage: remove_alpha.py --version-file <path>
@@ -1358,7 +1358,7 @@ usage: remove_alpha.py --version-file <path>
 
 Reads and prints the version string from a `version.py` file. Works without installing the package.
 
-**Key function:** `get_version(version_file: str) -> str` — `scripts/get_version.py:5`
+**Key function:** `get_version(version_file: str) -> str`: `scripts/get_version.py:5`
 
 ```
 usage: get_version.py --version-file <path>
@@ -1370,9 +1370,9 @@ Output example: `1.2.3a4` or `1.2.3`
 
 Reports which installed packages depend on a given package, using `pipdeptree`. Output is sorted deterministically so repeated runs only generate a git commit when the actual dependency tree changes.
 
-**Key function:** `get_downstream(package_name: str) -> str` — `scripts/check_downstream.py:61`
+**Key function:** `get_downstream(package_name: str) -> str`: `scripts/check_downstream.py:61`
 
-**Helper:** `sort_pipdeptree_output(text: str) -> str` — `scripts/check_downstream.py:53`
+**Helper:** `sort_pipdeptree_output(text: str) -> str`: `scripts/check_downstream.py:53`
 
 ```
 usage: check_downstream.py --package <name> --output <file>
@@ -1385,15 +1385,15 @@ Requires `pipdeptree` to be installed in the environment before calling.
 Detects and validates OVOS plugins via OPM. Supports multi-plugin-type repos. Outputs a structured JSON report.
 
 **Key functions:**
-- `auto_detect_plugin_types()` — `scripts/check_opm.py:308` — scans `[project.entry-points."opm.*"]` in `pyproject.toml` or `setup.py`
-- `validate_plugin_import(module_path, class_name)` — `scripts/check_opm.py:132` — imports the class, measures time in ms, detects missing dependencies
-- `check_plugin_interface(plugin_cls, short_type)` — `scripts/check_opm.py:152` — verifies `issubclass()` against the correct abstract base (10 types including `g2p`)
-- `extract_metadata()` — `scripts/check_opm.py:54` — reads name, version, authors, description, homepage, requires_python
-- `extract_system_deps()` — `scripts/check_opm.py:108` — reads `[tool.ovos.build] system-dependencies`
-- `validate_config_docs(repo_root)` — `scripts/check_opm.py:176` — searches for `settingsmeta.json`
-- `collect_issues(result)` — `scripts/check_opm.py:217` — aggregates issues list
-- `compute_status(issues)` — `scripts/check_opm.py:292` — returns `pass`, `warning`, or `fail`
-- `check_opm(plugin_type, entry_point, output_json, ...)` — `scripts/check_opm.py:406` — main entry point
+- `auto_detect_plugin_types()`: `scripts/check_opm.py:308`: scans `[project.entry-points."opm.*"]` in `pyproject.toml` or `setup.py`
+- `validate_plugin_import(module_path, class_name)`: `scripts/check_opm.py:132`: imports the class, measures time in ms, detects missing dependencies
+- `check_plugin_interface(plugin_cls, short_type)`: `scripts/check_opm.py:152`: verifies `issubclass()` against the correct abstract base (10 types including `g2p`)
+- `extract_metadata()`: `scripts/check_opm.py:54`: reads name, version, authors, description, homepage, requires_python
+- `extract_system_deps()`: `scripts/check_opm.py:108`: reads `[tool.ovos.build] system-dependencies`
+- `validate_config_docs(repo_root)`: `scripts/check_opm.py:176`: searches for `settingsmeta.json`
+- `collect_issues(result)`: `scripts/check_opm.py:217`: aggregates issues list
+- `compute_status(issues)`: `scripts/check_opm.py:292`: returns `pass`, `warning`, or `fail`
+- `check_opm(plugin_type, entry_point, output_json, ...)`: `scripts/check_opm.py:406`: main entry point
 
 ```
 usage: check_opm.py \
@@ -1410,10 +1410,10 @@ usage: check_opm.py \
 Analyses a checked-out OVOS skill repository. Outputs a JSON report. Stdlib only.
 
 **Key functions:**
-- `is_skill_repo(repo_root)` — `scripts/check_skill.py:39`
-- `find_locale_dir(repo_root, override="")` — `scripts/check_skill.py:52`
-- `check_translation_completeness(locale_dir, en_us_files)` — `scripts/check_skill.py:157`
-- `run_checks(repo_root, locale_dir_override="")` — `scripts/check_skill.py:220`
+- `is_skill_repo(repo_root)`: `scripts/check_skill.py:39`
+- `find_locale_dir(repo_root, override="")`: `scripts/check_skill.py:52`
+- `check_translation_completeness(locale_dir, en_us_files)`: `scripts/check_skill.py:157`
+- `run_checks(repo_root, locale_dir_override="")`: `scripts/check_skill.py:220`
 
 ```
 usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skill-report.json]
@@ -1424,16 +1424,15 @@ usage: check_skill.py [--repo-root .] [--locale-dir ""] [--output-json /tmp/skil
 Reads `version.py`, predicts next version from PR labels/title. Stdlib only.
 
 **Key functions:**
-- `detect_bump_part(labels, pr_title)` — `scripts/check_release.py:74`
-- `compute_next_version(major, minor, build, alpha, part)` — `scripts/check_release.py:120`
-- `run_checks(version_file, pr_labels_json, pr_title)` — `scripts/check_release.py:196`
+- `detect_bump_part(labels, pr_title)`: `scripts/check_release.py:74`
+- `compute_next_version(major, minor, build, alpha, part)`: `scripts/check_release.py:120`
+- `run_checks(version_file, pr_labels_json, pr_title)`: `scripts/check_release.py:196`
 
 ```
 usage: check_release.py --version-file version.py \
     [--pr-labels-json "[]"] \
     [--pr-title ""] \
     [--output-json /tmp/release-report.json]
-
 env vars (override CLI): PR_LABELS_JSON, PR_TITLE
 ```
 
@@ -1441,11 +1440,11 @@ env vars (override CLI): PR_LABELS_JSON, PR_TITLE
 
 Manages the shared **OVOS PR Checks** comment on a pull request. Finds the comment by the invisible HTML marker `<!-- ovos-pr-checks -->`, then replaces or appends the named section. Creates the comment if it doesn't exist yet.
 
-Uses only Python stdlib (`urllib`, `json`, `re`) — no extra dependencies.
+Uses only Python stdlib (`urllib`, `json`, `re`): no extra dependencies.
 
 **Key logic:**
-- `find_ovos_comment(repo, pr_number)` — paginates the PR comments API to find the marker — `scripts/update_pr_comment.py:56`
-- `insert_or_replace_section(body, section_id, title, content)` — regex replace within `<!-- section:X --> … <!-- /section:X -->` delimiters — `scripts/update_pr_comment.py:81`
+- `find_ovos_comment(repo, pr_number)`: paginates the PR comments API to find the marker: `scripts/update_pr_comment.py:56`
+- `insert_or_replace_section(body, section_id, title, content)`: regex replace within `<!-- section:X --> … <!-- /section:X -->` delimiters: `scripts/update_pr_comment.py:81`
 
 ```
 usage: update_pr_comment.py \
@@ -1454,6 +1453,8 @@ usage: update_pr_comment.py \
     --section-id coverage \
     --title "📊 Coverage" \
     --content-file /tmp/section.md
-
 environment: GITHUB_TOKEN   (required)
 ```
+
+---
+[← Release Flow](release-flow.md) · [Home](index.md) · [License Whitelist →](license-whitelist.md)

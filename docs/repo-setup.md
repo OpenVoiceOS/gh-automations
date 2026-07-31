@@ -1,7 +1,7 @@
 
 # Setting Up a New OVOS Repo
 
-This guide covers the minimal CI/CD files for a new OVOS Python package. All workflow references use `@dev` — the active branch of gh-automations. If you are migrating an existing repo that currently uses `@master`, see [Migrating an Existing Repo](#migrating-an-existing-repo) below.
+This guide covers the minimal CI/CD files for a new OVOS Python package. All workflow references use `@dev`: the active branch of gh-automations. If you are migrating an existing repo that currently uses `@master`, see [Migrating an Existing Repo](#migrating-an-existing-repo) below.
 
 ---
 
@@ -19,7 +19,6 @@ VERSION_MINOR = 0
 VERSION_BUILD = 1
 VERSION_ALPHA = 1
 # END_VERSION_BLOCK
-
 __version__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}" + (f"a{VERSION_ALPHA}" if VERSION_ALPHA else "")
 ```
 
@@ -31,12 +30,11 @@ Configure dynamic versioning so the package version is always read from `version
 [project]
 name = "my-package"
 dynamic = ["version"]
-
 [tool.setuptools.dynamic]
 version = {attr = "my_package.version.__version__"}
 ```
 
-Do **not** hard-code the version in `pyproject.toml` — it must always come from `version.py`.
+Do **not** hard-code the version in `pyproject.toml`: it must always come from `version.py`.
 
 ### 3. `.github/workflows/conventional-label.yaml`
 
@@ -67,17 +65,15 @@ Label mapping:
 
 Triggers on PR merge to `dev`. Bumps version, publishes alpha, opens release PR.
 
-The `publish_alpha` job **must** allow both merged PRs and manual dispatch — the `workflow_dispatch` clause enables manual reruns from the GitHub Actions UI:
+The `publish_alpha` job **must** allow both merged PRs and manual dispatch: the `workflow_dispatch` clause enables manual reruns from the GitHub Actions UI:
 
 ```yaml
 name: Release Alpha and Propose Stable
-
 on:
   workflow_dispatch:
   pull_request:
     types: [closed]
     branches: [dev]
-
 jobs:
   publish_alpha:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
@@ -106,7 +102,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-
 jobs:
   publish_stable:
     if: github.actor != 'github-actions[bot]'
@@ -125,7 +120,7 @@ jobs:
 
 ## Optional Files
 
-### `build_tests.yml` — Build, install, and test across Python versions
+### `build_tests.yml`: Build, install, and test across Python versions
 
 ```yaml
 name: Run Build Tests
@@ -135,7 +130,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   build_tests:
     uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
@@ -147,9 +141,9 @@ jobs:
       version_file: 'my_package/version.py'  # needed for channel compatibility check
 ```
 
-To skip test execution and only verify build+install, omit `test_path` (defaults to empty — build/install only).
+To skip test execution and only verify build+install, omit `test_path` (defaults to empty: build/install only).
 
-### `opm_check.yml` — OPM plugin detection (plugin repos only)
+### `opm_check.yml`: OPM plugin detection (plugin repos only)
 
 ```yaml
 name: OPM Check
@@ -157,7 +151,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   opm_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/opm-check.yml@dev
@@ -168,7 +161,7 @@ jobs:
       opm_perf_threshold_ms: 500    # warn if import takes longer than 500ms
 ```
 
-### `license_tests.yml` — Check dependency licenses
+### `license_tests.yml`: Check dependency licenses
 
 ```yaml
 name: Run License Tests
@@ -178,7 +171,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   license_tests:
     uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
@@ -189,7 +181,7 @@ jobs:
       # exclude_licenses: '^Mozilla Public License.*'  # MPL allowed by default
 ```
 
-### `downstream.yml` — Track downstream dependents
+### `downstream.yml`: Track downstream dependents
 
 For core packages (e.g. `ovos-utils`, `ovos-bus-client`) that many other packages depend on. The report is uploaded as a workflow artifact (no longer committed to the branch).
 
@@ -201,7 +193,6 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
-
 jobs:
   check_downstream:
     uses: OpenVoiceOS/gh-automations/.github/workflows/downstream-check.yml@dev
@@ -210,7 +201,7 @@ jobs:
       package_name: 'my-package'
 ```
 
-### `pipaudit.yml` — CVE scanning
+### `pipaudit.yml`: CVE scanning
 
 ```yaml
 name: Pip Audit
@@ -218,7 +209,6 @@ on:
   push:
     branches: [dev, master]
   workflow_dispatch:
-
 jobs:
   pip_audit:
     uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@dev
@@ -226,7 +216,7 @@ jobs:
       install_extras: ''
 ```
 
-### `coverage.yml` — Test coverage with PR diff comments
+### `coverage.yml`: Test coverage with PR diff comments
 
 ```yaml
 name: Coverage
@@ -234,7 +224,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   coverage:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
@@ -244,9 +233,9 @@ jobs:
       min_coverage: 80                # optional: fail below 80%
 ```
 
-### `coverage_pages.yml` — Deploy coverage HTML to GitHub Pages
+### `coverage_pages.yml`: Deploy coverage HTML to GitHub Pages
 
-Use `coverage.yml` with `deploy_pages: true` — no separate file needed. Requires Pages enabled in repo settings (Source: Deploy from a branch → `gh-pages`).
+Use `coverage.yml` with `deploy_pages: true`: no separate file needed. Requires Pages enabled in repo settings (Source: Deploy from a branch → `gh-pages`).
 
 ```yaml
 name: Coverage
@@ -256,10 +245,8 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 permissions:
   contents: write   # required for the gh-pages git push
-
 jobs:
   coverage:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
@@ -271,7 +258,7 @@ jobs:
 
 **Prerequisites**: Go to repo Settings → Pages → Source → select "Deploy from a branch" → `gh-pages`.
 
-### `lint.yml` — Ruff + pre-commit
+### `lint.yml`: Ruff + pre-commit
 
 ```yaml
 name: Lint
@@ -279,7 +266,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   lint:
     uses: OpenVoiceOS/gh-automations/.github/workflows/lint.yml@dev
@@ -291,7 +277,7 @@ jobs:
 
 Results are posted to the OVOS PR Checks comment. The job fails if any tool finds issues.
 
-### `skill_check.yml` — Skill locale + skill.json (skill repos only)
+### `skill_check.yml`: Skill locale + skill.json (skill repos only)
 
 ```yaml
 name: Skill Check
@@ -299,7 +285,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   skill_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/skill-check.yml@dev
@@ -308,7 +293,7 @@ jobs:
 
 Default `skip_if_not_skill: true` means this safely no-ops on non-skill repos.
 
-### `type_check.yml` — mypy static type checking
+### `type_check.yml`: mypy static type checking
 
 ```yaml
 name: Type Check
@@ -316,7 +301,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   type_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/type-check.yml@dev
@@ -328,7 +312,7 @@ jobs:
 
 Results are posted to the OVOS PR Checks comment. Set `fail_on_errors: true` to block merges on type errors.
 
-### `docs_check.yml` — Required documentation file check
+### `docs_check.yml`: Required documentation file check
 
 ```yaml
 name: Docs Check
@@ -336,7 +320,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   docs_check:
     uses: OpenVoiceOS/gh-automations/.github/workflows/docs-check.yml@dev
@@ -348,7 +331,7 @@ jobs:
 
 Posts a 📚 Docs section showing which required files are present or missing. Set `fail_on_missing: true` to fail the job when any listed file is absent.
 
-### `release_preview.yml` — Next-version prediction
+### `release_preview.yml`: Next-version prediction
 
 ```yaml
 name: Release Preview
@@ -356,14 +339,13 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   release_preview:
     uses: OpenVoiceOS/gh-automations/.github/workflows/release-preview.yml@dev
     secrets: inherit
 ```
 
-### `repo_health.yml` — Required-files check + first-time contributor greeting
+### `repo_health.yml`: Required-files check + first-time contributor greeting
 
 ```yaml
 name: Repo Health
@@ -371,7 +353,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   repo_health:
     uses: OpenVoiceOS/gh-automations/.github/workflows/repo-health.yml@dev
@@ -401,8 +382,8 @@ Configure under repo Settings → Branches:
 
 | Branch | Rules |
 |--------|-------|
-| `dev` | Require PR before merging; require status checks (`build_tests`, `unit_tests`) to pass |
-| `master` | Require PR before merging; require at least 1 approving review; no direct pushes |
+| `dev` | Require PR before merging. Require status checks (`build_tests`, `unit_tests`) to pass |
+| `master` | Require PR before merging. Require at least 1 approving review. No direct pushes |
 
 ---
 
@@ -441,7 +422,6 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
-
 jobs:
   coverage:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
@@ -455,7 +435,7 @@ jobs:
 **Why migrate?** `coverage.yml` is self-hosted (no external account required), uses only `GITHUB_TOKEN`,
 and produces a consistent PR comment format across caller repos.
 
-**Note:** Do NOT do a bulk migration wave — migrate opportunistically when touching a repo's `.github/workflows/` for another reason.
+**Note:** Do NOT do a bulk migration wave: migrate opportunistically when touching a repo's `.github/workflows/` for another reason.
 
 ### Migrate `@master` → `@dev` refs
 
@@ -469,3 +449,6 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
 ```
 
 Do this opportunistically when touching any workflow file in a repo.
+
+---
+[← License Whitelist](license-whitelist.md) · [Home](index.md) · [Repos →](repos.md)
