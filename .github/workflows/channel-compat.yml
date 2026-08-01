@@ -209,6 +209,14 @@ jobs:
       # because the repo under test brings its dependency tree with it and the
       # constraints file caps every OVOS package in that tree.
       - name: Install the repo under test at channel versions
+        # An unsatisfiable resolve is itself a channel finding (the repo's own
+        # dependency floors have outgrown the channel — e.g. dev ovos-core
+        # needs ovos-messagebus>=0.2.1a1 while constraints-stable caps <0.1.0).
+        # Under soft_fail the finding must reach the summary as a warning
+        # instead of failing the job at the install step, which the test-step
+        # continue-on-error cannot reach.
+        id: install
+        continue-on-error: ${{ inputs.soft_fail }}
         run: |
           EXTRAS="${{ inputs.install_extras }}"
           if [ -n "$EXTRAS" ]; then
@@ -221,7 +229,17 @@ jobs:
           # setuptools 81 removed.
           uv pip install "setuptools<81"
 
+      - name: Report an unresolvable channel
+        if: ${{ steps.install.outcome == 'failure' }}
+        run: |
+          {
+            echo "### :warning: Channel \`${{ steps.channel.outputs.name }}\` is unresolvable with this checkout"
+            echo "The repo's dependency floors exceed what the channel pins."
+            echo "This is a fleet finding, not a broken job — see the install log."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Record the installed stack
+        if: ${{ steps.install.outcome == 'success' }}
         run: |
           uv pip freeze > stack-freeze-${{ steps.channel.outputs.name }}.txt
           {
@@ -244,6 +262,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run the tests on the ${{ steps.channel.outputs.name }} channel
+        if: ${{ steps.install.outcome == 'success' }}
         continue-on-error: ${{ inputs.soft_fail }}
         env:
           # Suites that keep a per-channel known-gap baseline (as
