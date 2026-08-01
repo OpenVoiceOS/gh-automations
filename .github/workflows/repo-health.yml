@@ -30,7 +30,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Checkout gh-automations scripts
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        # The health-check step itself needs the script on EVERY event —
+        # gating this on pr_comment/pull_request made all push-event (dev)
+        # runs fail with "can't open check_repo_health.py", org-wide.
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
