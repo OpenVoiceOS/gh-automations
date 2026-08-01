@@ -20,6 +20,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `publish-alpha.yml` | Bump version, publish alpha to PyPI, open release PR | [reference](docs/workflow-reference.md#publish-alphayml) |
 | `publish-stable.yml` | Remove alpha flag, publish stable to PyPI, tag release | [reference](docs/workflow-reference.md#publish-stableyml) |
 | `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility | [reference](docs/workflow-reference.md#build-testsyml) |
+| `channel-compat.yml` | Run a repo's tests against an OVOS distro release channel (stable/testing constraints) | [reference](docs/workflow-reference.md#channel-compatyml) |
 | `opm-check.yml` | OPM plugin detection, interface validation, import timing | [reference](docs/workflow-reference.md#opm-checkyml) |
 | `coverage.yml` | Run pytest with coverage; post diff report to PR comment | [reference](docs/workflow-reference.md#coverageyml) |
 | `coverage-pages.yml` | Run tests with coverage; deploy HTML report to GitHub Pages | [reference](docs/workflow-reference.md#coverage-pagesyml) |

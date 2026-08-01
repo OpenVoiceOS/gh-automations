@@ -1,0 +1,245 @@
+name: Channel Compat
+# Reusable workflow: run a repo's tests against an OVOS distro release channel.
+#
+# The OVOS distro publishes one constraints file per release channel:
+#
+#   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt
+#   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt
+#
+# Those files say what a device on that channel actually runs. A repo's own CI
+# says what its dev branch runs against current dev siblings. The two answers
+# differ by a lot — today `stable` pins ovos-workshop 3.4.x and ovos-core 1.3.x
+# while dev is far above that — and nothing catches a change that works on dev
+# but breaks the fleet.
+#
+# This workflow closes that hole. It installs every dependency at the version
+# the channel pins, installs the repo under test from the PR checkout, and runs
+# its tests.
+#
+# The one rule
+# ------------
+# The channel wins for every package it names, EXCEPT the repo under test. The
+# PR is the thing being judged, so its own version must come from the checkout,
+# not from whatever the channel froze months ago. This is implemented by
+# stripping the repo's own distribution name out of the fetched constraints file
+# before using it, so pip cannot pull the published copy over the checkout.
+#
+# The constraints file is fetched LIVE and uploaded as an artifact. This gate is
+# meant to track the fleet: the day the distro bumps a pin, the next run sees
+# it. The artifact is what makes a run reproducible afterwards, because the URL
+# will have moved on.
+#
+# Expect red at first
+# -------------------
+# A channel is behind dev by construction, so the first run on a repo usually
+# fails a pile of tests. That is the finding, not a broken workflow. Call this
+# with `continue-on-error: true` until the baseline is understood, then make it
+# required. ovos-test-harness carries the fully worked example, including
+# checked-in per-channel known-gap files that keep the known failures green
+# while new breakage stays red:
+# https://github.com/OpenVoiceOS/ovos-test-harness (see test/channel_gaps/).
+#
+on:
+  workflow_call:
+    inputs:
+      channel_url:
+        type: string
+        required: true
+        description: >
+          Raw URL of the OVOS distro constraints file for the channel under
+          test, e.g.
+          https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt
+      channel_name:
+        type: string
+        default: ""
+        description: >
+          Short label for the channel, used in job output and artifact names.
+          Defaults to the constraints filename with the 'constraints-' prefix
+          and '.txt' suffix removed (so 'stable' or 'testing').
+      runner:
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner label"
+      test_path:
+        type: string
+        default: "test/"
+        description: "Path passed to pytest."
+      python_version:
+        type: string
+        default: "3.11"
+        description: "Python version to use."
+      system_deps:
+        type: string
+        default: ""
+        description: >
+          Extra apt packages to install before testing (space-separated).
+          ovos-padatious needs 'swig libfann-dev'.
+      pre_install_pip:
+        type: string
+        default: ""
+        description: >
+          Optional space-separated pip requirement specs installed BEFORE the
+          repo under test, under the channel constraints. Use for test-only
+          siblings the channel does not name. Named to match the same input on
+          build-tests.yml and ovoscope.yml.
+      install_extras:
+        type: string
+        default: "test"
+        description: >
+          pip extras used when installing the repo under test, e.g. 'test' or
+          'dev,test'. Set to '' to install the package with no extras.
+      pytest_args:
+        type: string
+        default: "-v --tb=short -rxX"
+        description: "Extra arguments appended to the pytest invocation."
+      timeout_minutes:
+        type: number
+        default: 45
+        description: "Job timeout."
+
+# uv installs into the setup-python interpreter (no venv on the runner)
+env:
+  UV_SYSTEM_PYTHON: "1"
+  # The OVOS ecosystem ships pre-1.0 alphas behind prerelease floor-pins. The
+  # channel constraints cap every one of them, so allowing prereleases cannot
+  # let the install climb past the channel.
+  UV_PRERELEASE: "allow"
+
+jobs:
+  channel_compat:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      # The CALLING repo, at the PR's commit. This is the thing under test.
+      - uses: actions/checkout@v7
+
+      - name: Setup Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          # shellcheck disable=SC2086
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Resolve channel name
+        id: channel
+        run: |
+          NAME="${{ inputs.channel_name }}"
+          if [ -z "$NAME" ]; then
+            NAME=$(basename "${{ inputs.channel_url }}" .txt)
+            NAME="${NAME#constraints-}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the channel constraints
+        run: |
+          curl -fsSL "${{ inputs.channel_url }}" -o channel-constraints.txt
+          echo "### Channel \`${{ steps.channel.outputs.name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Fetched from ${{ inputs.channel_url }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Drop the repo under test from the constraints
+        id: selfname
+        run: |
+          # The PR is what is being judged, so the checkout must win over the
+          # channel's published copy of this same package. pip has no
+          # "constrain everything except X", so X is removed from the file.
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re, sys
+
+          def normalize(name):
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          name = None
+          try:
+              import tomllib
+              with open("pyproject.toml", "rb") as f:
+                  name = tomllib.load(f).get("project", {}).get("name")
+          except (FileNotFoundError, KeyError):
+              pass
+          if not name:
+              import subprocess
+              try:
+                  name = subprocess.check_output(
+                      [sys.executable, "setup.py", "--name"],
+                      text=True, stderr=subprocess.DEVNULL).strip().splitlines()[-1]
+              except Exception:
+                  name = ""
+          me = normalize(name) if name else ""
+          print(f"name={me}")
+
+          kept = []
+          dropped = 0
+          with open("channel-constraints.txt") as f:
+              for line in f:
+                  bare = line.split("#", 1)[0].strip()
+                  m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)", bare)
+                  if me and m and normalize(m.group(1)) == me:
+                      dropped += 1
+                      continue
+                  kept.append(line)
+          with open("channel-constraints.txt", "w") as f:
+              f.writelines(kept)
+          print(f"dropped={dropped}")
+          PY
+          echo "repo under test: ${{ github.repository }}"
+          cat channel-constraints.txt | head -5
+
+      - name: Pre-install pip requirements
+        if: ${{ inputs.pre_install_pip != '' }}
+        run: |
+          # shellcheck disable=SC2086
+          uv pip install -c channel-constraints.txt ${{ inputs.pre_install_pip }}
+
+      # Everything the channel names lands at the channel's version here,
+      # because the repo under test brings its dependency tree with it and the
+      # constraints file caps every OVOS package in that tree.
+      - name: Install the repo under test at channel versions
+        run: |
+          EXTRAS="${{ inputs.install_extras }}"
+          if [ -n "$EXTRAS" ]; then
+            uv pip install -c channel-constraints.txt ".[${EXTRAS}]"
+          else
+            uv pip install -c channel-constraints.txt .
+          fi
+          uv pip install -c channel-constraints.txt pytest pytest-timeout
+          # Channel-age OVOS packages still `import pkg_resources`, which
+          # setuptools 81 removed.
+          uv pip install "setuptools<81"
+
+      - name: Record the installed stack
+        run: |
+          uv pip freeze > stack-freeze-${{ steps.channel.outputs.name }}.txt
+          {
+            echo '<details><summary>Installed stack</summary>'
+            echo
+            echo '```'
+            cat "stack-freeze-${{ steps.channel.outputs.name }}.txt"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the fetched constraints and the installed stack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: channel-compat-${{ steps.channel.outputs.name }}
+          path: |
+            channel-constraints.txt
+            stack-freeze-${{ steps.channel.outputs.name }}.txt
+          if-no-files-found: warn
+
+      - name: Run the tests on the ${{ steps.channel.outputs.name }} channel
+        env:
+          # Suites that keep a per-channel known-gap baseline (as
+          # ovos-test-harness does) read this.
+          OVOS_CHANNEL: ${{ steps.channel.outputs.name }}
+        run: |
+          # shellcheck disable=SC2086
+          python -m pytest ${{ inputs.test_path }} ${{ inputs.pytest_args }}

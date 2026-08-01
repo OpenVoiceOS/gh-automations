@@ -222,6 +222,90 @@ jobs:
 
 ---
 
+## `channel-compat.yml`
+
+Runs a repo's test suite against the package versions one **OVOS distro release channel** pins, instead of against current dev siblings.
+
+The distro publishes one constraints file per channel:
+
+| Channel | URL |
+|---------|-----|
+| stable | `https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt` |
+| testing | `https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt` |
+
+Those files are what a device actually runs, and they sit well below dev — as of writing, `stable` pins `ovos-workshop >=3.4.0,<3.5.0` and `ovos-core >=1.3.1,<1.4.0`, `testing` pins `ovos-workshop >=7.0.6,<8.0.0` and `ovos-core >=2.1.1,<3.0.0`. A change can be green on dev and still break every device on the fleet. This workflow is the gate for that.
+
+Not to be confused with the [`build-tests.yml` channel compatibility check](#channel-compatibility-check), which asks a different question: whether the package's *current version* is already listed in the [ovos-releases](https://github.com/OpenVoiceOS/ovos-releases) channel files. That one reads release metadata; this one installs and runs code.
+
+### The one rule
+
+**The channel wins for every package it names, except the repo under test.** The PR is the thing being judged, so its own version comes from the checkout. pip has no "constrain everything except X", so the workflow strips the repo's own distribution name (read from `pyproject.toml`, falling back to `setup.py --name`) out of the fetched constraints file before installing.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `channel_url` | string | **required** | Raw URL of the channel constraints file. |
+| `channel_name` | string | `""` | Label used in job output and artifact names. Defaults to the filename with `constraints-` and `.txt` stripped. |
+| `runner` | string | `ubuntu-latest` | Runner label. |
+| `test_path` | string | `test/` | Path passed to pytest. |
+| `python_version` | string | `3.11` | Python version. |
+| `system_deps` | string | `""` | Extra apt packages. `ovos-padatious` needs `swig libfann-dev`. |
+| `pre_install_pip` | string | `""` | Requirement specs installed before the repo under test, under the channel constraints. Same name and meaning as on `build-tests.yml`. |
+| `install_extras` | string | `test` | Extras used when installing the repo under test. |
+| `pytest_args` | string | `-v --tb=short -rxX` | Appended to the pytest invocation. |
+| `timeout_minutes` | number | `45` | Job timeout. |
+
+### Steps
+
+1. Check out the **calling** repo at the PR commit.
+2. Fetch the channel constraints file live — never vendored, so the gate moves when the distro moves.
+3. Remove the repo's own line from the constraints.
+4. `uv pip install -c channel-constraints.txt .[extras]`, plus `pytest`, `pytest-timeout`, and `setuptools<81` (channel-age OVOS packages still `import pkg_resources`).
+5. Upload the constraints file and a `pip freeze` as an artifact. A red run weeks later cannot be reproduced from the URL, because the URL has moved on.
+6. Run pytest with `OVOS_CHANNEL` set to the channel name.
+
+### Expect red at first
+
+A channel is behind dev by construction, so the first run on a repo usually fails a pile of tests. That is the finding, not a broken workflow. Call it with `continue-on-error: true` until the baseline is understood, then make it required.
+
+[`ovos-test-harness`](https://github.com/OpenVoiceOS/ovos-test-harness) carries the fully worked version of this: checked-in per-channel known-gap files under `test/channel_gaps/`, consumed via `OVOS_CHANNEL`, which strict-xfail exactly the known failures. Known gaps stay visible and green; new breakage is red; a gap the channel has since closed is also red, as the cue to delete the line.
+
+### Typical usage
+
+```yaml
+name: Channel Compat
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  channel-compat:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            url: https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt
+          - channel: testing
+            url: https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt
+    name: ${{ matrix.channel }}
+    continue-on-error: true
+    uses: OpenVoiceOS/gh-automations/.github/workflows/channel-compat.yml@dev
+    with:
+      channel_url: ${{ matrix.url }}
+      channel_name: ${{ matrix.channel }}
+      test_path: test/unittests/
+      system_deps: swig libfann-dev
+```
+
+### Notes
+
+- `UV_PRERELEASE: allow`, like the other workflows. The channel caps every OVOS package, so allowing prereleases cannot let the install climb past the channel.
+- One channel per call. Matrix in the caller.
+
+---
+
 ## `opm-check.yml`
 
 Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Python version**. Verifies the plugin is discoverable after wheel install, and optionally after editable install (to catch entry-point registration issues). Posts a `🔌 Plugin Detection` section to the PR comment.
