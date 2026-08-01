@@ -92,6 +92,12 @@ on:
         type: string
         default: "-v --tb=short -rxX"
         description: "Extra arguments appended to the pytest invocation."
+      pr_comment:
+        type: boolean
+        default: true
+        description: >
+          Post a '📡 Channel Compat' section (one per channel) in the OVOS
+          PR Checks comment. Only runs on pull_request events.
       soft_fail:
         type: boolean
         default: false
@@ -116,6 +122,9 @@ env:
 jobs:
   channel_compat:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      pull-requests: write
+      contents: read
     timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       # The CALLING repo, at the PR's commit. This is the thing under test.
@@ -262,6 +271,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run the tests on the ${{ steps.channel.outputs.name }} channel
+        id: tests
         if: ${{ steps.install.outcome == 'success' }}
         continue-on-error: ${{ inputs.soft_fail }}
         env:
@@ -271,3 +281,41 @@ jobs:
         run: |
           # shellcheck disable=SC2086
           python -m pytest ${{ inputs.test_path }} ${{ inputs.pytest_args }}
+
+      - name: Checkout gh-automations (PR-comment script)
+        if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v7
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: dev
+          path: _gh_automations/
+
+      - name: Format the channel section
+        if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          {
+            if [ "${{ steps.install.outcome }}" = "failure" ]; then
+              echo "🚧 **Channel unresolvable with this checkout** — the repo's dependency floors exceed what the channel pins (fleet finding; see the install log)."
+            elif [ "${{ steps.tests.outcome }}" = "success" ]; then
+              echo "✅ Test suite passes on the \`${{ steps.channel.outputs.name }}\` channel."
+            elif [ "${{ steps.tests.outcome }}" = "failure" ]; then
+              echo "⚠️ Test failures on the \`${{ steps.channel.outputs.name }}\` channel — new breakage or an unrecorded channel gap. See the job log and the \`channel-compat-${{ steps.channel.outputs.name }}\` artifact."
+            else
+              echo "⊘ Tests did not run."
+            fi
+            echo
+            echo "Constraints: ${{ inputs.channel_url }}"
+            echo "Resolved stack: \`channel-compat-${{ steps.channel.outputs.name }}\` artifact (constraints + pip freeze)."
+          } > /tmp/channel-section.md
+
+      - name: Post the channel section to the PR comment
+        if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
+        run: |
+          python3 _gh_automations/scripts/update_pr_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --section-id "channel-${{ steps.channel.outputs.name }}" \
+            --title "📡 Channel Compat — ${{ steps.channel.outputs.name }}" \
+            --content-file /tmp/channel-section.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
