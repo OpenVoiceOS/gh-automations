@@ -33,8 +33,8 @@ name: Channel Compat
 # -------------------
 # A channel is behind dev by construction, so the first run on a repo usually
 # fails a pile of tests. That is the finding, not a broken workflow. Call this
-# with `continue-on-error: true` until the baseline is understood, then make it
-# required. ovos-test-harness carries the fully worked example, including
+# with `soft_fail: true` until the baseline is understood, then turn it off.
+# ovos-test-harness carries the fully worked example, including
 # checked-in per-channel known-gap files that keep the known failures green
 # while new breakage stays red:
 # https://github.com/OpenVoiceOS/ovos-test-harness (see test/channel_gaps/).
@@ -92,6 +92,14 @@ on:
         type: string
         default: "-v --tb=short -rxX"
         description: "Extra arguments appended to the pytest invocation."
+      soft_fail:
+        type: boolean
+        default: false
+        description: >
+          Report the run but do not fail the job when tests fail. GitHub does
+          not allow `continue-on-error` on a job that calls a reusable workflow,
+          so callers that want an advisory gate set this instead. Use it while a
+          repo's channel baseline is still being established, then turn it off.
       timeout_minutes:
         type: number
         default: 45
@@ -236,6 +244,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run the tests on the ${{ steps.channel.outputs.name }} channel
+        continue-on-error: ${{ inputs.soft_fail }}
         env:
           # Suites that keep a per-channel known-gap baseline (as
           # ovos-test-harness does) read this.

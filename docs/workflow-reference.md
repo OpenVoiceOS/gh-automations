@@ -254,6 +254,7 @@ Not to be confused with the [`build-tests.yml` channel compatibility check](#cha
 | `pre_install_pip` | string | `""` | Requirement specs installed before the repo under test, under the channel constraints. Same name and meaning as on `build-tests.yml`. |
 | `install_extras` | string | `test` | Extras used when installing the repo under test. |
 | `pytest_args` | string | `-v --tb=short -rxX` | Appended to the pytest invocation. |
+| `soft_fail` | boolean | `false` | Report but do not fail on test failures. GitHub forbids `continue-on-error` on a job that calls a reusable workflow, so advisory callers set this instead. |
 | `timeout_minutes` | number | `45` | Job timeout. |
 
 ### Steps
@@ -267,7 +268,7 @@ Not to be confused with the [`build-tests.yml` channel compatibility check](#cha
 
 ### Expect red at first
 
-A channel is behind dev by construction, so the first run on a repo usually fails a pile of tests. That is the finding, not a broken workflow. Call it with `continue-on-error: true` until the baseline is understood, then make it required.
+A channel is behind dev by construction, so the first run on a repo usually fails a pile of tests. That is the finding, not a broken workflow. Call it with `soft_fail: true` until the baseline is understood, then turn that off. (`continue-on-error` cannot be used here: GitHub rejects it on a job that calls a reusable workflow.)
 
 [`ovos-test-harness`](https://github.com/OpenVoiceOS/ovos-test-harness) carries the fully worked version of this: checked-in per-channel known-gap files under `test/channel_gaps/`, consumed via `OVOS_CHANNEL`, which strict-xfail exactly the known failures. Known gaps stay visible and green; new breakage is red; a gap the channel has since closed is also red, as the cue to delete the line.
 
@@ -290,13 +291,13 @@ jobs:
           - channel: testing
             url: https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt
     name: ${{ matrix.channel }}
-    continue-on-error: true
     uses: OpenVoiceOS/gh-automations/.github/workflows/channel-compat.yml@dev
     with:
       channel_url: ${{ matrix.url }}
       channel_name: ${{ matrix.channel }}
       test_path: test/unittests/
       system_deps: swig libfann-dev
+      soft_fail: true
 ```
 
 ### Notes
