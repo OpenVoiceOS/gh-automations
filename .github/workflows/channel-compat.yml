@@ -157,7 +157,7 @@ jobs:
 
       - name: Fetch the channel constraints
         run: |
-          curl -fsSL "${{ inputs.channel_url }}" -o channel-constraints.txt
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "${{ inputs.channel_url }}" -o channel-constraints.txt
           echo "### Channel \`${{ steps.channel.outputs.name }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Fetched from ${{ inputs.channel_url }}" >> "$GITHUB_STEP_SUMMARY"
 
