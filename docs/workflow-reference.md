@@ -177,6 +177,8 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated). Base packages `python3-dev libssl-dev` are always installed. |
 | `install_extras` | string | `""` | pip extras appended when installing the built wheel, e.g. `test` or `dev,test` |
 | `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). |
+| `pytest_args` | string | `""` | Extra arguments appended to the pytest invocation, e.g. `--capture=tee-sys` to keep a crashing test's output visible. Same name and meaning as on `channel-compat.yml`. |
+| `test_env` | string | `""` | Extra environment variables for the test step, as newline-separated `KEY=value` pairs, e.g. `PYTHONFAULTHANDLER=1` and `RUST_BACKTRACE=full` to surface a native crash's traceback instead of a bare `Fatal Python error: Aborted`. Appended to `$GITHUB_ENV` before the test step runs. |
 | `pr_comment` | boolean | `true` | Post a `🔨 Build Tests` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `package_name` | string | `""` | Package name for the channel compatibility check. If empty, auto-reads from `pyproject.toml`/`setup.py`. Both `package_name` and `version_file` must resolve for the channel check to run. |
 | `version_file` | string | `""` | Path to `version.py` in the calling repo (relative to repo root). If empty, auto-detects. Needed for the channel compatibility check. |
