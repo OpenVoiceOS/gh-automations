@@ -48,6 +48,24 @@ on:
         description: >
           If set, run pytest against this path after installing the package.
           Leave empty to skip test execution (build/install verification only).
+      pytest_args:
+        type: string
+        default: ""
+        description: >
+          Extra arguments appended to the pytest invocation, e.g.
+          '--capture=tee-sys' to keep a crashing test's output visible when
+          pytest's default fd-level capture would otherwise swallow it (native
+          crashes, SIGABRT). Same name and meaning as on channel-compat.yml.
+          Empty by default: no change to the command line.
+      test_env:
+        type: string
+        default: ""
+        description: >
+          Extra environment variables for the test step, as newline-separated
+          KEY=value pairs, e.g. 'PYTHONFAULTHANDLER=1\nRUST_BACKTRACE=full' to
+          get a traceback/panic message out of a native crash instead of just
+          "Fatal Python error: Aborted". Appended to $GITHUB_ENV before the
+          Run Tests step. Empty by default: no vars are added.
       pr_comment:
         type: boolean
         default: true
@@ -124,12 +142,18 @@ jobs:
             uv pip install dist/*.tar.gz 2>/dev/null || { echo "No dist files found"; exit 1; }
           fi
 
+      - name: Configure test environment
+        if: ${{ inputs.test_path != '' && inputs.test_env != '' }}
+        run: |
+          echo "${{ inputs.test_env }}" >> "$GITHUB_ENV"
+
       - name: Run Tests
         id: tests
         if: ${{ inputs.test_path != '' }}
         run: |
           uv pip install pytest
-          python -m pytest ${{ inputs.test_path }} -v
+          # shellcheck disable=SC2086
+          python -m pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }}
 
       - name: Save result
         if: always()
