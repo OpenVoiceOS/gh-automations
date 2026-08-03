@@ -178,12 +178,15 @@ jobs:
           merge-multiple: true
 
       - name: Format build report
+        env:
+          PYTHON_VERSIONS: ${{ inputs.python_versions }}
+          TEST_PATH: ${{ inputs.test_path }}
         run: |
           python3 - <<'PYEOF'
-          import json, glob
+          import json, glob, os
 
-          versions = json.loads('${{ inputs.python_versions }}')
-          has_tests = bool("${{ inputs.test_path }}")
+          versions = json.loads(os.environ["PYTHON_VERSIONS"])
+          has_tests = bool(os.environ.get("TEST_PATH", ""))
 
           def read_result(version):
               for pattern in [
