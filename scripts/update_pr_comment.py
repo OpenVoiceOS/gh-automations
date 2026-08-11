@@ -1131,8 +1131,11 @@ def insert_or_replace_section(body: str, section_id: str, title: str, content: s
     pattern = rf"{start}.*?{end}"
 
     if re.search(pattern, body, re.DOTALL):
-        # Replace
-        return re.sub(pattern, new_section, body, flags=re.DOTALL)
+        # Replace. Use a lambda so backslash sequences in `new_section`
+        # (e.g. "\x", "\1" from test output) are inserted verbatim instead
+        # of being interpreted as re.sub backreference/escape syntax, which
+        # raises `re.error: bad escape` for arbitrary generated content.
+        return re.sub(pattern, lambda _match: new_section, body, flags=re.DOTALL)
     else:
         # Append before signature
         if "---" in body:
