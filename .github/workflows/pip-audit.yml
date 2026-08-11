@@ -89,7 +89,15 @@ jobs:
         run: pip install uv
 
       - name: Install Build Tools
-        run: uv pip install build wheel pip-audit
+        # Explicit floors on pip-audit's own transitive deps (pulled in via
+        # cyclonedx-python-lib/CacheControl/requests) and on the unpinned
+        # `wheel` build tool: pip-audit was flagging its own toolchain
+        # (filelock PYSEC-2026-1375/1374, msgpack PYSEC-2026-3625,
+        # urllib3 PYSEC-2026-1999 and friends, wheel GHSA-8rrh-rw8j-w5fx)
+        # as if it were a vulnerability in the audited package.
+        run: >
+          uv pip install build "wheel>=0.46.2" pip-audit
+          "filelock>=3.20.3" "msgpack>=1.2.1" "urllib3>=2.7.0"
 
       - name: Install System Dependencies
         run: |
