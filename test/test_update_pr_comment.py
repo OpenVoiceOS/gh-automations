@@ -276,6 +276,50 @@ class TestFindOvosComments:
 
 
 # ---------------------------------------------------------------------------
+# insert_or_replace_section
+# ---------------------------------------------------------------------------
+
+class TestInsertOrReplaceSectionBackslashSafety:
+    """Regression for re.error: bad escape \\x.
+
+    build_section() embeds arbitrary generated content (e.g. raw test output)
+    into `new_section`, which insert_or_replace_section previously passed
+    straight to re.sub() as the replacement argument. re.sub interprets
+    backslashes in its replacement string as escapes/backreferences, so
+    content containing sequences like "\\x" or "\\1" (e.g. from pytest -k
+    output, byte-string reprs, or bus-message payloads) crashed with
+    `re.error: bad escape \\x at position N`. Observed deterministically on
+    ovos-skill-volume PR #129's bus-coverage comment step.
+    """
+
+    def _existing_body(self, section_id="bus-coverage"):
+        return (
+            f"{COMMENT_MARKER}\n## Hi!\n\n"
+            f"<!-- section:{section_id} -->\n### Old\n\nold content\n"
+            f"<!-- /section:{section_id} -->\n\n---\n_Bot_"
+        )
+
+    def test_replace_with_backslash_x_does_not_raise(self):
+        content = r"payload=b'\x00\x01' pattern=\x4F"
+        body = self._existing_body()
+        result = insert_or_replace_section(body, "bus-coverage", "Bus Coverage", content)
+        assert content in result
+
+    def test_replace_with_backreference_like_sequence_does_not_raise(self):
+        content = r"regex capture group \1 matched \g<name>"
+        body = self._existing_body()
+        result = insert_or_replace_section(body, "bus-coverage", "Bus Coverage", content)
+        assert content in result
+
+    def test_append_path_with_backslashes_does_not_raise(self):
+        """No existing section (append branch) must also survive backslashes."""
+        content = r"fresh output \x00 \1"
+        body = f"{COMMENT_MARKER}\n## Hi!\n\n---\n_Bot_"
+        result = insert_or_replace_section(body, "bus-coverage", "Bus Coverage", content)
+        assert content in result
+
+
+# ---------------------------------------------------------------------------
 # merge_sections
 # ---------------------------------------------------------------------------
 
