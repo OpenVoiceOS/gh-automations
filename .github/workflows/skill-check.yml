@@ -38,6 +38,18 @@ on:
         description: >
           Post a '🎙️ Skill' section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
+      spec_lint:
+        type: boolean
+        default: true
+        description: >
+          Also run ovos-spec-lint (spec-lint.yml) against the skill's locale
+          folder. Every ovos-skill-* repo already calls this workflow, so this
+          is how spec-lint reaches the fleet without a per-repo caller PR.
+          Set to false to opt a repo out.
+      spec_lint_locale_path:
+        type: string
+        default: "locale"
+        description: "Path passed to spec-lint.yml's locale_path input."
 
 jobs:
   skill_check:
@@ -232,3 +244,20 @@ jobs:
         run: |
           echo "Skill check script exited with an error — see report above."
           exit 1
+
+  # Nested reusable-workflow call: every ovos-skill-* repo already calls this
+  # workflow via a thin skill-check.yml caller, so hooking spec-lint.yml here
+  # is the one change that wires it into the whole fleet without per-repo PRs.
+  # spec-lint.yml itself no-ops (skip_if_no_locale) when there's no locale/
+  # folder, so this is a no-op for any non-skill caller too.
+  spec_lint:
+    if: ${{ inputs.spec_lint }}
+    uses: ./.github/workflows/spec-lint.yml
+    secrets: inherit
+    permissions:
+      pull-requests: write
+      contents: read
+    with:
+      locale_path: ${{ inputs.spec_lint_locale_path }}
+      skip_if_no_locale: true
+      pr_comment: ${{ inputs.pr_comment }}
