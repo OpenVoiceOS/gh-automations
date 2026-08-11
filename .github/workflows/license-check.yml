@@ -183,8 +183,18 @@ jobs:
           #   paho-mqtt — dual-licensed EPL-2.0 OR BSD-3-Clause; we elect the
           #          BSD-3-Clause option, used as an unmodified imported MQTT client
           #          (direct dependency of the *2mqtt bridges).
+          #   fsspec — BSD-3-Clause (bundled LICENSE, © 2018 Martin Durant), but
+          #          declares it via PEP 639 `License-Expression` with no legacy
+          #          `License`/classifier, so the checker reports category "Error"
+          #          rather than reading the permissive license. Pulled transitively
+          #          via huggingface_hub.
+          #   skops — MIT (bundled LICENSE, © 2021 Hugging Face Inc.), but ships only
+          #          a bare `License :: OSI Approved` classifier with no specific
+          #          license, so the checker cannot resolve it and reports "Error".
+          #          Pulled transitively via the huggingface stack.
           central = (r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
-                     r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)")
+                     r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
+                     r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
