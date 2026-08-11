@@ -192,9 +192,16 @@ jobs:
           #          a bare `License :: OSI Approved` classifier with no specific
           #          license, so the checker cannot resolve it and reports "Error".
           #          Pulled transitively via the huggingface stack.
+          #   orjson — License-Expression `MPL-2.0 AND (Apache-2.0 OR MIT)`: the
+          #          code is Apache/MIT (elect either), MPL-2.0 covers only a
+          #          bundled component and is file-level copyleft, safe as an
+          #          unmodified imported library — same footing as tqdm. The
+          #          checker categorises the combined expression as WeakCopyleft.
+          #          Pulled transitively across OVOS via ovos-bus-client/ovos-config.
           central = (r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
-                     r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)")
+                     r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
+                     r"|(?i:^orjson([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
