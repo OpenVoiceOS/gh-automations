@@ -73,7 +73,7 @@ on:
         default: ""
         description: >
           Extra apt packages to install before testing (space-separated).
-          ovos-padatious needs 'swig libfann-dev'.
+          Extra apt packages, if the tested tree needs any.
       pre_install_pip:
         type: string
         default: ""

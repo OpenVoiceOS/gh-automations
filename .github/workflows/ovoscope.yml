@@ -11,7 +11,6 @@ name: Ovoscope End-to-End Tests
 # - PADACIOSO_PIPELINE: Always available via ovos-workshop (no extra deps needed).
 # - ADAPT_PIPELINE: Auto-installs ovos-adapt-parser if require_adapt=true (CI fallback).
 # - PADATIOUS_PIPELINE: Auto-installs ovos-padatious if require_padatious=true (CI fallback).
-#   Also auto-adds swig to system_deps for building the C extension.
 # - M2V_PIPELINE: Auto-installs ovos-m2v-pipeline if require_m2v=true (CI fallback).
 # - NEBULENTO_PIPELINE: Auto-installs nebulento if require_nebulento=true (CI fallback).
 # - PALAVREADO_PIPELINE: Auto-installs palavreado if require_palavreado=true (CI fallback).
@@ -92,7 +91,6 @@ on:
         default: false
         description: >
           Auto-install ovos-padatious (PyPI name) and fail CI if installation fails.
-          Automatically adds 'swig' to system_deps for building the C extension (fann2).
           When false, Padatious pipeline tests are skipped if the plugin is absent.
       require_m2v:
         type: boolean
@@ -181,10 +179,6 @@ jobs:
         run: |
           sudo apt-get update -q
           DEPS="${{ inputs.system_deps }}"
-          # Auto-add swig for padatious (required for fann2 C extension)
-          if [ "${{ inputs.require_padatious }}" == "true" ]; then
-            DEPS="$DEPS swig libfann-dev"
-          fi
           if [ -n "$DEPS" ]; then
             sudo apt-get install -yq $DEPS
           fi

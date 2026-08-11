@@ -76,8 +76,6 @@ jobs:
             python3-dev \
             swig \
             libssl-dev \
-            libfann-dev \
-            libfann2 \
             portaudio19-dev \
             libpulse-dev \
             sox \
