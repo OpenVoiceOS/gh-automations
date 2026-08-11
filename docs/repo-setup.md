@@ -184,7 +184,7 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
     with:
       install_extras: ''          # e.g. '[extras]'
-      system_deps: ''             # e.g. 'swig libfann-dev'
+      system_deps: ''             # e.g. 'portaudio19-dev'
       # exclude_packages: '^(chardet).*'         # per-package exclusions
       # exclude_licenses: '^Mozilla Public License.*'  # MPL allowed by default
 ```

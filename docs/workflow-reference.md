@@ -252,7 +252,7 @@ Not to be confused with the [`build-tests.yml` channel compatibility check](#cha
 | `runner` | string | `ubuntu-latest` | Runner label. |
 | `test_path` | string | `test/` | Path passed to pytest. |
 | `python_version` | string | `3.11` | Python version. |
-| `system_deps` | string | `""` | Extra apt packages. `ovos-padatious` needs `swig libfann-dev`. |
+| `system_deps` | string | `""` | Extra apt packages, if the tested tree needs any. |
 | `pre_install_pip` | string | `""` | Requirement specs installed before the repo under test, under the channel constraints. Same name and meaning as on `build-tests.yml`. |
 | `install_extras` | string | `test` | Extras used when installing the repo under test. |
 | `pytest_args` | string | `-v --tb=short -rxX` | Appended to the pytest invocation. |
@@ -298,7 +298,6 @@ jobs:
       channel_url: ${{ matrix.url }}
       channel_name: ${{ matrix.channel }}
       test_path: test/unittests/
-      system_deps: swig libfann-dev
       soft_fail: true
 ```
 
@@ -705,7 +704,7 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/license-check.yml@dev
     with:
       install_extras: '[extras]'
-      system_deps: 'swig libfann-dev'
+      system_deps: ''
       exclude_packages: '^(tqdm|some-gpl-package).*'
 ```
 

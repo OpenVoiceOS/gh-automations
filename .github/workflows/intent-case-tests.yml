@@ -154,9 +154,6 @@ jobs:
         run: |
           sudo apt-get update -q
           DEPS="${{ inputs.system_deps }}"
-          if [ "${{ inputs.require_padatious }}" == "true" ]; then
-            DEPS="$DEPS swig libfann-dev"
-          fi
           if [ -n "$DEPS" ]; then
             sudo apt-get install -yq $DEPS
           fi
