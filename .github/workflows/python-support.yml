@@ -42,7 +42,10 @@ on:
       install_extras:
         type: string
         default: ""
-        description: "pip extras to install, e.g. '[dev]'"
+        description: >
+          Extra dependencies to install. Accepts a bare extras name ('dev'),
+          a bracketed list ('[dev,rl]'), a full target ('.[dev]'), or raw
+          pip arguments ('-r requirements/test.txt').
       system_deps:
         type: string
         default: ""
@@ -104,7 +107,22 @@ jobs:
           fi
           
           if [ -f setup.py ] || [ -f pyproject.toml ]; then
-            "$INSTALL_CMD" ".${{ inputs.install_extras }}"
+            # install_extras accepts several caller spellings ("dev",
+            # "[dev]", ".[dev]", or raw pip args like "-r reqs.txt").
+            # Callers cannot tell which single form a given reusable
+            # workflow expects, and a wrong guess used to abort the job
+            # before the support matrix ever ran.
+            RAW="${{ inputs.install_extras }}"
+            if [ -z "$RAW" ]; then
+              NORMALIZED="."
+            elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
+              NORMALIZED="$RAW"
+            elif [[ "$RAW" == \[* ]]; then
+              NORMALIZED=".$RAW"
+            else
+              NORMALIZED=".[$RAW]"
+            fi
+            $INSTALL_CMD $NORMALIZED
           else
              echo "No setup.py or pyproject.toml found — check your repo root."
              exit 1

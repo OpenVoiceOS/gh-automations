@@ -31,7 +31,10 @@ on:
       install_extras:
         type: string
         default: ""
-        description: "pip extras appended to the install command, e.g. 'test' or 'dev,test'."
+        description: >
+          Extra dependencies to install. Accepts a bare extras name ('dev'),
+          a bracketed list ('[dev,test]'), a full target ('.[dev]'), or raw
+          pip arguments ('-r requirements/test.txt').
       plugin_type:
         type: string
         default: "auto"
@@ -131,12 +134,32 @@ jobs:
       - name: Install Built Package
         run: |
           WHEEL=$(ls dist/*.whl 2>/dev/null | head -1)
-          EXTRAS="${{ inputs.install_extras }}"
+          # install_extras accepts several caller spellings ("dev", "[dev]",
+          # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
+          # tell which single form a given reusable workflow expects, and a
+          # wrong guess used to abort the job before OPM detection ever ran.
+          RAW="${{ inputs.install_extras }}"
+          SUFFIX=""
+          RAWARGS=""
+          if [ -z "$RAW" ]; then
+            :
+          elif [[ "$RAW" == -* || "$RAW" == */* ]]; then
+            RAWARGS="$RAW"
+          elif [[ "$RAW" == .\[*\] ]]; then
+            SUFFIX="${RAW#.}"
+          elif [[ "$RAW" == \[*\] ]]; then
+            SUFFIX="$RAW"
+          else
+            SUFFIX="[$RAW]"
+          fi
           if [ -n "$WHEEL" ]; then
-            if [ -n "$EXTRAS" ]; then
-              uv pip install "${WHEEL}[${EXTRAS}]"
+            if [ -n "$SUFFIX" ]; then
+              uv pip install "${WHEEL}${SUFFIX}"
             else
               uv pip install "$WHEEL"
+            fi
+            if [ -n "$RAWARGS" ]; then
+              uv pip install $RAWARGS
             fi
           else
             uv pip install dist/*.tar.gz
@@ -224,12 +247,21 @@ jobs:
             exit 0
           fi
 
-          EXTRAS="${{ inputs.install_extras }}"
-          if [ -n "$EXTRAS" ]; then
-            uv pip install -e ".[$EXTRAS]"
+          # install_extras accepts several caller spellings ("dev", "[dev]",
+          # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
+          # tell which single form a given reusable workflow expects, and a
+          # wrong guess used to abort the job before OPM detection ever ran.
+          RAW="${{ inputs.install_extras }}"
+          if [ -z "$RAW" ]; then
+            NORMALIZED="."
+          elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
+            NORMALIZED="$RAW"
+          elif [[ "$RAW" == \[* ]]; then
+            NORMALIZED=".$RAW"
           else
-            uv pip install -e .
+            NORMALIZED=".[$RAW]"
           fi
+          uv pip install -e $NORMALIZED
 
           python3 _gh_automations/scripts/check_opm.py \
             --plugin-type "${{ inputs.plugin_type }}" \

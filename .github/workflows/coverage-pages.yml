@@ -29,9 +29,11 @@ on:
         type: string
         default: ""
         description: >
-          Extra pip install arguments run before tests. Example: '.[dev]' or
-          '-r requirements/test.txt'. If empty, the package itself is installed
-          via 'pip install -e .[dev]' (falling back to bare install).
+          Extra dependencies to install before tests. Accepts a bare extras
+          name ('dev'), a bracketed list ('[dev,rl]'), a full target
+          ('.[dev]'), or raw pip arguments ('-r requirements/test.txt'). If
+          empty, the package itself is installed via 'pip install -e .[dev]'
+          (falling back to bare install).
       test_path:
         type: string
         default: "test/"
@@ -86,8 +88,23 @@ jobs:
           else
             echo "No installable package found at repo root — continuing without install"
           fi
-          if [ -n "${{ inputs.install_extras }}" ]; then
-            uv pip install ${{ inputs.install_extras }}
+          # install_extras accepts several caller spellings ("dev", "[dev]",
+          # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot tell
+          # which single form a given reusable workflow expects, and a wrong
+          # guess used to abort the job (pip install of a bare extras name
+          # fails) before any test ever ran. Normalize all spellings here.
+          RAW="${{ inputs.install_extras }}"
+          if [ -z "$RAW" ]; then
+            NORMALIZED=""
+          elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
+            NORMALIZED="$RAW"
+          elif [[ "$RAW" == \[* ]]; then
+            NORMALIZED=".$RAW"
+          else
+            NORMALIZED=".[$RAW]"
+          fi
+          if [ -n "$NORMALIZED" ]; then
+            uv pip install $NORMALIZED
           fi
 
       - name: Run Tests with Coverage
