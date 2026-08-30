@@ -192,6 +192,14 @@ jobs:
           #          a bare `License :: OSI Approved` classifier with no specific
           #          license, so the checker cannot resolve it and reports "Error".
           #          Pulled transitively via the huggingface stack.
+          #   timezonefinder-data — ODbL-1.0, and the package puts the entire
+          #          license text in the `license` metadata field rather than an
+          #          identifier, so the checker reports the whole preamble and
+          #          categorises it as copyleft. ODbL covers the timezone
+          #          boundary database, not code that reads it: it is a data
+          #          license with no reciprocal effect on an importing program.
+          #          Used as an unmodified imported dataset, pulled transitively
+          #          via timezonefinder.
           #   orjson — License-Expression `MPL-2.0 AND (Apache-2.0 OR MIT)`: the
           #          code is Apache/MIT (elect either), MPL-2.0 covers only a
           #          bundled component and is file-level copyleft, safe as an
@@ -201,7 +209,8 @@ jobs:
           central = (r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
-                     r"|(?i:^orjson([=<>!~ @;].*)?$)")
+                     r"|(?i:^orjson([=<>!~ @;].*)?$)"
+                     r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
