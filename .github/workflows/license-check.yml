@@ -193,6 +193,14 @@ jobs:
               self_pattern = rf"(?i:^{name_re}([=<>!~ @;].*)?$)"
 
           # 2. Central whitelist (one anchored alternation per package).
+          #   bidict — MPL-2.0 only (verified against the package's own LICENSE
+          #          file and PyPI `license_expression` metadata: no MIT/BSD
+          #          dual-license option exists, unlike tqdm/orjson below).
+          #          MPL-2.0 is file-level copyleft that only reaches files an
+          #          importer modifies; used as an unmodified imported library
+          #          (pulled transitively via python-socketio/flask-socketio).
+          #          Excluded per maintainer policy pending a fuller review,
+          #          not because it is dual-licensed.
           #   tqdm — dual-licensed MPL-2.0 AND MIT; permissive via the MIT option,
           #          used as an unmodified imported library (pulled by huggingface_hub).
           #   marisa-trie — MIT AND (BSD-2-Clause OR LGPL-2.1-or-later); we elect the
@@ -224,7 +232,8 @@ jobs:
           #          unmodified imported library — same footing as tqdm. The
           #          checker categorises the combined expression as WeakCopyleft.
           #          Pulled transitively across OVOS via ovos-bus-client/ovos-config.
-          central = (r"(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
+          central = (r"(?i:^bidict([=<>!~ @;].*)?$)"
+                     r"|(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
                      r"|(?i:^orjson([=<>!~ @;].*)?$)"
