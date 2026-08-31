@@ -145,6 +145,24 @@ class TestReadVersion:
         )
         assert read_version(str(f)) == (1, 0, 0, 0)
 
+    def test_orphaned_end_without_start_raises(self, tmp_path: Path) -> None:
+        """A file with an END marker but no START marker (real case: a version.py that
+        write_version_block previously produced without ever emitting a START line) must
+        raise instead of silently returning (0, 0, 0, 0).
+        """
+        f = tmp_path / "version.py"
+        f.write_text(
+            "VERSION_MAJOR = 0\n"
+            "VERSION_MINOR = 0\n"
+            "VERSION_BUILD = 1\n"
+            "VERSION_ALPHA = 1\n"
+            "# END_VERSION_BLOCK\n"
+            "\n"
+            "__version__ = f\"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}\"\n"
+        )
+        with pytest.raises(ValueError, match="START_VERSION_BLOCK"):
+            read_version(str(f))
+
 
 # ---------------------------------------------------------------------------
 # _version_utils.format_version
@@ -188,6 +206,45 @@ class TestWriteVersionBlock:
         original = read_version(str(alpha_version_file))
         write_version_block(str(alpha_version_file), *original)
         assert read_version(str(alpha_version_file)) == original
+
+    def test_duplicate_blocks_raise(self, tmp_path: Path) -> None:
+        """A file with more than one START/END pair must raise rather than be spliced
+        on the first START and last END, which would silently drop content.
+        """
+        f = tmp_path / "version.py"
+        f.write_text(
+            "# START_VERSION_BLOCK\n"
+            "VERSION_MAJOR = 1\n"
+            "VERSION_MINOR = 0\n"
+            "VERSION_BUILD = 0\n"
+            "VERSION_ALPHA = 0\n"
+            "# END_VERSION_BLOCK\n"
+            "\n"
+            "# START_VERSION_BLOCK\n"
+            "VERSION_MAJOR = 1\n"
+            "VERSION_MINOR = 0\n"
+            "VERSION_BUILD = 0\n"
+            "VERSION_ALPHA = 0\n"
+            "# END_VERSION_BLOCK\n"
+        )
+        with pytest.raises(ValueError, match="exactly one"):
+            write_version_block(str(f), 2, 0, 0, 0)
+
+    def test_missing_start_marker_raises(self, tmp_path: Path) -> None:
+        """A file with an END marker but no START marker must raise instead of being
+        spliced with the entire original content preserved as the 'before' half —
+        which is what silently produced a duplicated version block in production.
+        """
+        f = tmp_path / "version.py"
+        f.write_text(
+            "VERSION_MAJOR = 0\n"
+            "VERSION_MINOR = 0\n"
+            "VERSION_BUILD = 1\n"
+            "VERSION_ALPHA = 1\n"
+            "# END_VERSION_BLOCK\n"
+        )
+        with pytest.raises(ValueError, match="exactly one"):
+            write_version_block(str(f), 0, 0, 1, 1)
 
 
 # ---------------------------------------------------------------------------
