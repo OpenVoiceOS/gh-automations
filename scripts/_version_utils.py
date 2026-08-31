@@ -96,17 +96,20 @@ def read_version(version_file: str) -> tuple[int, int, int, int]:
         in_block = False
         found_block = False
         for line in f:
-            stripped = line.strip()
-            if stripped.startswith("# START_VERSION_BLOCK"):
+            # Markers are anchored to column 0: this is what a real, active block looks
+            # like everywhere in the wild. A marker merely quoted as documentation (e.g.
+            # indented inside this module's own docstring) is not mistaken for a real one.
+            if line.startswith("# START_VERSION_BLOCK"):
                 in_block = True
                 continue
-            if stripped.startswith("# END_VERSION_BLOCK"):
+            if line.startswith("# END_VERSION_BLOCK"):
                 if not in_block:
                     continue
                 found_block = True
                 break
             if not in_block:
                 continue
+            stripped = line.strip()
             if stripped.startswith("VERSION_MAJOR"):
                 major = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
             elif stripped.startswith("VERSION_MINOR"):
@@ -156,20 +159,34 @@ def write_version_block(version_file: str, major: int, minor: int, build: int, a
         alpha: New VERSION_ALPHA value.
     """
     with open(version_file, "r") as f:
-        content = f.read()
+        lines = f.readlines()
 
-    start_count = content.count("# START_VERSION_BLOCK")
-    end_count = content.count("# END_VERSION_BLOCK")
-    if start_count != 1 or end_count != 1:
+    # Column-0 anchored, matching read_version's marker matching: a marker only counts
+    # if it is a real, active marker line, not text that merely quotes it as
+    # documentation (e.g. indented inside a module docstring, as this file's own
+    # docstring does).
+    start_indices = [i for i, line in enumerate(lines) if line.startswith("# START_VERSION_BLOCK")]
+    end_indices = [i for i, line in enumerate(lines) if line.startswith("# END_VERSION_BLOCK")]
+    if len(start_indices) != 1 or len(end_indices) != 1:
         raise ValueError(
             f"{version_file}: expected exactly one # START_VERSION_BLOCK / # END_VERSION_BLOCK pair, "
-            f"found {start_count} START marker(s) and {end_count} END marker(s)"
+            f"found {len(start_indices)} START marker(s) and {len(end_indices)} END marker(s)"
         )
 
-    # Preserve everything before START_VERSION_BLOCK
-    before_block = content.split("# START_VERSION_BLOCK")[0]
-    # Preserve everything after END_VERSION_BLOCK
-    after_block = content.split("# END_VERSION_BLOCK")[-1]
+    start_idx = start_indices[0]
+    end_idx = end_indices[0]
+
+    # Preserve everything before START_VERSION_BLOCK, including any trailing content on
+    # the marker's own line (there is none in a well-formed file, since the marker is
+    # anchored to column 0, but this mirrors the original line-content precisely).
+    start_line = lines[start_idx]
+    before_block = "".join(lines[:start_idx]) + start_line[: start_line.index("# START_VERSION_BLOCK")]
+    # Preserve everything after END_VERSION_BLOCK, including the rest of its own line
+    # (its line ending) so blank lines that followed the block are not swallowed.
+    end_line = lines[end_idx]
+    after_block = end_line[end_line.index("# END_VERSION_BLOCK") + len("# END_VERSION_BLOCK"):] + "".join(
+        lines[end_idx + 1:]
+    )
 
     new_block = (
         f"# START_VERSION_BLOCK\n"
