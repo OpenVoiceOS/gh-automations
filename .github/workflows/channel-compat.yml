@@ -86,8 +86,11 @@ on:
         type: string
         default: "test"
         description: >
-          pip extras used when installing the repo under test, e.g. 'test' or
-          'dev,test'. Set to '' to install the package with no extras.
+          Extra dependencies used when installing the repo under test.
+          Accepts a bare extras name ('test'), a bracketed list
+          ('[dev,test]'), a full target ('.[test]'), or raw pip arguments
+          ('-r requirements/test.txt'). Set to '' to install the package
+          with no extras.
       pytest_args:
         type: string
         default: "-v --tb=short -rxX"
@@ -227,12 +230,21 @@ jobs:
         id: install
         continue-on-error: ${{ inputs.soft_fail }}
         run: |
-          EXTRAS="${{ inputs.install_extras }}"
-          if [ -n "$EXTRAS" ]; then
-            uv pip install -c channel-constraints.txt ".[${EXTRAS}]"
+          # install_extras accepts several caller spellings ("dev", "[dev]",
+          # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
+          # tell which single form a given reusable workflow expects, and a
+          # wrong guess used to abort the job before any test ever ran.
+          RAW="${{ inputs.install_extras }}"
+          if [ -z "$RAW" ]; then
+            NORMALIZED="."
+          elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
+            NORMALIZED="$RAW"
+          elif [[ "$RAW" == \[* ]]; then
+            NORMALIZED=".$RAW"
           else
-            uv pip install -c channel-constraints.txt .
+            NORMALIZED=".[$RAW]"
           fi
+          uv pip install -c channel-constraints.txt $NORMALIZED
           uv pip install -c channel-constraints.txt pytest pytest-timeout
           # Channel-age OVOS packages still `import pkg_resources`, which
           # setuptools 81 removed.

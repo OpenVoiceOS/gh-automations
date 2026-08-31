@@ -25,7 +25,10 @@ on:
       install_extras:
         type: string
         default: ""
-        description: "pip extras to install, e.g. '[extras]'"
+        description: >
+          Extra dependencies to install. Accepts a bare extras name ('dev'),
+          a bracketed list ('[dev,rl]'), a full target ('.[dev]'), or raw
+          pip arguments ('-r requirements/test.txt').
       system_deps:
         type: string
         default: ""
@@ -105,7 +108,22 @@ jobs:
           sudo apt-get install -yq python3-dev ${{ inputs.system_deps }}
 
       - name: Install package
-        run: uv pip install ".${{ inputs.install_extras }}"
+        run: |
+          # install_extras accepts several caller spellings ("dev", "[dev]",
+          # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
+          # tell which single form a given reusable workflow expects, and a
+          # wrong guess used to abort the job before any check ever ran.
+          RAW="${{ inputs.install_extras }}"
+          if [ -z "$RAW" ]; then
+            NORMALIZED="."
+          elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
+            NORMALIZED="$RAW"
+          elif [[ "$RAW" == \[* ]]; then
+            NORMALIZED=".$RAW"
+          else
+            NORMALIZED=".[$RAW]"
+          fi
+          uv pip install $NORMALIZED
 
       - name: Run pip-audit
         id: pip_audit_check
