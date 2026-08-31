@@ -263,6 +263,17 @@ jobs:
           BASE="${{ inputs.base_branch }}"
           echo "Target branch for release PR: ${BASE}"
 
+          # Nothing to propose if the release branch is identical to base (e.g. a
+          # bugfix-only alpha, or a retry after base already merged the previous
+          # proposal). gh pr create fails with "No commits between X and Y" in
+          # that case and would otherwise fail the whole workflow run.
+          git fetch origin "${BASE}" --depth=1
+          AHEAD=$(git rev-list --count "origin/${BASE}..HEAD")
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "${BASE} is already up to date with release-${VERSION} — skipping release proposal"
+            exit 0
+          fi
+
           # Check if PR already exists to make this step idempotent on retries
           EXISTING=$(gh pr list --repo "${{ github.repository }}" \
             --head "release-${VERSION}" --base "${BASE}" \
