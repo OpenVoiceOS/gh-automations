@@ -94,12 +94,16 @@ def read_version(version_file: str) -> tuple[int, int, int, int]:
 
     with open(version_file, "r") as f:
         in_block = False
+        found_block = False
         for line in f:
             stripped = line.strip()
             if stripped.startswith("# START_VERSION_BLOCK"):
                 in_block = True
                 continue
             if stripped.startswith("# END_VERSION_BLOCK"):
+                if not in_block:
+                    continue
+                found_block = True
                 break
             if not in_block:
                 continue
@@ -111,6 +115,12 @@ def read_version(version_file: str) -> tuple[int, int, int, int]:
                 build = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
             elif stripped.startswith("VERSION_ALPHA"):
                 alpha = int(stripped.split("=", 1)[1].strip().split("#")[0].strip())
+
+    if not found_block:
+        raise ValueError(
+            f"{version_file}: no matching # START_VERSION_BLOCK / # END_VERSION_BLOCK pair found "
+            "(an orphaned or misordered marker would otherwise silently read as version 0.0.0)"
+        )
 
     return major, minor, build, alpha
 
@@ -147,6 +157,14 @@ def write_version_block(version_file: str, major: int, minor: int, build: int, a
     """
     with open(version_file, "r") as f:
         content = f.read()
+
+    start_count = content.count("# START_VERSION_BLOCK")
+    end_count = content.count("# END_VERSION_BLOCK")
+    if start_count != 1 or end_count != 1:
+        raise ValueError(
+            f"{version_file}: expected exactly one # START_VERSION_BLOCK / # END_VERSION_BLOCK pair, "
+            f"found {start_count} START marker(s) and {end_count} END marker(s)"
+        )
 
     # Preserve everything before START_VERSION_BLOCK
     before_block = content.split("# START_VERSION_BLOCK")[0]
