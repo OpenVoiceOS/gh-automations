@@ -58,6 +58,13 @@ on:
         description: >
           Value of --cov= passed to pytest. Set to your package directory (e.g.
           'ovos_core') to measure only your own code rather than the full repo.
+      pytest_args:
+        type: string
+        default: ""
+        description: >
+          Extra arguments appended to the pytest invocation, e.g. '-n auto' to
+          run tests in parallel via pytest-xdist. Same name and meaning as on
+          build-tests.yml. Empty by default: no change to the command line.
       deploy_pages:
         type: boolean
         default: false
@@ -164,7 +171,7 @@ jobs:
             --cov-report=term-missing \
             --cov-report=json:coverage.json \
             --cov-report=html \
-            -v
+            -v ${{ inputs.pytest_args }}
         # Generate the report even if some tests fail so the PR comment is always posted.
         continue-on-error: true
 
