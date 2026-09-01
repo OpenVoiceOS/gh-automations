@@ -1,9 +1,9 @@
 
 # gh-automations
 
-Reusable GitHub Actions workflows and Python scripts for the [OpenVoiceOS](https://github.com/OpenVoiceOS) ecosystem.
+`gh-automations` holds reusable GitHub Actions workflows and Python scripts for the [OpenVoiceOS](https://github.com/OpenVoiceOS) ecosystem. Each OVOS repo calls these workflows instead of keeping its own copy of the same CI logic.
 
-Used by **209 repos** across the OVOS project. See [docs/repos.md](docs/repos.md) for the full list.
+209 repos use these automations. See [docs/repos.md](docs/repos.md) for the full list.
 
 ---
 
@@ -22,10 +22,10 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility | [reference](docs/workflow-reference.md#build-testsyml) |
 | `channel-compat.yml` | Run a repo's tests against an OVOS distro release channel (stable/testing constraints) | [reference](docs/workflow-reference.md#channel-compatyml) |
 | `opm-check.yml` | OPM plugin detection, interface validation, import timing | [reference](docs/workflow-reference.md#opm-checkyml) |
-| `coverage.yml` | Run pytest with coverage; post diff report to PR comment | [reference](docs/workflow-reference.md#coverageyml) |
-| `coverage-pages.yml` | Run tests with coverage; deploy HTML report to GitHub Pages | [reference](docs/workflow-reference.md#coverage-pagesyml) |
+| `coverage.yml` | Run pytest with coverage. Post a diff report to the PR comment | [reference](docs/workflow-reference.md#coverageyml) |
+| `coverage-pages.yml` | Run tests with coverage. Deploy the HTML report to GitHub Pages | [reference](docs/workflow-reference.md#coverage-pagesyml) |
 | `license-check.yml` | Check all dependency licenses for copyleft violations | [reference](docs/workflow-reference.md#license-checkyml) |
-| `pip-audit.yml` | Scan dependencies for known CVEs; optional SARIF upload | [reference](docs/workflow-reference.md#pip-audityml) |
+| `pip-audit.yml` | Scan dependencies for known CVEs. Optional SARIF upload | [reference](docs/workflow-reference.md#pip-audityml) |
 | `release-preview.yml` | Predict next version from PR labels/title | [reference](docs/workflow-reference.md#release-previewyml) |
 | `repo-health.yml` | Required files check, version block validation, first-time contributor greeting | [reference](docs/workflow-reference.md#repo-healthyml) |
 | `skill-check.yml` | Locale coverage and skill.json validity | [reference](docs/workflow-reference.md#skill-checkyml) |
@@ -33,18 +33,18 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `locale-check.yml` | Verify locale folder is included in package build (pyproject.toml + SOURCES.txt) | [reference](docs/workflow-reference.md#locale-checkyml) |
 | `ovoscope.yml` | End-to-end skill tests with auto-install of pipeline plugins | [reference](docs/workflow-reference.md#ovoscopeyml) |
 | `downstream-check.yml` | Report which packages depend on a given package | [reference](docs/workflow-reference.md#downstream-checkyml) |
-| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy — REMOVE AFTER 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
+| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy, remove after 2027-01-01)* | [reference](docs/workflow-reference.md#python-supportyml-legacy) |
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
-| `type-check.yml` | Run mypy; post 🔎 Type Check section to PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
-| `docs-check.yml` | Verify required docs files exist; optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
+| `type-check.yml` | Run mypy. Post a Type Check section to the PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
+| `docs-check.yml` | Verify required docs files exist. Optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
 
 ---
 
 ## Quick Start
 
-See [docs/repo-setup.md](docs/repo-setup.md) for the complete guide to setting up a new OVOS repo.
+See [docs/repo-setup.md](docs/repo-setup.md) for the complete guide to set up a new OVOS repo.
 
-The minimum required files for a new package:
+A new package needs these files at minimum:
 
 ```
 .github/workflows/
@@ -83,7 +83,6 @@ PR merged to dev
             ├─ Bump version in version.py
             ├─ Publish alpha to PyPI
             └─ Open release PR to master
-
 PR merged to master (after human review)
     └─► publish-stable.yml
             ├─ Remove alpha suffix
@@ -118,9 +117,9 @@ Scripts in `scripts/` are checked out by the reusable workflows at run time:
 
 All workflows include guards against accidental bot-triggered runs:
 
-- **`publish-alpha.yml`** — `bump_version` job only runs when `github.event.pull_request.merged == true` or `workflow_dispatch`
-- **`publish-stable.yml`** — `bump_version` job skips when `github.actor == 'github-actions[bot]'` (prevents infinite loop when the version commit triggers another push event)
-- **`release_workflow.yml`** (per-repo) — supports `workflow_dispatch` for manual reruns
+- **`publish-alpha.yml`**: the `bump_version` job only runs when `github.event.pull_request.merged == true` or `workflow_dispatch`
+- **`publish-stable.yml`**: the `bump_version` job skips when `github.actor == 'github-actions[bot]'`. This prevents an infinite loop when the version commit triggers another push event.
+- **`release_workflow.yml`** (per-repo): supports `workflow_dispatch` for manual reruns
 
 ---
 
@@ -141,29 +140,29 @@ All workflows include guards against accidental bot-triggered runs:
 
 If you have just inherited or taken ownership of this repo, complete these steps:
 
-### Day 1 — Get oriented
+### Day 1: get oriented
 
-1. **Read [`docs/index.md`](docs/index.md)** — workflow overview, scripts reference, and cross-references.
-2. **Read [`docs/maintenance.md`](docs/maintenance.md)** — open technical debt and opportunistic rollouts.
+1. **Read [`docs/index.md`](docs/index.md)**. It covers the workflow overview, scripts reference, and cross-references.
+2. **Read [`docs/maintenance.md`](docs/maintenance.md)**. It lists open technical debt and opportunistic rollouts.
 3. **Run the test suite** to confirm nothing is broken:
    ```bash
    cd gh-automations
    pip install pytest pyyaml
    pytest test/ -v
    ```
-4. **Check [`docs/repos.md`](docs/repos.md)** — many repos depend on this library. Understand the caller blast radius before any change.
+4. **Check [`docs/repos.md`](docs/repos.md)**. Many repos depend on this library, so understand the caller blast radius before any change.
 
 ### Before making changes
 
-- **Check `dev` vs `master` semantics:** `dev` is active development; `master` is the frozen v1 stable baseline. All PRs target `dev`.
-- **Test locally** before pushing: the test suite covers every Python script. Add tests for any new scripts.
-- **Never force-push `master`** — caller repos use `@master` or `@dev` refs; a rewrite would break them.
-- **Do not commit root-level `*.md` files.** Planning, audit, FAQ, and session-log files belong in `docs/` or in chat — not at the repo root. `README.md` is the only allowed root-level Markdown file.
+- **Check `dev` vs `master` semantics:** `dev` is active development. `master` is the frozen v1 stable baseline. All PRs target `dev`.
+- **Test locally** before pushing. The test suite covers every Python script. Add tests for any new scripts.
+- **Never force-push `master`**. Caller repos use `@master` or `@dev` refs, and a rewrite would break them.
+- **Do not commit root-level `*.md` files.** Planning, audit, FAQ, and session-log files belong in `docs/` or in chat, not at the repo root. `README.md` is the only allowed root-level Markdown file.
 
 ### After making changes
 
-1. Run `pytest test/ -v` — must be green before committing.
-2. Review `docs/workflow-reference.md` — if inputs/outputs changed, update the reference.
+1. Run `pytest test/ -v`. It must be green before committing.
+2. Review `docs/workflow-reference.md`. If inputs or outputs changed, update the reference.
 
 ### Deprecated workflows
 

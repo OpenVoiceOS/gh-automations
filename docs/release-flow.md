@@ -32,7 +32,6 @@ VERSION_MINOR = 2
 VERSION_BUILD = 3
 VERSION_ALPHA = 4   # 0 = stable release
 # END_VERSION_BLOCK
-
 __version__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}" + (f"a{VERSION_ALPHA}" if VERSION_ALPHA else "")
 ```
 
@@ -163,3 +162,6 @@ The `publish_alpha` job in `release_workflow.yml` allows dispatch:
 ```yaml
 if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
 ```
+
+---
+[Home](index.md) · [Workflow Reference →](workflow-reference.md)
