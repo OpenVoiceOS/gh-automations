@@ -168,6 +168,7 @@ jobs:
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import json
+          import os
           import re
           import subprocess
 
@@ -214,12 +215,12 @@ jobs:
                       return cats
               return "Other"
 
-          fail_raw = {c.strip() for c in (FAIL_LICENSES or "").split(",") if c.strip()}
+          fail_raw = {c.strip() for c in (os.environ.get("FAIL_LICENSES", "")).split(",") if c.strip()}
           fail_categories = set(fail_raw)
           if "Copyleft" in fail_categories:
               fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
 
-          exclude_licenses = (EXCLUDE_LICENSES or "").strip()
+          exclude_licenses = os.environ.get("EXCLUDE_LICENSES", "").strip()
 
           safe_names = []
           for pkg in packages:
