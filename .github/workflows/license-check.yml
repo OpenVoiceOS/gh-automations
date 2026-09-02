@@ -136,17 +136,126 @@ jobs:
       - name: Collect transitive dependencies
         run: uv pip freeze > requirements-all.txt
 
+      - name: Detect combined-license packages safe by component
+        id: combined
+        # pilosus/action-pip-license-checker classifies a dependency by matching
+        # regexes against its WHOLE license string (Clojure re-find for category,
+        # re-matches — a full-string match — for exclude-license), never splitting
+        # a combined report like orjson's "Apache Software License, MIT License,
+        # Mozilla Public License 2.0 (MPL 2.0)". That string trips the WeakCopyleft
+        # category (MPL substring match wins), and a caller's exclude_licenses
+        # regex anchored at the start (the documented default
+        # '^Mozilla Public License.*') never matches it back out, because the
+        # string starts with "Apache", not "Mozilla". A repo that only depends on
+        # orjson through wholly permissive components then fails for a license mix
+        # every component of which is actually fine.
+        #
+        # Fix: evaluate each dependency's license field ourselves, split into its
+        # components, and reproduce pilosus's own category precedence per
+        # component (NetworkCopyleft > StrongCopyleft > WeakCopyleft > Permissive >
+        # Other, ported from pip_license_checker.license). A component-classifier
+        # is not run for a license string with no separator — single-license
+        # packages are left untouched, matching prior behaviour exactly. For a
+        # combined string, the whole package is added to the exclude-by-name list
+        # (skipping it from the pilosus check entirely, the same mechanism as the
+        # central whitelist below) only if EVERY component whose category is in
+        # fail_licenses is matched by exclude_licenses (re.search, not anchored
+        # full-match — the caller's regex only needs to find the offending phrase
+        # inside its own component, not the whole combined string).
+        env:
+          FAIL_LICENSES: ${{ inputs.fail_licenses }}
+          EXCLUDE_LICENSES: ${{ inputs.exclude_licenses }}
+        run: |
+          python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          import re
+          import subprocess
+
+          subprocess.run(
+              ["pip-licenses", "--format=json", "--with-urls"],
+              stdout=open("/tmp/pip-licenses-precheck.json", "w"),
+              stderr=subprocess.DEVNULL,
+              check=False,
+          )
+          try:
+              with open("/tmp/pip-licenses-precheck.json") as f:
+                  packages = json.load(f)
+          except Exception:
+              packages = []
+
+          # Ported from pip_license_checker.license (pilosus/pip-license-checker),
+          # trimmed to the entries relevant to Python-ecosystem licenses. Checked
+          # in NetworkCopyleft > StrongCopyleft > WeakCopyleft > Permissive order,
+          # same precedence as the upstream classifier; unmatched -> "Other".
+          NETWORK = [r"\bAffero", r"\bAGPL", r"GNU Affero General Public License",
+                     r"\bOSL", r"Open Software License", r"\bRPSL"]
+          STRONG = [r"GNU General Public License(?!.*classpath|.*linking|.*exception)",
+                    r"\bGPL(?!.*classpath|.*linking|.*exception)",
+                    r"IBM Public License", r"\bRPL", r"Reciprocal Public License",
+                    r"Sleepycat License"]
+          WEAK = [r"GNU Lesser General Public License", r"\bLGPL",
+                  r"GNU General Public License.*(?:classpath|linking|exception)",
+                  r"\bGPL.*(?:classpath|linking|exception)",
+                  r"\bMPL", r"Mozilla Public License", r"\bEPL", r"Eclipse Public License",
+                  r"\bEUPL", r"European Union Public Licence", r"\bCDDL",
+                  r"Common Development and Distribution License", r"\bCPL",
+                  r"Common Public License", r"\bAPSL", r"Apple Public Source License",
+                  r"\bODbL", r"Open Database License"]
+          PERMISSIVE = [r"\bApache", r"Apache Software License", r"BSD", r"\bMIT\b",
+                        r"MIT License", r"Artistic", r"CC0", r"Public Domain",
+                        r"Unlicense", r"\bISC\b", r"ISC License",
+                        r"Python Software Foundation License", r"\bPSF", r"\bzlib",
+                        r"WTFPL", r"\bW3C\b", r"Historical Permission Notice"]
+
+          def classify(component):
+              for bucket, cats in ((NETWORK, "NetworkCopyleft"), (STRONG, "StrongCopyleft"),
+                                    (WEAK, "WeakCopyleft"), (PERMISSIVE, "Permissive")):
+                  if any(re.search(p, component, re.IGNORECASE) for p in bucket):
+                      return cats
+              return "Other"
+
+          fail_raw = {c.strip() for c in (FAIL_LICENSES or "").split(",") if c.strip()}
+          fail_categories = set(fail_raw)
+          if "Copyleft" in fail_categories:
+              fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+
+          exclude_licenses = (EXCLUDE_LICENSES or "").strip()
+
+          safe_names = []
+          for pkg in packages:
+              license_field = pkg.get("License", "") or ""
+              # Only combined (multi-license) strings are handled here; a single
+              # license string is left for pilosus exactly as before.
+              components = [c.strip() for c in re.split(r",|\bAND\b|\bOR\b", license_field, flags=re.IGNORECASE) if c.strip()]
+              if len(components) < 2:
+                  continue
+              offending = [c for c in components if classify(c) in fail_categories]
+              if not offending:
+                  continue
+              if exclude_licenses and all(re.search(exclude_licenses, c) for c in offending):
+                  name = pkg.get("Name", "")
+                  if name:
+                      canonical = re.sub(r'[-_.]+', '-', name).lower()
+                      name_re = re.escape(canonical).replace(r"\-", "[-_.]")
+                      safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
+
+          print(f"regex={'|'.join(safe_names)}")
+          PYEOF
+
       - name: Build exclude regex
         id: exclude
-        # Union three sources into one anchored PCRE alternation:
+        # Union four sources into one anchored PCRE alternation:
         #   1. the package under test (auto-derived from pyproject.toml/setup.py) — its
         #      own Apache-2.0 metadata trips pilosus on PEP 639 `license = {text = ...}`;
         #   2. the central whitelist of license-flagged-but-safe packages;
         #   3. the caller's repo-specific exclude_packages.
+        #   4. packages auto-detected as safe combined-license strings (see the
+        #      "Detect combined-license packages safe by component" step above).
         # Each branch stays anchored, so an empty caller input produces no leading/
         # trailing '|' and no empty alternation. Source of truth: docs/license-whitelist.md.
         env:
           CALLER_EXCLUDE: ${{ inputs.exclude_packages }}
+          COMBINED_EXCLUDE: ${{ steps.combined.outputs.regex }}
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import os
@@ -242,7 +351,10 @@ jobs:
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
 
-          parts = [p for p in (self_pattern, central.strip(), caller) if p]
+          # 4. Packages auto-detected as safe combined-license strings.
+          combined = (os.environ.get("COMBINED_EXCLUDE") or "").strip()
+
+          parts = [p for p in (self_pattern, central.strip(), caller, combined) if p]
           if not parts:
               merged = ""
           elif len(parts) == 1:
