@@ -168,8 +168,12 @@ jobs:
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import json
+          import os
           import re
           import subprocess
+
+          FAIL_LICENSES = os.environ.get("FAIL_LICENSES", "")
+          EXCLUDE_LICENSES = os.environ.get("EXCLUDE_LICENSES", "")
 
           subprocess.run(
               ["pip-licenses", "--format=json", "--with-urls"],
