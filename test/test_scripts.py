@@ -246,6 +246,42 @@ class TestWriteVersionBlock:
         with pytest.raises(ValueError, match="exactly one"):
             write_version_block(str(f), 0, 0, 1, 1)
 
+    def test_docstring_example_is_not_a_real_block(self, tmp_path: Path) -> None:
+        """A docstring that quotes the marker syntax as documentation (the idiom this
+        module's own docstring uses) must not be mistaken for a real block: read_version
+        must return the real block's values, and write_version_block must succeed and
+        touch only the real block, leaving the documentation text untouched.
+        """
+        f = tmp_path / "version.py"
+        f.write_text(
+            '"""\n'
+            "Version file for this package.\n"
+            "\n"
+            "Format:\n"
+            "    # START_VERSION_BLOCK\n"
+            "    VERSION_MAJOR = 9\n"
+            "    VERSION_MINOR = 9\n"
+            "    VERSION_BUILD = 9\n"
+            "    VERSION_ALPHA = 9\n"
+            "    # END_VERSION_BLOCK\n"
+            '"""\n'
+            "# START_VERSION_BLOCK\n"
+            "VERSION_MAJOR = 1\n"
+            "VERSION_MINOR = 2\n"
+            "VERSION_BUILD = 3\n"
+            "VERSION_ALPHA = 4\n"
+            "# END_VERSION_BLOCK\n"
+            "\n"
+            '__version__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}"\n'
+        )
+        assert read_version(str(f)) == (1, 2, 3, 4)
+
+        write_version_block(str(f), 2, 0, 0, 1)
+        content = f.read_text()
+        assert "VERSION_MAJOR = 9" in content  # docstring example left untouched
+        assert content.count("# START_VERSION_BLOCK") == 2  # one real, one documented
+        assert read_version(str(f)) == (2, 0, 0, 1)
+
 
 # ---------------------------------------------------------------------------
 # update_version.update_version
