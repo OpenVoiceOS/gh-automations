@@ -1,4 +1,11 @@
 name: Coverage Report
+#
+# gh_token secret: only pass this from a workflow triggered directly by the
+# repo's own trusted events (push, pull_request from a same-repo branch,
+# workflow_dispatch). NEVER pass it from a pull_request_target-triggered
+# caller that checks out fork code -- that hands a live token to
+# attacker-controlled build code (a "pwn request"). This workflow refuses
+# to run with gh_token set on pull_request_target as a backstop.
 on:
   workflow_call:
     inputs:
@@ -98,6 +105,20 @@ on:
         type: number
         default: 14
         description: "Days to retain the coverage XML artifact"
+    secrets:
+      gh_token:
+        required: false
+        description: >
+          Optional token (PAT/App installation token) used to authenticate git
+          clones of PRIVATE org dependencies during pre_install_pip. No-op when
+          unset. SECURITY: the rewrite it installs is scoped to the calling
+          repository's own org, but any dependency fetched during
+          pre_install_pip still runs its own build backend with that token
+          reachable via git config for the rest of the job. Callers MUST NOT
+          pass this secret from a pull_request_target-triggered workflow (or
+          any workflow that checks out and builds fork-controlled code) --
+          doing so hands the token to attacker-controlled build code. This
+          workflow fails fast if it detects that combination.
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -140,11 +161,45 @@ jobs:
       - name: Install Dependencies
         run: uv pip install pytest pytest-cov coverage[toml]
 
+      - name: Refuse gh_token on pull_request_target
+        if: ${{ github.event_name == 'pull_request_target' && secrets.gh_token != '' }}
+        run: |
+          echo "::error::gh_token must not be supplied on a pull_request_target run" \
+            "-- it would expose the token to fork-controlled build code (pwn request)."
+          exit 1
+
+      - name: Authenticate git for private dependencies
+        if: ${{ inputs.pre_install_pip != '' }}
+        env:
+          GH_DEP_TOKEN: ${{ secrets.gh_token }}
+          GH_ORG: ${{ github.repository_owner }}
+        run: |
+          if [ -n "${GH_DEP_TOKEN}" ]; then
+            git config --global \
+              url."https://x-access-token:${GH_DEP_TOKEN}@github.com/${GH_ORG}/".insteadOf \
+              "https://github.com/${GH_ORG}/"
+            echo "Configured git auth for private dependencies under ${GH_ORG}."
+          fi
+
       - name: Pre-install pip requirements
         if: ${{ inputs.pre_install_pip != '' }}
         run: |
           # shellcheck disable=SC2086
           uv pip install ${{ inputs.pre_install_pip }}
+
+      # The rewrite embeds the token in ~/.gitconfig, where every later step in
+      # the job can read it -- including the Pages deploy push. Drop it as soon
+      # as dependency resolution is done.
+      - name: Clear git auth for private dependencies
+        if: ${{ always() && inputs.pre_install_pip != '' }}
+        env:
+          GH_DEP_TOKEN: ${{ secrets.gh_token }}
+          GH_ORG: ${{ github.repository_owner }}
+        run: |
+          if [ -n "${GH_DEP_TOKEN}" ]; then
+            git config --global --unset-all \
+              url."https://x-access-token:${GH_DEP_TOKEN}@github.com/${GH_ORG}/".insteadOf || true
+          fi
 
       - name: Install Package
         run: |
