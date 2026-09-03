@@ -511,6 +511,8 @@ To require Padatious (C extension: add `swig` to system_deps):
 - `PADACIOSO_PIPELINE` (pure Python padacioso) is always available via `ovos-workshop`; there is no `require_padacioso` input.
 - Set `require_adapt: true` in skill repos that test Adapt intents so CI fails explicitly if the Adapt plugin is missing from `[test]` deps rather than silently skipping those tests.
 
+End-to-end tests pay a skill-training startup cost controlled by `OVOSCOPE_TRAINED_TIMEOUT` (default 180 seconds). Individual tests should set a `@pytest.mark.timeout()` marker with a value at least 120 seconds greater than the timeout ceiling to avoid premature expiration during training. The same floor applies to a repository-wide pytest timeout set in `pytest.ini`, `pyproject.toml`, or `setup.cfg` via the `timeout` key from pytest-timeout. A global timeout below the ceiling plus 120 seconds will cause every unmarked end-to-end test to expire under coverage instrumentation. With the default 180-second training wait, a global pytest timeout must be at least 300 seconds.
+
 ---
 
 ## `coverage.yml`
