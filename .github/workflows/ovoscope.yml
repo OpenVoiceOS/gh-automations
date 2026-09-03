@@ -300,6 +300,11 @@ jobs:
       - name: Install Package with Test Extras
         run: |
           uv pip install pytest pytest-json-report pytest-xdist
+          # Bare ovos-core ships no pipeline matchers by design; the
+          # [plugins] extra is what actually registers Adapt/Padatious/M2V.
+          # Without it here, resolver-fresh CI envs silently no-op every
+          # Adapt cell instead of failing.
+          uv pip install "ovos-core[plugins]"
           if [ "${{ inputs.pre_release }}" == "true" ]; then
             echo "Installing ovoscope from GitHub dev (pre_release)..."
             uv pip install --force-reinstall \
