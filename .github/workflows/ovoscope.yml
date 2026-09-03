@@ -20,9 +20,10 @@ name: Ovoscope End-to-End Tests
 # are absent instead of silently skipping.
 #
 # Pre-release validation:
-# Set `pre_release: true` to install ovoscope AND every required pipeline plugin
-# from its GitHub `dev` branch instead of PyPI. Use this to validate against
-# unreleased changes in the framework or any engine.
+# Set `pre_release: true` to install ovoscope from its GitHub `dev` branch and
+# every required pipeline plugin at its latest PyPI prerelease (the alpha
+# channel every OVOS repo auto-publishes on merge). Use this to validate
+# against unreleased changes in the framework or any engine.
 #
 on:
   workflow_call:
@@ -117,12 +118,13 @@ on:
         type: boolean
         default: false
         description: >
-          Install ovoscope and every required pipeline plugin from its GitHub
-          `dev` branch instead of PyPI. Use to validate against unreleased
-          changes in the framework or any engine. Affects ovoscope itself
-          (always installed from dev when this flag is set) and the engines
-          gated by require_adapt / require_padatious / require_m2v /
-          require_nebulento / require_palavreado.
+          Install ovoscope from its GitHub `dev` branch and every required
+          pipeline plugin at its latest PyPI prerelease instead of a
+          floor-pinned version. Use to validate against unreleased changes in
+          the framework or any engine. Affects ovoscope itself (always
+          installed from dev when this flag is set) and the engines gated by
+          require_adapt / require_padatious / require_m2v / require_nebulento
+          / require_palavreado.
       bus_coverage:
         type: boolean
         default: true
@@ -178,7 +180,7 @@ jobs:
         run: pip install uv
 
       - name: Install System Dependencies
-        if: ${{ inputs.system_deps != '' || inputs.require_padatious }}
+        if: ${{ inputs.system_deps != '' }}
         run: |
           sudo apt-get update -q
           DEPS="${{ inputs.system_deps }}"
@@ -192,15 +194,18 @@ jobs:
           # NOTE: Skills should declare these in pyproject.toml [test] extras.
           # This step ensures CI passes if the maintainer forgot to add them.
           #
-          # When `pre_release: true`, install each plugin from its GitHub `dev`
-          # branch (git+https) instead of PyPI. For git+https we add
-          # --force-reinstall so an already-installed PyPI version is replaced.
+          # When `pre_release: true`, install each plugin's latest PyPI
+          # prerelease instead of a floor-pinned version. Every OVOS repo
+          # auto-publishes an alpha to PyPI on merge to dev, so the alpha
+          # channel IS the pre-release channel — a git+https ref would bypass
+          # the published artifact and can diverge from what users resolve.
+          # --force-reinstall replaces an already-installed PyPI version.
           PRE_RELEASE="${{ inputs.pre_release }}"
           if [ "${{ inputs.require_adapt }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
-              echo "Installing ovos-adapt-parser from GitHub dev..."
-              SRC="git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev"
-              EXTRA="--force-reinstall"
+              echo "Installing ovos-adapt-parser (latest PyPI prerelease)..."
+              SRC="ovos-adapt-parser"
+              EXTRA="--force-reinstall --upgrade"
             else
               echo "Installing ovos-adapt-parser (CI fallback, prerelease floor)..."
               # Prerelease-floor pin: stable ovos-adapt-parser still caps
@@ -219,9 +224,9 @@ jobs:
           fi
           if [ "${{ inputs.require_padatious }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
-              echo "Installing ovos-padatious from GitHub dev..."
-              SRC="git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev"
-              EXTRA="--force-reinstall"
+              echo "Installing ovos-padatious (latest PyPI prerelease)..."
+              SRC="ovos-padatious"
+              EXTRA="--force-reinstall --upgrade"
             else
               echo "Installing ovos-padatious (CI fallback, prerelease floor)..."
               # Prerelease-floor pin: stable ovos-padatious still caps
@@ -240,9 +245,9 @@ jobs:
           fi
           if [ "${{ inputs.require_m2v }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
-              echo "Installing ovos-m2v-pipeline from GitHub dev..."
-              SRC="git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@dev"
-              EXTRA="--force-reinstall"
+              echo "Installing ovos-m2v-pipeline (latest PyPI prerelease)..."
+              SRC="ovos-m2v-pipeline"
+              EXTRA="--force-reinstall --upgrade"
             else
               echo "Installing ovos-m2v-pipeline (CI fallback)..."
               SRC="ovos-m2v-pipeline"
@@ -256,9 +261,9 @@ jobs:
           fi
           if [ "${{ inputs.require_nebulento }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
-              echo "Installing nebulento from GitHub dev..."
-              SRC="git+https://github.com/OpenVoiceOS/nebulento@dev"
-              EXTRA="--force-reinstall"
+              echo "Installing nebulento (latest PyPI prerelease)..."
+              SRC="nebulento"
+              EXTRA="--force-reinstall --upgrade"
             else
               echo "Installing nebulento (CI fallback)..."
               SRC="nebulento"
@@ -273,9 +278,9 @@ jobs:
           fi
           if [ "${{ inputs.require_palavreado }}" == "true" ]; then
             if [ "$PRE_RELEASE" == "true" ]; then
-              echo "Installing palavreado from GitHub dev..."
-              SRC="git+https://github.com/OpenVoiceOS/palavreado@dev"
-              EXTRA="--force-reinstall"
+              echo "Installing palavreado (latest PyPI prerelease)..."
+              SRC="palavreado"
+              EXTRA="--force-reinstall --upgrade"
             else
               echo "Installing palavreado (CI fallback)..."
               SRC="palavreado"
