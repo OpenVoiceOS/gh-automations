@@ -222,6 +222,8 @@ jobs:
       version_file: 'my_package/version.py'
 ```
 
+For skill repositories, point `test_path` at `test/unittests` to test only unit tests. End-to-end tests under `test/end2end` require the trained-skill readiness harness that only `ovoscope.yml` provides. Passing the whole `test/` tree runs end-to-end tests without the harness and fails on intent-routing timing. A skill with only `test/end2end` should not call `build-tests.yml` or `coverage.yml` at all and rely on `ovoscope.yml` instead, which verifies install and runs the end-to-end suite.
+
 ### Notes
 
 - OPM (plugin detection) inputs were removed from this workflow. Use [`opm-check.yml`](#opm-checkyml) for OPM validation.
@@ -584,6 +586,8 @@ jobs:
       coverage_source: 'my_package'
       min_coverage: 80
 ```
+
+For skill repositories with end-to-end tests, point `test_path` at `test/unittests` rather than the full tree, as end-to-end tests in `test/end2end` require the trained-skill readiness harness that only `ovoscope.yml` provides.
 
 ### Known issues
 
