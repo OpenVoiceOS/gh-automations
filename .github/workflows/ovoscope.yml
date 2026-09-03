@@ -20,10 +20,10 @@ name: Ovoscope End-to-End Tests
 # are absent instead of silently skipping.
 #
 # Pre-release validation:
-# Set `pre_release: true` to install ovoscope from its GitHub `dev` branch and
-# every required pipeline plugin at its latest PyPI prerelease (the alpha
-# channel every OVOS repo auto-publishes on merge). Use this to validate
-# against unreleased changes in the framework or any engine.
+# Set `pre_release: true` to install ovoscope and every required pipeline
+# plugin at its latest PyPI prerelease (the alpha channel every OVOS repo
+# auto-publishes on merge). Use this to validate against unreleased changes
+# in the framework or any engine.
 #
 on:
   workflow_call:
@@ -118,13 +118,13 @@ on:
         type: boolean
         default: false
         description: >
-          Install ovoscope from its GitHub `dev` branch and every required
-          pipeline plugin at its latest PyPI prerelease instead of a
-          floor-pinned version. Use to validate against unreleased changes in
-          the framework or any engine. Affects ovoscope itself (always
-          installed from dev when this flag is set) and the engines gated by
-          require_adapt / require_padatious / require_m2v / require_nebulento
-          / require_palavreado.
+          Install ovoscope and every required pipeline plugin at its latest
+          PyPI prerelease instead of a floor-pinned version. Use to validate
+          against unreleased changes in the framework or any engine. Affects
+          ovoscope itself (always upgraded to the latest PyPI prerelease when
+          this flag is set) and the engines gated by require_adapt /
+          require_padatious / require_m2v / require_nebulento /
+          require_palavreado.
       bus_coverage:
         type: boolean
         default: true
@@ -311,9 +311,13 @@ jobs:
           # Adapt cell instead of failing.
           uv pip install "ovos-core[plugins]"
           if [ "${{ inputs.pre_release }}" == "true" ]; then
-            echo "Installing ovoscope from GitHub dev (pre_release)..."
-            uv pip install --force-reinstall \
-              "git+https://github.com/TigreGotico/ovoscope@dev"
+            echo "Installing ovoscope (latest PyPI prerelease)..."
+            # ovoscope auto-publishes an alpha to PyPI on every merge to dev,
+            # so the alpha channel IS the pre-release channel — a git+https
+            # ref would bypass the published artifact and can diverge from
+            # what users resolve (and the repo has since moved from
+            # TigreGotico/ovoscope to OpenVoiceOS/ovoscope).
+            uv pip install --force-reinstall --upgrade ovoscope
           else
             uv pip install ovoscope
           fi
