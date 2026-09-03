@@ -195,7 +195,7 @@ jobs:
         run: |
           uv pip install pytest pytest-json-report
           if [ "${{ inputs.pre_release }}" == "true" ]; then
-            uv pip install --force-reinstall "git+https://github.com/TigreGotico/ovoscope@dev"
+            uv pip install --force-reinstall --upgrade ovoscope
           else
             uv pip install ovoscope
           fi

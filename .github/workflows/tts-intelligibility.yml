@@ -131,9 +131,8 @@ jobs:
         run: |
           uv pip install pytest pytest-json-report
           if [ "${{ inputs.pre_release }}" == "true" ]; then
-            echo "Installing ovoscope[tts] from GitHub dev (pre_release)..."
-            uv pip install --force-reinstall \
-              "ovoscope[tts] @ git+https://github.com/TigreGotico/ovoscope@dev"
+            echo "Installing ovoscope[tts] (latest PyPI prerelease)..."
+            uv pip install --force-reinstall --upgrade "ovoscope[tts]"
           else
             uv pip install "ovoscope[tts]"
           fi
