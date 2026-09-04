@@ -1,0 +1,113 @@
+name: Propose Codename Advance
+# Manual dispatch only — advances the CURRENT pointer to the next codename in the
+# registry when a new stable cycle begins.  Never runs automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: true
+        description: >
+          When true (default), print the proposed transition without writing to CURRENT.
+          Set to false to actually advance the pointer and open a PR.
+
+jobs:
+  propose_codename:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout gh-automations
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Resolve current codename
+        id: current
+        working-directory: scripts
+        run: |
+          NAME=$(python resolve_codename.py --codenames-dir ../codenames)
+          echo "codename=${NAME}" >> $GITHUB_OUTPUT
+
+      - name: Dry-run advance
+        if: ${{ inputs.dry_run }}
+        working-directory: scripts
+        run: |
+          echo "=== DRY RUN ==="
+          echo "Current codename: ${{ steps.current.outputs.codename }}"
+          # Show what the next name would be without writing
+          python - <<'PYEOF'
+          import sys
+          sys.path.insert(0, ".")
+          from resolve_codename import resolve_codename, advance_codename
+          import os
+          codenames_dir = os.path.join("..", "codenames")
+          # Read registry
+          registry_path = os.path.join(codenames_dir, "CODENAMES")
+          pointer_path  = os.path.join(codenames_dir, "CURRENT")
+          with open(registry_path) as f:
+              names = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+          with open(pointer_path) as f:
+              current = f.read().strip()
+          idx = names.index(current)
+          if idx + 1 >= len(names):
+              print("ERROR: no next codename available — append names to CODENAMES first")
+              sys.exit(1)
+          nxt = names[idx + 1]
+          print(f"Would advance: {current} -> {nxt}")
+          remaining = len(names) - (idx + 2)
+          print(f"Remaining after advance: {remaining}")
+          if remaining < 3:
+              print("WARNING: fewer than 3 codenames remaining — consider appending more to CODENAMES")
+          PYEOF
+
+      - name: Advance pointer and open PR
+        if: ${{ !inputs.dry_run }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "JarbasAi"
+          git config user.email "jarbasai@mailfence.com"
+
+          OLD=$(cat codenames/CURRENT | tr -d '[:space:]')
+
+          # Advance the pointer
+          cd scripts
+          python resolve_codename.py --codenames-dir ../codenames --advance
+          cd ..
+
+          NEW=$(cat codenames/CURRENT | tr -d '[:space:]')
+
+          BRANCH="chore/codename-advance-${NEW,,}"
+          git checkout -b "$BRANCH"
+          git add codenames/CURRENT
+          git commit -m "chore(codenames): advance cycle pointer ${OLD} -> ${NEW}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --draft \
+            --base dev \
+            --head "$BRANCH" \
+            --title "chore(codenames): advance cycle pointer ${OLD} -> ${NEW}" \
+            --body "$(cat <<PREOF
+          ## Codename cycle advance
+
+          Advances the active codename pointer from **${OLD}** to **${NEW}**.
+
+          ### Checklist
+          - [ ] A new stable roadmap milestone has been agreed upon
+          - [ ] The previous codename cycle (${OLD}) is considered closed
+          - [ ] \`codenames/CODENAMES\` has at least 3 entries after this one
+
+          ### How to test
+          After merging, run:
+          \`\`\`bash
+          python scripts/resolve_codename.py --codenames-dir codenames
+          # Expected output: ${NEW}
+          \`\`\`
+          PREOF
+          )"
