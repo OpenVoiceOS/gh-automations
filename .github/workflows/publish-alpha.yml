@@ -244,6 +244,9 @@ jobs:
     if: ${{ always() && needs.bump_version.result == 'success' && inputs.propose_release }}
     runs-on: ${{inputs.runner}}
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
@@ -281,10 +284,24 @@ jobs:
           if [ -n "$EXISTING" ]; then
             echo "PR already exists: #${EXISTING} — skipping creation"
           else
+            # Close any earlier release-* proposals still open against this base —
+            # each alpha cycle would otherwise leave the previous cycle's PR open
+            # forever, since only an exact head-branch match was deduplicated above.
+            # This is hygiene, not release-blocking: a close failure is logged and
+            # skipped rather than failing the job.
+            STALE_PRS=$(gh pr list --repo "${{ github.repository }}" \
+              --base "${BASE}" --state open \
+              --json number,headRefName \
+              --jq '.[] | select(.headRefName | startswith("release-")) | select(.headRefName != "release-'"${VERSION}"'") | .number')
+            for PR in $STALE_PRS; do
+              echo "Closing superseded release proposal #${PR}"
+              gh pr close "${PR}" --delete-branch --repo "${{ github.repository }}" || echo "Failed to close #${PR} — continuing"
+            done
+
             gh pr create \
               --repo "${{ github.repository }}" \
               --title "Release ${VERSION}" \
-              --body "Human review requested!" \
+              --body "Human review requested! This supersedes any earlier open release proposal for this repository." \
               --head "release-${VERSION}" \
               --base "${BASE}"
           fi
