@@ -54,7 +54,7 @@ Runs on PR merge to `dev`. Bumps the version, optionally updates changelog and c
 
 | Job | Condition | Description |
 |-----|-----------|-------------|
-| `propose_release` | `propose_release: true` + `bump_version` succeeded | Creates `release-X.Y.ZaN` branch, opens PR to `master` via GitHub API |
+| `propose_release` | `propose_release: true` + `bump_version` succeeded | Creates `release-X.Y.ZaN` branch, opens PR to `master` via GitHub API. Opening a new proposal closes the repository's earlier open `release-*` proposals and deletes their branches. |
 | `publish_pypi` | `publish_pypi: true` + `bump_version` succeeded | Builds with `python -m build`, publishes via `pypa/gh-action-pypi-publish@master` |
 | `notify` | `notify_matrix: true` + `bump_version` succeeded + PR merged | Calls `notify-matrix.yml` with a canned message |
 
