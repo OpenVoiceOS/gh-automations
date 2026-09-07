@@ -15,6 +15,12 @@ name: Ovoscope End-to-End Tests
 # - NEBULENTO_PIPELINE: Auto-installs nebulento if require_nebulento=true (CI fallback).
 # - PALAVREADO_PIPELINE: Auto-installs palavreado if require_palavreado=true (CI fallback).
 #
+# Test extras install: the "Install Package with Test Extras" step installs
+# plain ovos-core, which already pulls in Padacioso via ovos-workshop. It
+# only reaches for the ovos-core[plugins] extra — which additionally pins
+# ovos_padatious — when require_padatious is true, so callers that never
+# asked for Padatious never get it installed as a side effect.
+#
 # Tests that use a missing pipeline will be SKIPPED (via is_pipeline_available()).
 # Set require_adapt/require_padatious/require_m2v to fail CI if those pipelines
 # are absent instead of silently skipping.
@@ -305,11 +311,18 @@ jobs:
       - name: Install Package with Test Extras
         run: |
           uv pip install pytest pytest-json-report pytest-xdist
-          # Bare ovos-core ships no pipeline matchers by design; the
-          # [plugins] extra is what actually registers Adapt/Padatious/M2V.
-          # Without it here, resolver-fresh CI envs silently no-op every
-          # Adapt cell instead of failing.
-          uv pip install "ovos-core[plugins]"
+          # Bare ovos-core already pulls in ovos-workshop, which hard-pins
+          # padacioso, so Padacioso is always available. The [plugins] extra
+          # additionally pins ovos_padatious, which every caller that still
+          # boots Padatious needs — but installing it unconditionally would
+          # reinstall Padatious even when require_padatious is false, so it
+          # is only pulled in for that legacy path. Adapt and M2V are handled
+          # by the per-engine auto-install steps above.
+          if [ "${{ inputs.require_padatious }}" == "true" ]; then
+            uv pip install "ovos-core[plugins]"
+          else
+            uv pip install ovos-core
+          fi
           if [ "${{ inputs.pre_release }}" == "true" ]; then
             echo "Installing ovoscope (latest PyPI prerelease)..."
             # ovoscope auto-publishes an alpha to PyPI on every merge to dev,
