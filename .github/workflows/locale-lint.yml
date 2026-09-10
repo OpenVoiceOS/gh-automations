@@ -1,0 +1,111 @@
+name: Locale Lint
+# Two jobs, two names, so a reader sees which failures are the spec's and
+# which are ours. "spec" runs ovos-spec-lint (OVOS-INTENT-2 base names,
+# duplicate basenames, malformed templates) over the locale directories and
+# fails on findings in files the pull request touches. "policy" runs
+# scripts/locale_gate.py, the project's own rules (basename parity with
+# en-US, slot survival, dialog completeness), differentially against the
+# base branch, and fails on introduced findings.
+on:
+  workflow_call:
+    inputs:
+      gh_automations_ref:
+        type: string
+        default: "dev"
+        description: >
+          Branch or sha of OpenVoiceOS/gh-automations to take scripts/locale_gate.py
+          from. A caller testing a gh-automations branch passes that branch here.
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      python_version:
+        type: string
+        default: "3.12"
+      locale_paths:
+        type: string
+        default: ""
+        description: >
+          Space-separated locale directories to lint. Empty auto-detects every
+          directory named locale/ or res/ that holds .intent, .dialog, .voc,
+          .entity or .rx files.
+      spec_scope:
+        type: string
+        default: "changed"
+        description: >
+          "changed" fails the spec job only on findings in files this pull
+          request adds or modifies; "all" fails on any finding in scope.
+
+env:
+  UV_SYSTEM_PYTHON: "1"
+  UV_PRERELEASE: "allow"
+
+jobs:
+  spec:
+    name: spec (ovos-spec-lint)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+      - name: Install uv and ovos-spec-tools (latest prerelease)
+        run: |
+          pip install uv
+          uv pip install --prerelease=allow ovos-spec-tools
+      - name: Lint locale directories
+        env:
+          LOCALE_PATHS: ${{ inputs.locale_paths }}
+          SPEC_SCOPE: ${{ inputs.spec_scope }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$LOCALE_PATHS" ]; then
+            targets="$LOCALE_PATHS"
+          else
+            targets="$(find . -type d \( -name locale -o -name res \) -not -path '*/.*' \
+              | while read -r d; do find "$d" -type f \( -name '*.intent' -o -name '*.dialog' -o -name '*.voc' -o -name '*.entity' -o -name '*.rx' \) -print -quit | grep -q . && echo "$d"; done | sort -u | tr '\n' ' ')"
+          fi
+          echo "targets: ${targets:-none}"
+          [ -n "$targets" ] || { echo "0 files in, 0 findings (no locale directories)"; exit 0; }
+          n_files=$(for t in $targets; do find "$t" -type f; done | wc -l)
+          ovos-spec-lint $targets > lint.out 2>&1 || true
+          grep -E ': (error|warning): ' lint.out > findings.txt || true
+          if [ "$SPEC_SCOPE" = "changed" ] && [ -n "$BASE_REF" ]; then
+            git diff --name-only --diff-filter=AM "origin/$BASE_REF"...HEAD > changed.txt
+            grep -F -f changed.txt findings.txt > blocking.txt || true
+          else
+            cp findings.txt blocking.txt
+          fi
+          echo "$n_files files in, $(wc -l < findings.txt) findings, $(wc -l < blocking.txt) in files this pull request touches"
+          cat findings.txt
+          test ! -s blocking.txt
+
+  policy:
+    name: locale policy (locale_gate.py)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: ${{ inputs.gh_automations_ref }}
+          path: _gh_automations/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+      - name: Install uv and ovos-spec-tools (latest prerelease)
+        run: |
+          pip install uv
+          uv pip install --prerelease=allow ovos-spec-tools
+      - name: Run the locale policy gate against the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base="${BASE_REF:+origin/$BASE_REF}"
+          python3 _gh_automations/scripts/locale_gate.py . ${base:+--base "$base"}
