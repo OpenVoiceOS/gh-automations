@@ -199,3 +199,29 @@ def write_version_block(version_file: str, major: int, minor: int, build: int, a
 
     with open(version_file, "w") as f:
         f.write(before_block + new_block + after_block)
+
+
+def shipped_version(version_file: str) -> str | None:
+    """The `__version__` Python actually produces from the file, or None when
+    the file defines none. Executed in isolation, so a stale VERSION_*
+    assignment outside the block, or a `__version__` computed before the
+    block, shows up here and nowhere else."""
+    import runpy
+    ns = runpy.run_path(version_file)
+    v = ns.get("__version__")
+    return str(v) if v is not None else None
+
+
+def check_shipped_version(version_file: str) -> None:
+    """Refuse a file whose shipped `__version__` differs from its marked
+    block: the release would build a stale version and PyPI would reject
+    the upload as a duplicate, while the tag and changelog succeed."""
+    major, minor, build, alpha = read_version(version_file)
+    expected = format_version(major, minor, build, alpha)
+    shipped = shipped_version(version_file)
+    if shipped is not None and shipped != expected:
+        raise ValueError(
+            f"{version_file}: __version__ evaluates to {shipped} but the START/END block says {expected}; "
+            "a VERSION_* assignment outside the block or a __version__ line placed before it wins "
+            "at import time. Keep one block and compute __version__ after its END marker."
+        )
