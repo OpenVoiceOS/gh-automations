@@ -336,6 +336,19 @@ jobs:
           #          license with no reciprocal effect on an importing program.
           #          Used as an unmodified imported dataset, pulled transitively
           #          via timezonefinder.
+          #   soxr — LGPL-2.1-or-later (the python-soxr bindings ship the libsoxr
+          #          shared library). LGPL reaches a program that links it only
+          #          if that program is distributed; we install it from PyPI at
+          #          runtime, link it dynamically, modify nothing, and
+          #          redistribute neither the library nor a binary containing
+          #          it. Pulled transitively via librosa for resampling.
+          #   nvidia-* and cuda-toolkit — proprietary NVIDIA licences, correctly
+          #          categorised as non-free. They are pulled by torch on Linux
+          #          as CUDA runtime wheels, installed on a GPU host at run time
+          #          and never redistributed by us, so the licence governs that
+          #          host's own use of NVIDIA software rather than anything we
+          #          ship. The alternation covers the whole nvidia- family
+          #          because torch names a different subset per release.
           #   orjson — License-Expression `MPL-2.0 AND (Apache-2.0 OR MIT)`: the
           #          code is Apache/MIT (elect either), MPL-2.0 covers only a
           #          bundled component and is file-level copyleft, safe as an
@@ -347,7 +360,10 @@ jobs:
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
                      r"|(?i:^orjson([=<>!~ @;].*)?$)"
-                     r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)")
+                     r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)"
+                     r"|(?i:^soxr([=<>!~ @;].*)?$)"
+                     r"|(?i:^nvidia[-_][A-Za-z0-9._-]+([=<>!~ @;].*)?$)"
+                     r"|(?i:^cuda[-_]toolkit([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
