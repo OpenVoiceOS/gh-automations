@@ -41,6 +41,23 @@ on:
           uv prerelease resolution mode (allow | if-necessary | explicit |
           disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas
           and relies on prerelease floor-pins resolving the way pip did.
+      test_timeout:
+        type: number
+        default: 180
+        description: >
+          Seconds a single test may take before pytest-timeout fails it and
+          dumps its stack. A healthy ovoscope test boots a MiniCroft and runs
+          in seconds; a hang here names the test instead of taking the job
+          with it.
+      timeout_minutes:
+        type: number
+        default: 30
+        description: >
+          Ceiling for the whole job. Most healthy runs take one to three
+          minutes and the slowest measured across the fleet takes ten, so
+          thirty leaves that one three times its room while a hung run still
+          reports within the hour rather than at the runner's own limit. The test step runs under its own timeout five
+          minutes below this, so the log says the run was cut.
       pytest_workers:
         type: string
         default: "auto"
@@ -162,7 +179,7 @@ env:
 jobs:
   ovoscope:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       pull-requests: write
       contents: read
@@ -310,7 +327,7 @@ jobs:
 
       - name: Install Package with Test Extras
         run: |
-          uv pip install pytest pytest-json-report pytest-xdist
+          uv pip install pytest pytest-json-report pytest-xdist pytest-timeout
           # Bare ovos-core already pulls in ovos-workshop, which hard-pins
           # padacioso, so Padacioso is always available. The [plugins] extra
           # additionally pins ovos_padatious, which every caller that still
@@ -451,14 +468,35 @@ jobs:
           if [ -n "${{ inputs.pytest_workers }}" ] && [ "${{ inputs.pytest_workers }}" != "0" ]; then
             XDIST_ARGS="-n ${{ inputs.pytest_workers }}"
           fi
+          # five minutes below the job ceiling, so this reports before the
+          # runner kills the job and takes the reason with it
+          step_timeout=$(( ${{ inputs.timeout_minutes }} > 5 ? ${{ inputs.timeout_minutes }} - 5 : 1 ))
+          # --timeout-method=thread: a MiniCroft bus thread that never returns
+          # is still interrupted, where a signal would only reach the main thread
           # shellcheck disable=SC2086
-          python -m pytest \
-            ${{ inputs.test_path }} \
-            $XDIST_ARGS \
-            --json-report \
-            --json-report-file=/tmp/ovoscope-results.json \
-            $COV_ARGS \
-            -v
+          timeout --signal=TERM --kill-after=60 "${step_timeout}m" \
+            python -m pytest \
+              ${{ inputs.test_path }} \
+              $XDIST_ARGS \
+              --timeout=${{ inputs.test_timeout }} \
+              --timeout-method=thread \
+              --json-report \
+              --json-report-file=/tmp/ovoscope-results.json \
+              $COV_ARGS \
+              -v
+          rc=$?
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            {
+              echo "CUT: this run was stopped at ${step_timeout} minutes. It did not fail a test;"
+              echo "it never finished, so it reported nothing about the change under test."
+              echo "A per-test timeout of ${{ inputs.test_timeout }}s should have named the hung test"
+              echo "first; if it did not, the hang is outside a test: a MiniCroft that never shut"
+              echo "down, or an orphaned process holding the runner. Read the tail of the log for"
+              echo "the last test that started. Raising the ceiling does not turn a hang into a pass."
+            } >&2
+            exit 124
+          fi
+          exit "$rc"
 
       - name: Format ovoscope section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
