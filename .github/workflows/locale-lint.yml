@@ -6,7 +6,10 @@ name: Locale Lint
 # scripts/locale_gate.py, the project's own rules (basename parity with
 # en-US, slot survival, dialog completeness), differentially against the
 # base branch, once per skill path that holds a locale/ directory, and fails
-# on introduced findings.
+# on introduced findings. The policy job needs a base to diff against, so it
+# runs on pull_request events only; on any other event it prints why and
+# passes. locale_gate.py reads <skill>/locale only: a res/ tree gets the spec
+# job's checks but no policy run.
 on:
   workflow_call:
     inputs:
@@ -28,7 +31,8 @@ on:
         description: >
           Space-separated locale directories to lint. Empty auto-detects every
           directory named locale/ or res/ that holds .intent, .dialog, .voc,
-          .entity or .rx files.
+          .entity or .rx files. The policy job reads locale/ directories only;
+          a res/ directory is linted by the spec job and not by the policy job.
       spec_scope:
         type: string
         default: "changed"
@@ -45,17 +49,19 @@ jobs:
     name: spec (ovos-spec-lint)
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python_version }}
-      - name: Install uv and ovos-spec-tools (latest prerelease)
+      - name: Install uv and ovos-spec-tools (1.12.0a1 or newer)
         run: |
           pip install uv
-          uv pip install --prerelease=allow ovos-spec-tools
+          uv pip install --prerelease=allow "ovos-spec-tools>=1.12.0a1"
       - name: Lint locale directories
         env:
           LOCALE_PATHS: ${{ inputs.locale_paths }}
@@ -87,23 +93,25 @@ jobs:
     name: locale policy (locale_gate.py)
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Checkout gh-automations scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python_version }}
-      - name: Install uv and ovos-spec-tools (latest prerelease)
+      - name: Install uv and ovos-spec-tools (1.12.0a1 or newer)
         run: |
           pip install uv
-          uv pip install --prerelease=allow ovos-spec-tools
+          uv pip install --prerelease=allow "ovos-spec-tools>=1.12.0a1"
       - name: Run the locale policy gate against the base branch
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -113,7 +121,11 @@ jobs:
           # locale in its package (<package>/locale), so the gate runs once on
           # the parent of each locale directory, found the way the spec job
           # finds its targets, never on '.', which would read nothing.
-          base="${BASE_REF:+origin/$BASE_REF}"
+          if [ -z "$BASE_REF" ]; then
+            echo "policy gate skipped: no base branch (event ${GITHUB_EVENT_NAME:-unknown}); it runs on pull_request events only, where findings are compared with the base"
+            exit 0
+          fi
+          base="origin/$BASE_REF"
           skills="$(python3 _gh_automations/scripts/locale_gate.py --find-skills . \
             --locale-paths "$LOCALE_PATHS" --exclude _gh_automations)"
           if [ -z "$skills" ]; then
@@ -124,6 +136,6 @@ jobs:
           rc=0
           while IFS= read -r skill; do
             echo "== locale_gate.py $skill"
-            python3 _gh_automations/scripts/locale_gate.py "$skill" ${base:+--base "$base"} || rc=1
+            python3 _gh_automations/scripts/locale_gate.py "$skill" --base "$base" || rc=1
           done <<< "$skills"
           exit "$rc"
