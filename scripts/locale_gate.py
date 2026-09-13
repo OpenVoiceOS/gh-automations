@@ -142,6 +142,56 @@ def pairing_forced_reason(stem, ext, locale_dir):
     return None
 
 
+LOCALE_EXTS = ('.intent', '.dialog', '.voc', '.entity', '.rx')
+
+
+def find_skill_paths(root, locale_paths='', exclude=()):
+    """The skill paths under root that locale_gate.py can read: the parent of
+    every directory named 'locale' that holds a locale file, found the way the
+    spec job finds its targets. load_locale_dirs() reads only
+    <skill_path>/locale, so a skill that keeps its locale in its package
+    (<package>/locale) is invisible from the repository root.
+
+    locale_paths (space-separated) narrows the search, as the workflow input
+    does for the spec job. A path named 'locale' gives its parent; any other
+    path gives itself when it holds a 'locale' directory, else the skill paths
+    found under it. Hidden directories and the names in exclude are skipped.
+    """
+    def has_locale_file(d):
+        for _dirpath, _dirs, files in os.walk(d):
+            if any(f.endswith(LOCALE_EXTS) for f in files):
+                return True
+        return False
+
+    def search(top):
+        found = []
+        for dirpath, dirs, _files in os.walk(top):
+            dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d not in exclude)
+            if os.path.basename(dirpath) == 'locale' and has_locale_file(dirpath):
+                found.append(os.path.dirname(dirpath))
+                dirs[:] = []
+        return found
+
+    out = []
+    tops = locale_paths.split() if locale_paths else [root]
+    for t in tops:
+        t = t if os.path.isabs(t) else os.path.join(root, t)
+        t = os.path.normpath(t)
+        if os.path.basename(t) == 'locale' and os.path.isdir(t):
+            if has_locale_file(t):
+                out.append(os.path.dirname(t))
+        elif os.path.isdir(os.path.join(t, 'locale')) and has_locale_file(os.path.join(t, 'locale')):
+            out.append(t)
+        elif os.path.isdir(t):
+            out.extend(search(t))
+    rel = []
+    for p in out:
+        r = os.path.relpath(p, root)
+        if r not in rel:
+            rel.append(r)
+    return sorted(rel)
+
+
 def load_locale_dirs(skill_path, wanted):
     loc_root = os.path.join(skill_path, 'locale')
     if not os.path.isdir(loc_root):
@@ -1446,6 +1496,40 @@ def selftest():
         else:
             print('SELFTEST OK [dialog_completeness degraded]: DEGRADED, no findings invented, run did not fail')
 
+    # 12. package layout: a skill that keeps its locale in its package
+    # (<repo>/<package>/locale) is invisible to a run at the repository root,
+    # which reads nothing and passes. find_skill_paths() must find the package,
+    # and the gate run there must fail on a violation. This pins the #113
+    # canary defect: the policy job ran on '.' and passed every locale change.
+    with tempfile.TemporaryDirectory(prefix='localegate-package-') as repo:
+        pkg = os.path.join(repo, 'my_skill')
+        _build_clean_tree(pkg)
+        _write(os.path.join(pkg, 'locale', 'pt-PT', 'only_here.dialog'), 'so aqui\n')
+        _write(os.path.join(repo, '_gh_automations', 'fixture', 'locale', 'en-US', 'x.dialog'), 'x\n')
+        _write(os.path.join(repo, '.hidden', 'locale', 'en-US', 'x.dialog'), 'x\n')
+        _write(os.path.join(repo, 'docs', 'locale', 'README.md'), 'no locale files here\n')
+        found = find_skill_paths(repo, '', ('_gh_automations',))
+        narrowed_pkg = find_skill_paths(repo, 'my_skill', ('_gh_automations',))
+        narrowed_loc = find_skill_paths(repo, 'my_skill/locale', ('_gh_automations',))
+        rows, files_in, files_reported = [], 0, 0
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            root_code = run_gate(repo, [], [])
+        root_out = buf.getvalue()
+        if found != ['my_skill']:
+            print(f"SELFTEST FAIL [package layout find]: expected ['my_skill'], got {found}")
+            ok = False
+        elif narrowed_pkg != ['my_skill'] or narrowed_loc != ['my_skill']:
+            print(f'SELFTEST FAIL [package layout locale_paths]: expected my_skill for both, got {narrowed_pkg} {narrowed_loc}')
+            ok = False
+        elif not (root_code == 0 and '0 in, 0 out' in root_out):
+            print(f'SELFTEST FAIL [package layout root]: expected the repository-root run to read nothing, got exit {root_code}')
+            ok = False
+        else:
+            print("SELFTEST OK [package layout]: found ['my_skill'] (hidden, excluded and file-less locale dirs skipped), "
+                  "locale_paths honoured, a root run reads 0 in, 0 out")
+            expect_fail('package layout gate', os.path.join(repo, found[0]), 'only_here.dialog')
+
     return 0 if ok else 1
 
 
@@ -1456,10 +1540,21 @@ def main():
     ap.add_argument('--md', action='append', default=[], help='.md file(s) to run the prose lint over')
     ap.add_argument('--base', default=None, help='git ref to diff against; findings become introduced/pre-existing/fixed')
     ap.add_argument('--selftest', action='store_true')
+    ap.add_argument('--find-skills', metavar='ROOT', default=None,
+                    help='print, one per line, the skill paths under ROOT that hold a locale/ directory, and exit')
+    ap.add_argument('--locale-paths', default='',
+                    help='with --find-skills: space-separated paths to search instead of all of ROOT')
+    ap.add_argument('--exclude', action='append', default=[],
+                    help='with --find-skills: a directory name to skip (repeatable)')
     args = ap.parse_args()
 
     if args.selftest:
         sys.exit(selftest())
+
+    if args.find_skills is not None:
+        for p in find_skill_paths(args.find_skills, args.locale_paths, tuple(args.exclude)):
+            print(p)
+        sys.exit(0)
 
     if not args.skill_path:
         ap.error('skill checkout path is required unless --selftest')
