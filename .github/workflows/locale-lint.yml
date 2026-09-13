@@ -68,6 +68,12 @@ jobs:
           SPEC_SCOPE: ${{ inputs.spec_scope }}
           BASE_REF: ${{ github.base_ref }}
         run: |
+          # "changed" needs a base to diff against. Without one (a push or a
+          # dispatch) every finding would count, so the job skips, as policy does.
+          if [ "$SPEC_SCOPE" = "changed" ] && [ -z "$BASE_REF" ]; then
+            echo "spec lint skipped: spec_scope is changed and there is no base branch (event ${GITHUB_EVENT_NAME:-unknown}); set spec_scope: all to lint every file"
+            exit 0
+          fi
           if [ -n "$LOCALE_PATHS" ]; then
             targets="$LOCALE_PATHS"
           else
