@@ -1,4 +1,4 @@
-name: Test Scripts
+name: Test
 
 on:
   push:
@@ -6,11 +6,13 @@ on:
     paths:
       - 'scripts/**'
       - 'test/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [dev]
     paths:
       - 'scripts/**'
       - 'test/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 # uv installs into the setup-python interpreter (no venv on the runner)
@@ -33,6 +35,6 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install test dependencies
-        run: uv pip install pytest ovos-plugin-manager
-      - name: Run script tests
-        run: pytest test/test_scripts.py -v
+        run: uv pip install pytest pyyaml ovos-plugin-manager
+      - name: Run tests
+        run: pytest test/ -v
