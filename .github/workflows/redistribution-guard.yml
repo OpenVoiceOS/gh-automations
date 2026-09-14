@@ -1,0 +1,113 @@
+name: Redistribution Guard
+
+# Some licence exceptions hold only because we do not redistribute the library.
+# soxr is the live example: LGPL-2.1 binds a program that is CONVEYED while
+# linking the library, and the central whitelist accepts it on the stated
+# ground that we install it from PyPI at run time and ship nothing containing
+# it. An image build, a container layer or a bundled wheel would make that
+# untrue, and nothing would say so.
+#
+# This job fails when a built artifact carries one of those libraries, and its
+# failure text names the whitelist row it protects, so whoever meets it can
+# read the reasoning rather than guess at the rule.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      scan_paths:
+        type: string
+        default: "dist"
+        description: >
+          Space-separated paths to scan: a wheel directory, an unpacked image
+          root, a container export. Every wheel found is unpacked and scanned
+          too, because a bundled shared library is exactly the case this
+          catches.
+      artifact_name:
+        type: string
+        default: ""
+        description: >
+          Optional workflow artifact to download and scan, for a build whose
+          output does not survive into this job.
+      guarded_libraries:
+        type: string
+        default: "libsoxr"
+        description: >
+          Space-separated library stems whose licence exception depends on our
+          not redistributing them. Each has a row in
+          docs/license-whitelist.md explaining the condition.
+
+jobs:
+  redistribution_guard:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the artifact
+        if: ${{ inputs.artifact_name != '' }}
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: dist
+
+      - name: Scan for redistributed libraries
+        shell: bash
+        run: |
+          set -uo pipefail
+          scan_root="$(mktemp -d)"
+          found=""
+          scanned=0
+
+          for path in ${{ inputs.scan_paths }}; do
+            [ -e "$path" ] || continue
+            scanned=$((scanned + 1))
+            # a wheel is a zip: a bundled shared library lives inside it
+            while IFS= read -r wheel; do
+              dest="$scan_root/$(basename "$wheel" .whl)"
+              mkdir -p "$dest"
+              unzip -qo "$wheel" -d "$dest" || true
+            done < <(find "$path" -name '*.whl' -type f 2>/dev/null)
+            cp -r "$path" "$scan_root/" 2>/dev/null || true
+          done
+
+          if [ "$scanned" -eq 0 ]; then
+            echo "no path in '${{ inputs.scan_paths }}' exists, so nothing was scanned."
+            echo "A guard that scans nothing reports nothing, which reads exactly like a clean result."
+            exit 1
+          fi
+
+          for lib in ${{ inputs.guarded_libraries }}; do
+            while IFS= read -r hit; do
+              found="${found}${lib}: ${hit}"$'\n'
+            done < <(find "$scan_root" \( -name "${lib}*.so" -o -name "${lib}*.so.*" \
+                                          -o -name "${lib}*.dylib" -o -name "${lib}*.dll" \) 2>/dev/null)
+          done
+
+          echo "scanned $scanned path(s) for: ${{ inputs.guarded_libraries }}"
+          if [ -z "$found" ]; then
+            echo "no guarded library is present in the built artifact."
+            exit 0
+          fi
+
+          {
+            echo "REDISTRIBUTION GUARD FAILED"
+            echo
+            echo "A built artifact carries a library whose licence exception depends on our"
+            echo "NOT redistributing it:"
+            echo
+            printf '%s' "$found"
+            echo
+            echo "Read the row for that library in docs/license-whitelist.md of"
+            echo "OpenVoiceOS/gh-automations. For libsoxr the row reads: LGPL-2.1 places its"
+            echo "conditions on a program that is DISTRIBUTED while linking the library, and"
+            echo "the exception holds because we install it at run time and redistribute"
+            echo "neither the library nor any binary containing it. Shipping it in an image,"
+            echo "a container or a wheel makes that sentence false, and the exception stops"
+            echo "applying to whatever is being shipped."
+            echo
+            echo "This is a licence question, not a build failure. It goes to Miro."
+          } >&2
+          exit 1
