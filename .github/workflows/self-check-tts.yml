@@ -4,8 +4,12 @@ name: Self Check TTS
 #
 # The positive job supplies a command that writes the test file, and names that
 # same file as test_path. If the command runs where the comment says it does,
-# pytest finds the file and the job passes. Without the command there is no
-# file, so this is a test that cannot pass by accident.
+# pytest collects the file. Without the command there is no file to collect.
+#
+# Read the pytest counts in the log, not the job conclusion. The run_tests step
+# pipes pytest into tee and does not check PIPESTATUS, so the step exits with
+# the status of tee and a collection error reads as a pass. build-tests.yml
+# checks PIPESTATUS on the same line; this workflow does not.
 #
 # The negative job is the same call with no command, and it must fail. It runs
 # on workflow_dispatch only: a job that must fail leaves a failing run on the
@@ -34,8 +38,8 @@ jobs:
     uses: ./.github/workflows/tts-intelligibility.yml
     with:
       install_extras: "-r /dev/null"
-      pre_test_command: "mkdir -p test/canary && printf 'def test_pre_test_command_ran():\\n    assert True\\n' > test/canary/test_pre_test_command.py"
-      test_path: "test/canary/test_pre_test_command.py"
+      pre_test_command: "mkdir -p test/canary && printf 'def test_tts_hook_canary():\\n    assert True\\n' > test/canary/test_tts_hook_canary.py"
+      test_path: "test/canary/test_tts_hook_canary.py"
       pr_comment: false
 
   # Must fail: same call, no command, so pytest has no file to collect.
@@ -44,5 +48,5 @@ jobs:
     uses: ./.github/workflows/tts-intelligibility.yml
     with:
       install_extras: "-r /dev/null"
-      test_path: "test/canary/test_pre_test_command.py"
+      test_path: "test/canary/test_tts_hook_canary.py"
       pr_comment: false
