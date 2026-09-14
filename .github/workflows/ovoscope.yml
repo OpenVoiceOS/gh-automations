@@ -50,11 +50,14 @@ on:
           and relies on prerelease floor-pins resolving the way pip did.
       pytest_workers:
         type: string
-        default: "auto"
+        default: "2"
         description: >
-          pytest-xdist worker count for the e2e suite. Each ovoscope test boots its
-          own in-process MiniCroft and is independent, so they parallelize cleanly.
-          "auto" = one worker per core; "0" runs serially (disable xdist).
+          pytest-xdist worker count for the e2e suite. Each worker boots its own
+          in-process MiniCroft and trains its own intent engines. The default is 2:
+          with "auto" (4 workers on ubuntu-latest) the parallel trainers starved
+          each other, and utterances returned ovos.intent.unmatched or a worker
+          crashed. A repository can set a higher value or "auto". "0" runs
+          serially (disable xdist).
       runner:
         type: string
         default: "ubuntu-latest"
