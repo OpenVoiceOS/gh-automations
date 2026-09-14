@@ -103,7 +103,8 @@ on:
         default: 0
         description: >
           Minimum total coverage percentage (0 = disabled). The job fails if
-          coverage falls below this threshold.
+          coverage falls below this threshold. At the default of 0 the number
+          is advisory: it is measured and reported, and no value fails the job.
       pr_comment:
         type: boolean
         default: true
@@ -277,6 +278,8 @@ jobs:
           echo "| Source | \`${{ inputs.coverage_source }}\` |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.min_coverage }}" != "0" ]; then
             echo "| Minimum Required | ${{ inputs.min_coverage }}% |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Minimum Required | not set — advisory only |" >> $GITHUB_STEP_SUMMARY
           fi
           if [ -f coverage.xml ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -312,8 +315,10 @@ jobs:
                   icon = "✅" if ok else "❌"
                   threshold_note = f" (threshold: {min_cov}%)"
               else:
-                  icon = "✅" if total >= 80 else ("⚠️" if total >= 60 else "❌")
-                  threshold_note = ""
+                  # No floor is set, so nothing was passed or failed. A tick
+                  # here reads as a verdict the job never reached.
+                  icon = "📊"
+                  threshold_note = " (advisory — no minimum set, nothing enforced)"
               lines.append(f"{icon} **{total}%** total coverage{threshold_note}")
 
           if tests_outcome == "failure":

@@ -162,13 +162,41 @@ jobs:
             --no-error-summary \
             --output=json 2>/dev/null \
             | tee /tmp/mypy-results.json || true
-          # Also capture human-readable output for the PR comment
+          # The human-readable run keeps mypy's summary line. That line holds
+          # the number of source files mypy read, and it is the only proof in
+          # the log that this job checked anything at all.
           mypy ${{ inputs.mypy_args }} \
-            --show-column-numbers \
-            --no-error-summary 2>&1 \
+            --show-column-numbers 2>&1 \
             | tee /tmp/mypy-human.txt || true
           # Exit code from human-readable run (not tee)
-          mypy ${{ inputs.mypy_args }} --show-column-numbers --no-error-summary 2>&1
+          mypy ${{ inputs.mypy_args }} --show-column-numbers 2>&1
+
+      # mypy writes one of:
+      #   Success: no issues found in 12 source files
+      #   Found 3 errors in 2 files (checked 12 source files)
+      # Both name the count. No count means mypy read no file, or did not run.
+      - name: Count the source files mypy read
+        id: mypy_files
+        run: |
+          python3 - <<'PYEOF'
+          import os, re
+
+          try:
+              raw = open("/tmp/mypy-human.txt").read()
+          except FileNotFoundError:
+              raw = ""
+
+          m = re.search(r"(?:no issues found in|checked)\s+(\d+)\s+source files?", raw)
+          count = m.group(1) if m else ""
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"count={count}\n")
+
+          if count:
+              print(f"mypy read {count} source files")
+          else:
+              print("mypy named no source file count")
+          PYEOF
 
       - name: Format type check section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -177,6 +205,7 @@ jobs:
           import os, re
 
           outcome = os.environ.get("MYPY_OUTCOME", "unknown")
+          checked = os.environ.get("MYPY_FILES", "")
           human_path = "/tmp/mypy-human.txt"
 
           lines = []
@@ -193,12 +222,18 @@ jobs:
           summary_lines = [l for l in raw.splitlines() if l.strip()]
           summary = summary_lines[-1] if summary_lines else ""
 
-          if outcome == "success" or not error_lines:
-              lines.append("✅ **mypy**: no type errors found")
+          # An empty output is not a clean check. mypy that read no file, or
+          # did not run, writes no error line either, so the count decides.
+          if not checked:
+              lines.append("⚠️ **mypy**: no source file was checked — the job log "
+                           "has no file count, so this is not a clean type check")
+          elif outcome == "success" or not error_lines:
+              lines.append(f"✅ **mypy**: no type errors found in {checked} source files")
               if note_lines:
                   lines.append(f"ℹ️ {len(note_lines)} note(s) — check the job log")
           else:
-              lines.append(f"❌ **mypy**: {len(error_lines)} error(s) found")
+              lines.append(f"❌ **mypy**: {len(error_lines)} error(s) found "
+                           f"in {checked} source files")
               if summary:
                   lines.append(f"> {summary}")
 
@@ -224,6 +259,7 @@ jobs:
           PYEOF
         env:
           MYPY_OUTCOME: ${{ steps.mypy.outcome }}
+          MYPY_FILES: ${{ steps.mypy_files.outputs.count }}
 
       - name: Post type check section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -236,6 +272,16 @@ jobs:
             --content-file /tmp/type-check-section.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A job that read no file must not report green. This is a
+      # misconfiguration, not a type error, so fail_on_errors does not gate it:
+      # a caller that wants type checks off removes the job.
+      - name: Fail job if mypy checked no files
+        if: ${{ steps.mypy_files.outputs.count == '' || steps.mypy_files.outputs.count == '0' }}
+        run: |
+          echo "mypy named no source file count, so this job checked nothing."
+          echo "Check the mypy_args input against the package layout."
+          exit 1
 
       # Fail the job after posting the PR comment so the check status is correct.
       # Skipped when fail_on_errors is false — type check is informational only.

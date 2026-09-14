@@ -37,9 +37,9 @@ DEPRECATED_WORKFLOWS = {
 }
 
 # Workflows that use `workflow_call` (reusable).
-# Excluded: test.yml (gh-automations' own CI, not a reusable workflow)
+# Excluded: test.yml and self-check.yml (gh-automations' own CI, not reusable)
 #           notify-matrix.yml (internal-only, not designed for external callers)
-NON_REUSABLE_WORKFLOWS = {"test.yml", "notify-matrix.yml"}
+NON_REUSABLE_WORKFLOWS = {"test.yml", "self-check.yml", "notify-matrix.yml"}
 REUSABLE_WORKFLOWS = {f.name for f in WORKFLOW_FILES} - NON_REUSABLE_WORKFLOWS
 
 

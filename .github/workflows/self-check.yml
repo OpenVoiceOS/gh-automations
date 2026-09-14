@@ -1,0 +1,42 @@
+name: Self Check
+# This repository's reusable workflows, run against this repository.
+#
+# A check that cannot fail proves nothing, so each case here comes in two
+# directions. The positive job checks a real package and must pass. The
+# negative job points mypy at a path that does not exist and must fail: it
+# carries continue-on-error so the negative result is recorded without
+# turning the pull request red.
+#
+# Read the two job conclusions together. A run where both pass, or both
+# fail, means the type check no longer separates a checked tree from an
+# unchecked one.
+#
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/type-check.yml'
+      - '.github/workflows/coverage.yml'
+      - '.github/workflows/self-check.yml'
+  workflow_dispatch:
+
+jobs:
+  # Must pass: scripts/ holds real Python, so mypy names a file count.
+  type_check_reads_files:
+    uses: ./.github/workflows/type-check.yml
+    with:
+      mypy_args: "scripts --ignore-missing-imports"
+      pr_comment: false
+      fail_on_errors: false
+
+  # Must fail: mypy cannot read the target, names no file count, and the job
+  # refuses to report a clean type check. Before the count gate this job was
+  # green.
+  type_check_reads_nothing:
+    uses: ./.github/workflows/type-check.yml
+    continue-on-error: true
+    with:
+      mypy_args: "no_such_package_dir --ignore-missing-imports"
+      pr_comment: false
+      fail_on_errors: false
