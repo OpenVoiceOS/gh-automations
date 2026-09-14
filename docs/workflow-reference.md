@@ -1177,6 +1177,44 @@ The job exits non-zero only when `ovos-spec-lint` reports errors. Use `strict: t
 
 ---
 
+## `markdown-check.yml`
+
+Two blocking jobs for a repository whose content is Markdown: `markdownlint` runs markdownlint-cli2 on every Markdown file, and `links` runs lychee on every link those files carry. A specification set, a documentation tree or a blog has no other check, so its pull requests wait on these two.
+
+**Source:** `.github/workflows/markdown-check.yml`
+
+### Inputs
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `globs` | string | `**/*.md` | Space-separated markdownlint-cli2 globs |
+| `markdownlint_config` | string | `""` | Path to a markdownlint-cli2 configuration file. Empty: markdownlint-cli2 reads `.markdownlint-cli2.*` at the repository root, or uses its built-in defaults |
+| `lychee_args` | string | `--no-progress --accept 200..=299,403,429 --timeout 20 --max-retries 2 .` | Arguments for lychee. 403 and 429 count as reachable |
+| `lychee_fail` | boolean | `true` | Fail the `links` job on a dead link |
+| `lychee_fail_if_empty` | boolean | `false` | Fail the `links` job when lychee finds no link at all. lychee-action fails on that by default |
+
+Both jobs run with `permissions: contents: read`. Neither job writes, and the `links` token reaches a third-party action.
+
+### Typical usage
+
+```yaml
+name: Markdown Check
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+jobs:
+  markdown:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/markdown-check.yml@dev
+```
+
+Put the rule set in `.markdownlint-cli2.jsonc` at the repository root. A specification repository disables the line-length rule (`MD013`) and inline HTML (`MD033`); a heading that ends in a colon is a style choice, so `MD026` goes too.
+
+---
+
 ## `notify-matrix.yml`
 
 Sends a message to the OVOS Matrix channel. Uses [`fadenb/matrix-chat-message`](https://github.com/fadenb/matrix-chat-message).
