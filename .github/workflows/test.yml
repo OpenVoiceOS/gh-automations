@@ -7,12 +7,15 @@ on:
       - 'scripts/**'
       - 'test/**'
       - '.github/workflows/**'
+  # No paths filter, and ready_for_review in the types. A draft that is
+  # marked ready must carry checks, and the answer must not depend on which
+  # copy of this file GitHub resolves for the event. A pull request branch
+  # cut before this change still carries its own older copy of these
+  # triggers, so the two can disagree on the same event; without a paths
+  # filter here they cannot.
   pull_request:
     branches: [dev]
-    paths:
-      - 'scripts/**'
-      - 'test/**'
-      - '.github/workflows/**'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # uv installs into the setup-python interpreter (no venv on the runner)
