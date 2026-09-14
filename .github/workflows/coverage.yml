@@ -136,8 +136,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v7
 
+      # unconditional, as in build-tests.yml: the helper scripts are needed
+      # by the PR comment and by the espeak-ng build, and a condition that
+      # names only one of them breaks the other.
       - name: Checkout gh-automations scripts
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
@@ -221,13 +223,13 @@ jobs:
           echo "ESPEAK_DATA_PATH=$PREFIX/share/espeak-ng-data" >> "$GITHUB_ENV"
           "$PREFIX/bin/espeak-ng" --version
 
-      - name: Pre-test command
-        if: ${{ inputs.pre_test_command != '' }}
-        run: ${{ inputs.pre_test_command }}
-
       - name: Run Tests with Coverage
         id: run_tests
         run: |
+          # pre_test_command runs in this step, not a step of its own: a
+          # separate step is a separate shell process, so an export or a
+          # venv activation in it is lost before pytest starts.
+          ${{ inputs.pre_test_command }}
           python -m pytest \
             ${{ inputs.test_path }} \
             --cov=${{ inputs.coverage_source }} \

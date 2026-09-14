@@ -212,14 +212,14 @@ jobs:
           echo "ESPEAK_DATA_PATH=$PREFIX/share/espeak-ng-data" >> "$GITHUB_ENV"
           "$PREFIX/bin/espeak-ng" --version
 
-      - name: Pre-test command
-        if: ${{ inputs.pre_test_command != '' }}
-        run: ${{ inputs.pre_test_command }}
-
       - name: Run Tests
         id: tests
         if: ${{ inputs.test_path != '' }}
         run: |
+          # pre_test_command runs in this step, not a step of its own: a
+          # separate step is a separate shell process, so an export or a
+          # venv activation in it is lost before pytest starts.
+          ${{ inputs.pre_test_command }}
           uv pip install pytest
           # shellcheck disable=SC2086
           python -m pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
