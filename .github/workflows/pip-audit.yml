@@ -65,6 +65,15 @@ on:
         description: >
           Upload a SARIF report to GitHub's Security tab (Code scanning alerts).
           Requires the repo to have GitHub Advanced Security enabled, or be public.
+      sarif_category:
+        type: string
+        default: "pip-audit"
+        description: >
+          Code scanning category for the SARIF upload. Code scanning keeps one
+          analysis per (ref, category), and the last upload wins. A caller that
+          runs this workflow more than once on one ref, for example once per
+          extras set, must give each call its own category, or the last one
+          deletes the alerts of the others.
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -83,7 +92,8 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Checkout gh-automations scripts
-        if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        # The PR comment and the SARIF report both come from these scripts.
+        if: ${{ (inputs.pr_comment && github.event_name == 'pull_request') || inputs.upload_sarif }}
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
@@ -145,8 +155,13 @@ jobs:
               IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
             fi
           done <<< "${{ inputs.ignore_vulns }}"
-          # JSON output for PR comment — exit code drives outcome (success/failure)
+          # JSON output for PR comment — exit code drives outcome (success/failure).
+          # A pipe gives the exit code of `tee`, which is always 0, and the
+          # step takes the exit code of its last command. Keep the code of
+          # pip-audit in AUDIT_RC and exit with it at the end of the step, or
+          # every vulnerability leaves this step green and the job passes.
           pip-audit --format=json $IGNORE_ARGS | tee /tmp/pip-audit-results.json
+          AUDIT_RC=${PIPESTATUS[0]}
           TOTAL=$(python3 -c "
           import json, sys
           try:
@@ -157,27 +172,38 @@ jobs:
               sys.stdout.write('0')
           ")
           echo "total_packages=$TOTAL" >> $GITHUB_OUTPUT
+          exit $AUDIT_RC
 
       - name: Generate SARIF report
+        # pip-audit has no `sarif` output format: `--format=sarif` exits 2 with
+        # a usage error. The step that asked for one always fell back to an
+        # empty report, so the Security tab never received a finding. Build the
+        # SARIF from the JSON report the audit step already wrote. This also
+        # drops a second full audit, and the ignore list is applied already.
+        #
+        # The script exits 2 and writes no file if that report is absent or
+        # truncated. Code scanning keeps one analysis per (ref, category), so
+        # a report that says "no vulnerability" closes every alert the last
+        # good run raised. An audit that did not complete must upload nothing.
+        # warn_only holds the job green, and the upload below is gated on the
+        # outcome of this step, so the report is still never a false clean.
+        id: sarif_report
         if: ${{ inputs.upload_sarif }}
+        continue-on-error: ${{ inputs.warn_only }}
         run: |
-          IGNORE_ARGS=""
-          while IFS= read -r vuln_id; do
-            vuln_id="${vuln_id//[[:space:]]/}"
-            if [ -n "$vuln_id" ]; then
-              IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
-            fi
-          done <<< "${{ inputs.ignore_vulns }}"
-          pip-audit --format=sarif $IGNORE_ARGS > /tmp/pip-audit.sarif || \
-            echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[]}' > /tmp/pip-audit.sarif
+          rm -f /tmp/pip-audit.sarif
+          python3 _gh_automations/scripts/pip_audit_sarif.py \
+            --input /tmp/pip-audit-results.json \
+            --output /tmp/pip-audit.sarif \
+            --root "$GITHUB_WORKSPACE"
 
       - name: Upload SARIF to GitHub Security tab
-        if: ${{ inputs.upload_sarif }}
+        if: ${{ inputs.upload_sarif && steps.sarif_report.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true  # Don't fail if Security tab is not available (private repos without GHAS)
         with:
           sarif_file: /tmp/pip-audit.sarif
-          category: pip-audit
+          category: ${{ inputs.sarif_category }}
 
       - name: Format security section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}

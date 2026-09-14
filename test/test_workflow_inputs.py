@@ -39,7 +39,18 @@ DEPRECATED_WORKFLOWS = {
 # Workflows that use `workflow_call` (reusable).
 # Excluded: test.yml (gh-automations' own CI, not a reusable workflow)
 #           notify-matrix.yml (internal-only, not designed for external callers)
-NON_REUSABLE_WORKFLOWS = {"test.yml", "notify-matrix.yml"}
+#           self-check*.yml (this repository calling a reusable workflow
+#                            against itself, so it is a caller, not a callee)
+#
+# The self-check rule is a prefix, not a list of names. Three open pull
+# requests each add one self-check file (self-check.yml on #124,
+# self-check-tts.yml on #125, self-check-pip-audit.yml here). A prefix takes
+# all three, so this line does not have to change again, and the pull
+# requests do not have to merge in a set order.
+SELF_CHECK_PREFIX = "self-check"
+NON_REUSABLE_WORKFLOWS = {"test.yml", "notify-matrix.yml"} | {
+    f.name for f in WORKFLOW_FILES if f.name.startswith(SELF_CHECK_PREFIX)
+}
 REUSABLE_WORKFLOWS = {f.name for f in WORKFLOW_FILES} - NON_REUSABLE_WORKFLOWS
 
 
