@@ -283,7 +283,7 @@ jobs:
           TEST_PATH: ${{ inputs.test_path }}
         run: |
           python3 - <<'PYEOF'
-          import json, glob, os
+          import json, glob, os, re
 
           versions = json.loads(os.environ["PYTHON_VERSIONS"])
           has_tests = bool(os.environ.get("TEST_PATH", ""))
@@ -311,13 +311,41 @@ jobs:
               # a stray pipe would split the markdown row
               return s.replace("|", "\\|")
 
+          def ran_tests(summary):
+              # True if the pytest counts show a test with a result, False if
+              # they show none (a fully skipped suite), None if the job wrote
+              # no counts. "N skipped" alone is not a test run, so the headline
+              # must not call it a pass.
+              if not summary:
+                  return None
+              counts = {word: int(n) for n, word in re.findall(r"(\d+) ([a-z]+)", summary)}
+              ran = ("passed", "failed", "error", "errors", "xpassed", "xfailed")
+              return sum(counts.get(k, 0) for k in ran) > 0
+
           results = {v: read_result(v) for v in versions}
           summaries = {v: read_summary(v) for v in versions}
+
+          # per version: True ran, False all skipped, None no counts
+          ran = {v: ran_tests(summaries[v]) for v in versions} if has_tests else {}
 
           lines = []
           all_ok = all(s == "success" for s in results.values())
           if all_ok:
-              lines.append("✅ All versions pass")
+              if not has_tests:
+                  lines.append("✅ All versions build and install. The caller set no test path, thus no test ran.")
+              else:
+                  none_ran = [v for v in versions if ran[v] is False]
+                  unknown = [v for v in versions if ran[v] is None]
+                  if len(none_ran) == len(versions):
+                      lines.append("⚠\ufe0f All versions build and install, but no test ran. The full suite was skipped.")
+                  elif none_ran or unknown:
+                      lines.append("⚠\ufe0f All versions build and install.")
+                      if none_ran:
+                          lines.append("No test ran on: " + ", ".join(none_ran) + ". The suite was skipped there.")
+                      if unknown:
+                          lines.append("No pytest counts for: " + ", ".join(unknown) + ".")
+                  else:
+                      lines.append("✅ All versions pass")
               lines.append("")
 
           headers = ["Python", "Build", "Install"]
@@ -335,7 +363,11 @@ jobs:
               install_icon = "✅" if s not in ("build_failed", "install_failed") else ("❌" if s == "install_failed" else "⊘")
               row = [v, build_icon, install_icon]
               if has_tests:
-                  row.append("✅" if s == "success" else ("⚠️" if s == "tests_failed" else "⊘"))
+                  if s == "success":
+                      # a suite that only skipped is not a green test result
+                      row.append("✅" if ran.get(v) else "⊘")
+                  else:
+                      row.append("⚠️" if s == "tests_failed" else "⊘")
                   if any(summaries.values()):
                       row.append(summaries[v] or "—")
               lines.append("| " + " | ".join(row) + " |")
