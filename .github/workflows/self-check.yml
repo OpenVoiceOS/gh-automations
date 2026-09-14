@@ -1,18 +1,18 @@
 name: Self Check
-# This repository's reusable workflows, run against this repository.
+# This repository's type-check workflow, run against this repository.
 #
-# A check that cannot fail proves nothing, so each case here comes in two
-# directions. The positive job checks a real package and must pass. The
-# negative job points mypy at a path that does not exist and must fail. It
-# runs on workflow_dispatch only, because a job that must fail would
-# otherwise hold a red check on every pull request that touches these
-# files. A job that calls a reusable workflow takes no continue-on-error,
-# so the trigger is the way to keep the negative result off the pull
-# request.
+# The job checks a real package and must pass. It also proves the file
+# count reaches the log: the count gate in type-check.yml fails any job
+# that names no count, so a green here is a count that was read.
 #
-# Read the two conclusions together. A dispatch where both pass, or both
-# fail, means the type check no longer separates a checked tree from an
-# unchecked one.
+# The opposite direction is not a job. A job that must fail leaves a
+# failing run on the pull request head, where the merge gate reads it as a
+# red head and no reader can tell an intended failure from a real one.
+# The negative cases live in test/test_type_check_file_count.py, which
+# holds the count regex to mypy's real output for an unreadable target and
+# for empty output. Dispatch run 34824960581 on c30f6f2e is the live
+# negative: job type_check_reads_nothing failed with "mypy named no source
+# file count, so this job checked nothing."
 #
 on:
   pull_request:
@@ -30,16 +30,5 @@ jobs:
     uses: ./.github/workflows/type-check.yml
     with:
       mypy_args: "scripts --ignore-missing-imports"
-      pr_comment: false
-      fail_on_errors: false
-
-  # Must fail: mypy cannot read the target, names no file count, and the job
-  # refuses to report a clean type check. Before the count gate this job was
-  # green.
-  type_check_reads_nothing:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    uses: ./.github/workflows/type-check.yml
-    with:
-      mypy_args: "no_such_package_dir --ignore-missing-imports"
       pr_comment: false
       fail_on_errors: false
