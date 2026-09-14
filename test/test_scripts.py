@@ -1683,3 +1683,47 @@ class TestFindVersionFile:
 
     def test_returns_none_if_not_found(self, tmp_path: Path) -> None:
         assert find_version_file(str(tmp_path)) is None
+
+
+# ---------------------------------------------------------------------------
+# _version_utils.check_shipped_version: what Python ships must be the block
+class TestCheckShippedVersion:
+    BLOCK = (
+        "# START_VERSION_BLOCK\n"
+        "VERSION_MAJOR = 0\n"
+        "VERSION_MINOR = 0\n"
+        "VERSION_BUILD = 2\n"
+        "VERSION_ALPHA = 2\n"
+        "# END_VERSION_BLOCK\n"
+    )
+    DERIVED = ('__version__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}a{VERSION_ALPHA}" '
+               'if VERSION_ALPHA else f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_BUILD}"\n')
+
+    def test_one_block_with_derived_version_passes(self, tmp_path: Path) -> None:
+        f = tmp_path / "version.py"
+        f.write_text(self.BLOCK + self.DERIVED)
+        from _version_utils import check_shipped_version
+        check_shipped_version(str(f))
+
+    def test_stale_copy_before_block_with_early_dunder_is_refused(self, tmp_path: Path) -> None:
+        """The ovos-PHAL-plugin-tools shape: __version__ computed from a stale
+        block above the marked one shipped 0.0.1a1 for every 0.0.2 release."""
+        f = tmp_path / "version.py"
+        f.write_text("VERSION_MAJOR = 0\nVERSION_MINOR = 0\nVERSION_BUILD = 1\nVERSION_ALPHA = 1\n"
+                     + self.DERIVED + self.BLOCK)
+        from _version_utils import check_shipped_version
+        with pytest.raises(ValueError, match="evaluates to 0.0.1a1 but the START/END block says 0.0.2a2"):
+            check_shipped_version(str(f))
+
+    def test_stale_copy_after_block_is_refused(self, tmp_path: Path) -> None:
+        f = tmp_path / "version.py"
+        f.write_text(self.BLOCK + "VERSION_BUILD = 1\nVERSION_ALPHA = 1\n" + self.DERIVED)
+        from _version_utils import check_shipped_version
+        with pytest.raises(ValueError, match="evaluates to 0.0.1a1"):
+            check_shipped_version(str(f))
+
+    def test_file_without_dunder_version_is_not_judged(self, tmp_path: Path) -> None:
+        f = tmp_path / "version.py"
+        f.write_text(self.BLOCK + "VERSION_MAJOR = 99  # red herring after block\n")
+        from _version_utils import check_shipped_version
+        check_shipped_version(str(f))
