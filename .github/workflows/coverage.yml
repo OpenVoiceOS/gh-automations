@@ -150,9 +150,22 @@ jobs:
         run: |
           PRIMARY="${{ inputs.test_extras }}"
           FALLBACK="${{ inputs.test_extras_fallback }}"
-          if [ -n "$PRIMARY" ] && uv pip install -e ".[$PRIMARY]" 2>/dev/null; then
+          # uv exits 0 when the package does not declare the extra it was
+          # asked for; it only prints a warning. A plain "try PRIMARY, else
+          # FALLBACK" chain therefore always stops at PRIMARY, and the test
+          # dependencies declared under FALLBACK are never installed. Read the
+          # warning to tell a real install from a silent miss.
+          try_extra() {
+            EXTRA_OUT=$(uv pip install -e ".[$1]" 2>&1) || { echo "$EXTRA_OUT"; return 1; }
+            echo "$EXTRA_OUT"
+            case "$EXTRA_OUT" in
+              *"does not have an extra named"*) return 1 ;;
+            esac
+            return 0
+          }
+          if [ -n "$PRIMARY" ] && try_extra "$PRIMARY"; then
             echo "Installed package with [$PRIMARY] extras"
-          elif [ -n "$FALLBACK" ] && uv pip install -e ".[$FALLBACK]" 2>/dev/null; then
+          elif [ -n "$FALLBACK" ] && try_extra "$FALLBACK"; then
             echo "Installed package with [$FALLBACK] extras"
           elif uv pip install -e . 2>/dev/null; then
             echo "Installed package (no test extras found)"
