@@ -1,0 +1,39 @@
+# OVOS Codename Registry
+#
+# Scheme: alphabetical sequence of IAU-recognised star names (single-word, unambiguous,
+# culturally-neutral per IAU Working Group on Star Names).
+# Each line is one name.  The pointer file codenames/CURRENT points to the active name.
+# To advance the pointer run the propose-codename workflow (manual dispatch only).
+#
+# Rules:
+#   - Names are consumed in order, one per stable codename cycle.
+#   - A codename cycle groups one or more stable releases that belong to the same
+#     OVOS roadmap milestone (e.g. the namespace-migration V2 wave).
+#   - Do NOT reorder or delete names already consumed (pointer would break).
+#   - Append new names at the end when the list runs low (< 3 remaining).
+#
+Achernar
+Betelgeuse
+Canopus
+Deneb
+Elnath
+Fomalhaut
+Gacrux
+Hadar
+Izar
+Jabbah
+Kochab
+Lesath
+Menkar
+Naos
+Okab
+Porrima
+Rasalhague
+Saiph
+Talitha
+Unukalhai
+Vindemiatrix
+Wazn
+Xuange
+Yildun
+Zubenelgenubi
