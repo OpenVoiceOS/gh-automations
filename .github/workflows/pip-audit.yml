@@ -65,6 +65,15 @@ on:
         description: >
           Upload a SARIF report to GitHub's Security tab (Code scanning alerts).
           Requires the repo to have GitHub Advanced Security enabled, or be public.
+      sarif_category:
+        type: string
+        default: "pip-audit"
+        description: >
+          Code scanning category for the SARIF upload. Code scanning keeps one
+          analysis per (ref, category), and the last upload wins. A caller that
+          runs this workflow more than once on one ref, for example once per
+          extras set, must give each call its own category, or the last one
+          deletes the alerts of the others.
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -194,7 +203,7 @@ jobs:
         continue-on-error: true  # Don't fail if Security tab is not available (private repos without GHAS)
         with:
           sarif_file: /tmp/pip-audit.sarif
-          category: pip-audit
+          category: ${{ inputs.sarif_category }}
 
       - name: Format security section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}

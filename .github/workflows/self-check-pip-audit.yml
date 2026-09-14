@@ -17,6 +17,10 @@ name: Self Check Pip Audit
 #   - `Upload SARIF to GitHub Security tab` keeps continue-on-error, so its
 #     log line is the evidence that the upload was accepted.
 #
+# The two jobs upload under their own sarif_category. Code scanning keeps one
+# analysis per (ref, category) and the last upload wins, so a shared category
+# let the clean job delete the alerts the vulnerable job had just raised.
+#
 # The job that must fail runs on workflow_dispatch only. A reusable-workflow
 # job takes no continue-on-error, so a negative control on the pull request
 # head would redden the head for as long as the pull request is open.
@@ -41,6 +45,7 @@ jobs:
       gh_automations_ref: ${{ github.head_ref || github.ref_name }}
       install_extras: "-r /dev/null"
       pr_comment: false
+      sarif_category: pip-audit-self-check-clean
 
   # Must pass, and must report the jinja2 vulnerabilities and a SARIF report
   # with findings. warn_only holds the job green, so this is the evidence for
@@ -52,6 +57,7 @@ jobs:
       install_extras: "-r test/canary/pip-audit-vulnerable.txt"
       warn_only: true
       pr_comment: false
+      sarif_category: pip-audit-self-check-vulnerable
 
   # Must fail: the same vulnerable environment, with warn_only off. This is
   # the job that was green before this change.
@@ -62,3 +68,4 @@ jobs:
       gh_automations_ref: ${{ github.head_ref || github.ref_name }}
       install_extras: "-r test/canary/pip-audit-vulnerable.txt"
       pr_comment: false
+      sarif_category: pip-audit-self-check-fails
