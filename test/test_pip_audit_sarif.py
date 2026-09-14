@@ -1,9 +1,9 @@
 """
 Tests for scripts/pip_audit_sarif.py — the pip-audit JSON to SARIF converter.
 
-Covers: load_dependencies (both report shapes, and a corrupt or missing
-file), find_manifest, and build_sarif (rule dedup, alert count, location,
-and the empty case).
+Covers: load_dependencies (both report shapes, and the refusal to treat a
+corrupt or missing file as a clean audit), find_manifest, and build_sarif
+(rule dedup, one alert per vulnerability, location, and the empty case).
 
 Runs without any external dependencies beyond the Python standard library.
 """
@@ -19,9 +19,11 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from pip_audit_sarif import (  # noqa: E402
+    ReportError,
     build_sarif,
     find_manifest,
     load_dependencies,
+    main,
 )
 
 VULN_REPORT = {
@@ -80,18 +82,99 @@ def test_load_dependencies_list_shape(tmp_path):
     assert len(load_dependencies(path)) == 3
 
 
-def test_load_dependencies_corrupt_file(tmp_path):
+# An audit that did not complete must not produce a report. Code scanning
+# keeps one analysis per (ref, category), so a report that lists nothing
+# closes every alert the last good run raised.
+
+
+def test_load_dependencies_corrupt_file_raises(tmp_path):
     path = write(tmp_path, "r.json", "not json at all")
-    assert load_dependencies(path) == []
+    with pytest.raises(ReportError):
+        load_dependencies(path)
 
 
-def test_load_dependencies_missing_file(tmp_path):
-    assert load_dependencies(tmp_path / "absent.json") == []
+def test_load_dependencies_truncated_file_raises(tmp_path):
+    path = write(tmp_path, "r.json", '{"dependencies": [')
+    with pytest.raises(ReportError):
+        load_dependencies(path)
 
 
-def test_load_dependencies_unexpected_shape(tmp_path):
+def test_load_dependencies_missing_file_raises(tmp_path):
+    with pytest.raises(ReportError):
+        load_dependencies(tmp_path / "absent.json")
+
+
+def test_load_dependencies_unexpected_shape_raises(tmp_path):
     path = write(tmp_path, "r.json", 42)
+    with pytest.raises(ReportError):
+        load_dependencies(path)
+
+
+def test_load_dependencies_object_without_dependencies_key_raises(tmp_path):
+    path = write(tmp_path, "r.json", {"fixes": []})
+    with pytest.raises(ReportError):
+        load_dependencies(path)
+
+
+def test_load_dependencies_clean_report_is_not_an_error(tmp_path):
+    # A real audit that found nothing is a valid report, and stays valid.
+    path = write(tmp_path, "r.json", {"dependencies": []})
     assert load_dependencies(path) == []
+
+
+# --- main -------------------------------------------------------------------
+
+
+def run_main(monkeypatch, in_path, out_path, root):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pip_audit_sarif.py",
+            "--input",
+            str(in_path),
+            "--output",
+            str(out_path),
+            "--root",
+            str(root),
+        ],
+    )
+    main()
+
+
+def test_main_writes_no_file_when_the_report_is_unusable(tmp_path, monkeypatch):
+    bad = write(tmp_path, "r.json", "not json at all")
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, bad, out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_writes_no_file_when_the_report_is_missing(tmp_path, monkeypatch):
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, tmp_path / "absent.json", out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_does_not_overwrite_an_earlier_report(tmp_path, monkeypatch):
+    # The workflow removes the file first, but prove the script adds no
+    # second way to turn a good report into an empty one.
+    out = tmp_path / "out.sarif"
+    out.write_text('{"runs": [{"results": [1]}]}')
+    bad = write(tmp_path, "r.json", "not json at all")
+    with pytest.raises(SystemExit):
+        run_main(monkeypatch, bad, out, tmp_path)
+    assert json.loads(out.read_text())["runs"][0]["results"] == [1]
+
+
+def test_main_writes_the_report_for_a_good_audit(tmp_path, monkeypatch):
+    good = write(tmp_path, "r.json", VULN_REPORT)
+    out = tmp_path / "out.sarif"
+    run_main(monkeypatch, good, out, tmp_path)
+    assert len(json.loads(out.read_text())["runs"][0]["results"]) == 3
 
 
 # --- find_manifest ----------------------------------------------------------
@@ -173,3 +256,31 @@ def test_build_sarif_missing_fields_do_not_raise():
     result = sarif["runs"][0]["results"][0]
     assert result["ruleId"] == "UNKNOWN"
     assert "unknown unknown is affected by UNKNOWN" in result["message"]["text"]
+
+
+def test_build_sarif_reports_one_result_per_vulnerability():
+    # pip-audit queries more than one service and repeats each id once per
+    # service. jinja2 3.1.2 comes back as 10 records over 5 ids, and the
+    # dashboard must show 5 alerts, not 10.
+    repeated = {
+        "id": "PYSEC-2026-1471",
+        "description": "Sandbox escape.",
+        "fix_versions": ["3.1.6"],
+        "aliases": ["CVE-2026-1471"],
+    }
+    deps = [{"name": "jinja2", "version": "3.1.2", "vulns": [repeated, dict(repeated)]}]
+    run = build_sarif(deps, "pyproject.toml")["runs"][0]
+    assert len(run["results"]) == 1
+    assert len(run["tool"]["driver"]["rules"]) == 1
+
+
+def test_build_sarif_keeps_the_same_id_in_two_packages():
+    # The same id in two packages is two alerts, not one.
+    vuln = {"id": "PYSEC-1", "description": "d", "fix_versions": [], "aliases": []}
+    deps = [
+        {"name": "a", "version": "1", "vulns": [vuln, dict(vuln)]},
+        {"name": "b", "version": "2", "vulns": [dict(vuln)]},
+    ]
+    run = build_sarif(deps, "pyproject.toml")["runs"][0]
+    prints = [r["partialFingerprints"]["pipAuditVuln"] for r in run["results"]]
+    assert sorted(prints) == ["a:1:PYSEC-1", "b:2:PYSEC-1"]

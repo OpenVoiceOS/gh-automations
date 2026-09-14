@@ -13,8 +13,19 @@ Usage:
 import argparse
 import json
 import pathlib
+import sys
 
 MANIFESTS = ("pyproject.toml", "requirements.txt", "setup.py", "setup.cfg")
+
+
+class ReportError(Exception):
+    """The pip-audit report is absent, unreadable, or not a pip-audit report.
+
+    This is not the same as a report that lists no vulnerability. An audit
+    that did not run must never write a report that says the code is clean:
+    code scanning keeps one analysis per (ref, category), so a clean report
+    closes every alert the last good run raised.
+    """
 
 
 def find_manifest(root: pathlib.Path) -> str:
@@ -31,28 +42,47 @@ def find_manifest(root: pathlib.Path) -> str:
 
 
 def load_dependencies(path: pathlib.Path) -> list:
-    """Read the pip-audit report. The shape changed between versions: older
-    releases write a list, newer releases write {"dependencies": [...]}."""
+    """Read the pip-audit report, or raise ReportError.
+
+    The shape changed between versions: older releases write a list, newer
+    releases write {"dependencies": [...]}. Any other shape, an unreadable
+    file, or truncated JSON means the audit did not complete. Raise, so that
+    the caller writes no report at all.
+    """
     try:
         with path.open() as handle:
             data = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return []
+    except OSError as err:
+        raise ReportError(f"cannot read {path}: {err}") from err
+    except json.JSONDecodeError as err:
+        raise ReportError(f"{path} is not valid JSON: {err}") from err
     if isinstance(data, list):
         return data
-    if isinstance(data, dict):
-        return data.get("dependencies", [])
-    return []
+    if isinstance(data, dict) and "dependencies" in data:
+        return data["dependencies"]
+    raise ReportError(
+        f"{path} is not a pip-audit report: expected a list or an object "
+        f"with a 'dependencies' key, found {type(data).__name__}"
+    )
 
 
 def build_sarif(dependencies: list, manifest: str) -> dict:
     rules: dict = {}
     results: list = []
+    seen: set = set()
     for dep in dependencies:
         name = dep.get("name", "unknown")
         version = dep.get("version", "unknown")
         for vuln in dep.get("vulns", []):
             vuln_id = vuln.get("id", "UNKNOWN")
+            # pip-audit queries more than one vulnerability service and
+            # reports the same id once per service: jinja2 3.1.2 comes back
+            # with 10 records over 5 ids. One alert per vulnerability needs
+            # one result per (package, version, id).
+            fingerprint = f"{name}:{version}:{vuln_id}"
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
             description = vuln.get("description") or vuln_id
             fixes = ", ".join(vuln.get("fix_versions", [])) or "no fix available"
             aliases = [a for a in vuln.get("aliases", []) if a.startswith("CVE-")]
@@ -82,9 +112,7 @@ def build_sarif(dependencies: list, manifest: str) -> dict:
                             }
                         }
                     ],
-                    "partialFingerprints": {
-                        "pipAuditVuln": f"{name}:{version}:{vuln_id}"
-                    },
+                    "partialFingerprints": {"pipAuditVuln": fingerprint},
                 }
             )
     return {
@@ -114,7 +142,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    dependencies = load_dependencies(pathlib.Path(args.input))
+    try:
+        dependencies = load_dependencies(pathlib.Path(args.input))
+    except ReportError as err:
+        # Write nothing. An empty report reads as "no vulnerability found".
+        sys.stderr.write(f"pip-audit report unusable, no SARIF written: {err}\n")
+        raise SystemExit(2)
     manifest = find_manifest(pathlib.Path(args.root))
     sarif = build_sarif(dependencies, manifest)
     with open(args.output, "w") as handle:

@@ -171,15 +171,25 @@ jobs:
         # empty report, so the Security tab never received a finding. Build the
         # SARIF from the JSON report the audit step already wrote. This also
         # drops a second full audit, and the ignore list is applied already.
+        #
+        # The script exits 2 and writes no file if that report is absent or
+        # truncated. Code scanning keeps one analysis per (ref, category), so
+        # a report that says "no vulnerability" closes every alert the last
+        # good run raised. An audit that did not complete must upload nothing.
+        # warn_only holds the job green, and the upload below is gated on the
+        # outcome of this step, so the report is still never a false clean.
+        id: sarif_report
         if: ${{ inputs.upload_sarif }}
+        continue-on-error: ${{ inputs.warn_only }}
         run: |
+          rm -f /tmp/pip-audit.sarif
           python3 _gh_automations/scripts/pip_audit_sarif.py \
             --input /tmp/pip-audit-results.json \
             --output /tmp/pip-audit.sarif \
             --root "$GITHUB_WORKSPACE"
 
       - name: Upload SARIF to GitHub Security tab
-        if: ${{ inputs.upload_sarif }}
+        if: ${{ inputs.upload_sarif && steps.sarif_report.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true  # Don't fail if Security tab is not available (private repos without GHAS)
         with:
