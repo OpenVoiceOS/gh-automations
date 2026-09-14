@@ -11,10 +11,11 @@ name: Self Check TTS
 # the status of tee and a collection error reads as a pass. build-tests.yml
 # checks PIPESTATUS on the same line; this workflow does not.
 #
-# The negative job is the same call with no command, and it must fail. It runs
-# on workflow_dispatch only: a job that must fail leaves a failing run on the
-# pull request head, where the merge gate reads it as a red head and no reader
-# can tell an intended failure from a real one.
+# The negative job is the same call with no command. Its log must show that
+# pytest collected nothing. It cannot fail as a job: the PIPESTATUS gap above
+# means the step passes whatever pytest did. It runs on workflow_dispatch
+# only, so that it stays off the pull request head if that gap is ever closed
+# and the job starts failing as it should.
 #
 # install_extras is '-r /dev/null', the raw-pip-arguments spelling the input
 # documents. This repository ships no package at its root, and the workflow
