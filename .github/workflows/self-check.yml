@@ -3,11 +3,14 @@ name: Self Check
 #
 # A check that cannot fail proves nothing, so each case here comes in two
 # directions. The positive job checks a real package and must pass. The
-# negative job points mypy at a path that does not exist and must fail: it
-# carries continue-on-error so the negative result is recorded without
-# turning the pull request red.
+# negative job points mypy at a path that does not exist and must fail. It
+# runs on workflow_dispatch only, because a job that must fail would
+# otherwise hold a red check on every pull request that touches these
+# files. A job that calls a reusable workflow takes no continue-on-error,
+# so the trigger is the way to keep the negative result off the pull
+# request.
 #
-# Read the two job conclusions together. A run where both pass, or both
+# Read the two conclusions together. A dispatch where both pass, or both
 # fail, means the type check no longer separates a checked tree from an
 # unchecked one.
 #
@@ -34,8 +37,8 @@ jobs:
   # refuses to report a clean type check. Before the count gate this job was
   # green.
   type_check_reads_nothing:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/type-check.yml
-    continue-on-error: true
     with:
       mypy_args: "no_such_package_dir --ignore-missing-imports"
       pr_comment: false
