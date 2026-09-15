@@ -217,7 +217,7 @@ jobs:
       - name: Restore espeak-ng ${{ inputs.espeak_ng_version }}
         if: ${{ inputs.espeak_ng_version != '' }}
         id: espeak_cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/espeak-ng-${{ inputs.espeak_ng_version }}
           key: espeak-ng-${{ inputs.espeak_ng_version }}-${{ runner.os }}-${{ runner.arch }}
