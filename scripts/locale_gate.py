@@ -644,25 +644,32 @@ def check_dialog_completeness(locale, locale_dir, skill_path, dialog_info, ran):
         dialog_slots = set(SLOT_RE.findall(open(f, encoding='utf-8').read()))
         if not dialog_slots:
             continue
-        supplied = set()
-        any_unknown = False
+        # Each call site is checked on its own: a complete call must not
+        # mask a second call that omits a slot.
+        missing_known = set()
+        missing_unknown = set()
         for arg_parts in by_name[name]:
             s, u = parse_call_args(arg_parts)
-            supplied |= s
-            any_unknown = any_unknown or u
-        missing = sorted(dialog_slots - supplied)
-        if not missing:
-            continue
+            gap = dialog_slots - s
+            if not gap:
+                continue
+            if u:
+                missing_unknown |= gap
+            else:
+                missing_known |= gap
+        missing_unknown -= missing_known
         rel_f = relpath(skill_path, f)
-        if any_unknown:
+        if missing_known:
+            missing = sorted(missing_known)
+            row(rel_f, locale, 'dialog_completeness_slots', False,
+                f'{dialog_file}: call does not appear to supply slot(s) {missing}',
+                key=('slots', name, tuple(missing)))
+        if missing_unknown:
+            missing = sorted(missing_unknown)
             row(rel_f, locale, 'dialog_completeness_slots_unknown', True,
                 f'{dialog_file}: slot(s) {missing} not confirmed supplied '
                 f'(call passes an argument that cannot be resolved statically)',
                 key=('unknown', name, tuple(missing)))
-        else:
-            row(rel_f, locale, 'dialog_completeness_slots', False,
-                f'{dialog_file}: call does not appear to supply slot(s) {missing}',
-                key=('slots', name, tuple(missing)))
 
 
 def check_prose_lint(md_files, skill_path, ran):

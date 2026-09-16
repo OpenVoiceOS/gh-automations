@@ -4,7 +4,7 @@ change to the script changes the pin here on purpose, never by drift."""
 import hashlib
 from pathlib import Path
 
-PINNED = "a62948f7b1bfc0124c605d40cff489c86992d1f8287218e8a7ce8582ddad81ed"
+PINNED = "69a6bd0270ad49a2594cf34e792821ec9157630c9e5df5fc13d881585ee346bd"
 
 
 def test_locale_gate_is_the_pinned_version():

@@ -55,6 +55,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python_version }}
@@ -83,8 +84,15 @@ jobs:
           echo "targets: ${targets:-none}"
           [ -n "$targets" ] || { echo "0 files in, 0 findings (no locale directories)"; exit 0; }
           n_files=$(for t in $targets; do find "$t" -type f; done | wc -l)
-          ovos-spec-lint $targets > lint.out 2>&1 || true
+          lint_rc=0
+          ovos-spec-lint $targets > lint.out 2>&1 || lint_rc=$?
           grep -E ': (error|warning): ' lint.out > findings.txt || true
+          # A nonzero exit with no finding line is a crash, not a clean run.
+          if [ "$lint_rc" -ne 0 ] && [ ! -s findings.txt ]; then
+            cat lint.out
+            echo "ovos-spec-lint exited $lint_rc and wrote no finding line: the linter did not run"
+            exit "$lint_rc"
+          fi
           if [ "$SPEC_SCOPE" = "changed" ] && [ -n "$BASE_REF" ]; then
             git diff --name-only --diff-filter=AM "origin/$BASE_REF"...HEAD > changed.txt
             grep -F -f changed.txt findings.txt > blocking.txt || true
@@ -105,12 +113,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Checkout gh-automations scripts
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
           ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python_version }}
