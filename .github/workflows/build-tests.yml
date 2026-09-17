@@ -8,6 +8,13 @@ name: Build Tests
 on:
   workflow_call:
     inputs:
+      gh_automations_ref:
+        type: string
+        default: "dev"
+        description: >
+          Branch or sha of OpenVoiceOS/gh-automations to take the helper
+          scripts from. A caller testing a gh-automations branch passes that
+          branch here so the scripts match the workflow it calls.
       uv_prerelease:
         type: string
         default: "allow"
@@ -68,6 +75,20 @@ on:
           get a traceback/panic message out of a native crash instead of just
           "Fatal Python error: Aborted". Appended to $GITHUB_ENV before the
           Run Tests step. Empty by default: no vars are added.
+      pre_test_command:
+        type: string
+        default: ""
+        description: >
+          Command run after the package is installed and before pytest, in the
+          repository root. For test dependencies that are not pip packages:
+          a model download, a generated fixture, a service the tests talk to.
+      espeak_ng_version:
+        type: string
+        default: ""
+        description: >
+          Build espeak-ng from source at this tag (for example 1.52.0) before
+          the tests and put it on PATH with ESPEAK_DATA_PATH set. The build is
+          cached per version and runner. Empty skips it.
       pr_comment:
         type: boolean
         default: true
@@ -107,7 +128,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
-          ref: dev
+          ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
 
       - name: Install System Dependencies
@@ -169,18 +190,49 @@ jobs:
         run: |
           echo "${{ inputs.test_env }}" >> "$GITHUB_ENV"
 
+      - name: Restore espeak-ng ${{ inputs.espeak_ng_version }}
+        if: ${{ inputs.espeak_ng_version != '' }}
+        id: espeak_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/espeak-ng-${{ inputs.espeak_ng_version }}
+          key: espeak-ng-${{ inputs.espeak_ng_version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build espeak-ng ${{ inputs.espeak_ng_version }}
+        if: ${{ inputs.espeak_ng_version != '' && steps.espeak_cache.outputs.cache-hit != 'true' }}
+        run: |
+          sudo apt-get install -yq autoconf automake libtool pkg-config
+          bash _gh_automations/scripts/build_espeak_ng.sh "${{ inputs.espeak_ng_version }}" "${{ runner.temp }}/espeak-ng-${{ inputs.espeak_ng_version }}"
+
+      - name: Put espeak-ng on PATH
+        if: ${{ inputs.espeak_ng_version != '' }}
+        run: |
+          PREFIX="${{ runner.temp }}/espeak-ng-${{ inputs.espeak_ng_version }}"
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+          echo "ESPEAK_DATA_PATH=$PREFIX/share/espeak-ng-data" >> "$GITHUB_ENV"
+          "$PREFIX/bin/espeak-ng" --version
+
       - name: Run Tests
         id: tests
         if: ${{ inputs.test_path != '' }}
         run: |
+          # pre_test_command runs in this step, not a step of its own: a
+          # separate step is a separate shell process, so an export or a
+          # venv activation in it is lost before pytest starts.
+          ${{ inputs.pre_test_command }}
           uv pip install pytest
           # shellcheck disable=SC2086
-          python -m pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }}
+          python -m pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
+          test "${PIPESTATUS[0]}" -eq 0
 
       - name: Save result
         if: always()
         run: |
           mkdir -p build-results
+          # the pytest summary line, so a green run with half the suite
+          # skipped is visible in the artifact and the PR report
+          SUMMARY="$(grep -Eo '[0-9]+ (passed|failed|skipped|error|errors|xfailed|xpassed)( |,|$)[^=]*' pytest.log 2>/dev/null | tail -1 | tr -d '\n' || true)"
+          echo "${SUMMARY:-no pytest summary}" > build-results/${{ matrix.python-version }}.summary
           STATUS="success"
           if [ "${{ steps.build.outcome }}" != "success" ]; then
             STATUS="build_failed"
@@ -196,7 +248,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: build-result-${{ matrix.python-version }}
-          path: build-results/${{ matrix.python-version }}.txt
+          path: |
+            build-results/${{ matrix.python-version }}.txt
+            build-results/${{ matrix.python-version }}.summary
           if-no-files-found: ignore
           retention-days: 1
 
@@ -213,7 +267,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
-          ref: dev
+          ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
 
       - name: Download all results
@@ -229,32 +283,76 @@ jobs:
           TEST_PATH: ${{ inputs.test_path }}
         run: |
           python3 - <<'PYEOF'
-          import json, glob, os
+          import json, glob, os, re
 
           versions = json.loads(os.environ["PYTHON_VERSIONS"])
           has_tests = bool(os.environ.get("TEST_PATH", ""))
 
-          def read_result(version):
+          def read_one(version, suffix, missing):
               for pattern in [
-                  f"results_download/{version}.txt",
-                  f"results_download/build-result-{version}/{version}.txt",
+                  f"results_download/{version}{suffix}",
+                  f"results_download/build-result-{version}/{version}{suffix}",
               ]:
                   for path in glob.glob(pattern):
                       with open(path) as f:
                           return f.read().strip()
-              return "unknown"
+              return missing
+
+          def read_result(version):
+              return read_one(version, ".txt", "unknown")
+
+          def read_summary(version):
+              # the pytest counts the matrix job wrote beside the status word.
+              # A green run with the whole suite skipped reads "N skipped" here
+              # and is the reason this column exists.
+              s = read_one(version, ".summary", "")
+              if s == "no pytest summary":
+                  return ""
+              # a stray pipe would split the markdown row
+              return s.replace("|", "\\|")
+
+          def ran_tests(summary):
+              # True if the pytest counts show a test with a result, False if
+              # they show none (a fully skipped suite), None if the job wrote
+              # no counts. "N skipped" alone is not a test run, so the headline
+              # must not call it a pass.
+              if not summary:
+                  return None
+              counts = {word: int(n) for n, word in re.findall(r"(\d+) ([a-z]+)", summary)}
+              ran = ("passed", "failed", "error", "errors", "xpassed", "xfailed")
+              return sum(counts.get(k, 0) for k in ran) > 0
 
           results = {v: read_result(v) for v in versions}
+          summaries = {v: read_summary(v) for v in versions}
+
+          # per version: True ran, False all skipped, None no counts
+          ran = {v: ran_tests(summaries[v]) for v in versions} if has_tests else {}
 
           lines = []
           all_ok = all(s == "success" for s in results.values())
           if all_ok:
-              lines.append("✅ All versions pass")
+              if not has_tests:
+                  lines.append("✅ All versions build and install. The caller set no test path, thus no test ran.")
+              else:
+                  none_ran = [v for v in versions if ran[v] is False]
+                  unknown = [v for v in versions if ran[v] is None]
+                  if len(none_ran) == len(versions):
+                      lines.append("⚠\ufe0f All versions build and install, but no test ran. The full suite was skipped.")
+                  elif none_ran or unknown:
+                      lines.append("⚠\ufe0f All versions build and install.")
+                      if none_ran:
+                          lines.append("No test ran on: " + ", ".join(none_ran) + ". The suite was skipped there.")
+                      if unknown:
+                          lines.append("No pytest counts for: " + ", ".join(unknown) + ".")
+                  else:
+                      lines.append("✅ All versions pass")
               lines.append("")
 
           headers = ["Python", "Build", "Install"]
           if has_tests:
               headers.append("Tests")
+              if any(summaries.values()):
+                  headers.append("pytest")
 
           lines.append("| " + " | ".join(headers) + " |")
           lines.append("|" + "|".join(["---"] * len(headers)) + "|")
@@ -265,7 +363,13 @@ jobs:
               install_icon = "✅" if s not in ("build_failed", "install_failed") else ("❌" if s == "install_failed" else "⊘")
               row = [v, build_icon, install_icon]
               if has_tests:
-                  row.append("✅" if s == "success" else ("⚠️" if s == "tests_failed" else "⊘"))
+                  if s == "success":
+                      # a suite that only skipped is not a green test result
+                      row.append("✅" if ran.get(v) else "⊘")
+                  else:
+                      row.append("⚠️" if s == "tests_failed" else "⊘")
+                  if any(summaries.values()):
+                      row.append(summaries[v] or "—")
               lines.append("| " + " | ".join(row) + " |")
 
           if not all_ok:
