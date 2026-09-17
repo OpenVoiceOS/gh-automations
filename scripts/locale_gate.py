@@ -641,7 +641,8 @@ def check_dialog_completeness(locale, locale_dir, skill_path, dialog_info, ran):
             continue
         row(rel_dir, locale, 'dialog_completeness', True, key=('present', name))
         f = existing[dialog_file]
-        dialog_slots = set(SLOT_RE.findall(open(f, encoding='utf-8').read()))
+        with open(f, encoding='utf-8') as fh:
+            dialog_slots = set(SLOT_RE.findall(fh.read()))
         if not dialog_slots:
             continue
         # Each call site is checked on its own: a complete call must not
@@ -1536,6 +1537,34 @@ def selftest():
             print("SELFTEST OK [package layout]: found ['my_skill'] (hidden, excluded and file-less locale dirs skipped), "
                   "locale_paths honoured, a root run reads 0 in, 0 out")
             expect_fail('package layout gate', os.path.join(repo, found[0]), 'only_here.dialog')
+
+    # 24. dialog_completeness_slots: each call site is checked on its own.
+    # A union of the slots of all calls hides a call that omits a slot when a
+    # second call supplies it (masked), and hides two calls that each supply
+    # one slot (cross). The complete case is the control for the fixture.
+    def _slot_tree(root, call1, call2):
+        _build_clean_tree(root)
+        for loc, text in (('en-US', 'the time in {city} is {time}\n'),
+                          ('pt-PT', 'em {city} sao {time}\n')):
+            _write(os.path.join(root, 'locale', loc, 'tell.dialog'), text)
+        _write(os.path.join(root, '__init__.py'),
+               'from ovos_workshop.skills import OVOSSkill\n'
+               'class S(OVOSSkill):\n'
+               '    @intent_handler("hello.intent")\n'
+               '    def h(self, m):\n'
+               '        self.speak_dialog("greet")\n'
+               f'        self.speak_dialog("tell", {call1})\n'
+               f'        self.speak_dialog("tell", {call2})\n')
+
+    with tempfile.TemporaryDirectory(prefix='localegate-slots-complete-') as root:
+        _slot_tree(root, '{"city": c, "time": t}', 'data={"city": c, "time": t}')
+        expect_pass('slots per call, complete', root)
+    with tempfile.TemporaryDirectory(prefix='localegate-slots-masked-') as root:
+        _slot_tree(root, '{"city": c, "time": t}', '{"city": c}')
+        expect_fail('slots per call, masked', root, "supply slot(s) ['time']")
+    with tempfile.TemporaryDirectory(prefix='localegate-slots-cross-') as root:
+        _slot_tree(root, '{"city": c}', '{"time": t}')
+        expect_fail('slots per call, cross', root, "supply slot(s) ['city', 'time']")
 
     return 0 if ok else 1
 
