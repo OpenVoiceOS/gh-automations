@@ -8,6 +8,13 @@ name: Release Preview
 on:
   workflow_call:
     inputs:
+      gh_automations_ref:
+        type: string
+        default: "dev"
+        description: >
+          Branch or sha of OpenVoiceOS/gh-automations to take the helper
+          scripts from. A caller testing a gh-automations branch passes that
+          branch here so the scripts match the workflow it calls.
       runner:
         type: string
         default: "ubuntu-latest"
@@ -46,7 +53,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
-          ref: dev
+          ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
 
       - name: Setup Python
