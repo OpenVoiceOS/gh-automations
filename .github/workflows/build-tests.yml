@@ -2,7 +2,7 @@ name: Build Tests
 # Reusable workflow for verifying that a Python package builds, installs, and runs tests.
 #
 # Runs across a configurable matrix of Python versions, verifies the sdist/wheel can be
-# built with `python -m build`, installs the resulting package, and optionally runs the
+# built with `uv build`, installs the resulting package, and optionally runs the
 # test suite. Posts a summary to the OVOS PR Checks comment.
 #
 on:
