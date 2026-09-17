@@ -16,7 +16,7 @@ import argparse
 import sys
 from os.path import abspath
 
-from _version_utils import format_version, read_version, write_version_block, find_version_file
+from _version_utils import check_shipped_version, format_version, read_version, write_version_block, find_version_file
 
 
 def update_version(part: str, version_file: str) -> str:
@@ -32,6 +32,7 @@ def update_version(part: str, version_file: str) -> str:
     Raises:
         ValueError: If *part* is not one of the accepted values.
     """
+    check_shipped_version(version_file)
     major, minor, build, alpha = read_version(version_file)
 
     if part == "major":

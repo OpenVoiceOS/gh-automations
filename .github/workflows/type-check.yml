@@ -7,6 +7,13 @@ name: Type Check
 on:
   workflow_call:
     inputs:
+      gh_automations_ref:
+        type: string
+        default: "dev"
+        description: >
+          Branch or sha of OpenVoiceOS/gh-automations to take the helper
+          scripts from. A caller testing a gh-automations branch passes that
+          branch here so the scripts match the workflow it calls.
       uv_prerelease:
         type: string
         default: "allow"
@@ -81,7 +88,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: OpenVoiceOS/gh-automations
-          ref: dev
+          ref: ${{ inputs.gh_automations_ref }}
           path: _gh_automations/
 
       - name: Set up Python ${{ inputs.python_version }}
@@ -103,9 +110,22 @@ jobs:
           uv pip install mypy
           PRIMARY="${{ inputs.test_extras }}"
           FALLBACK="${{ inputs.test_extras_fallback }}"
-          if [ -n "$PRIMARY" ] && uv pip install -e ".[$PRIMARY]" 2>/dev/null; then
+          # uv exits 0 when the package does not declare the extra it was
+          # asked for; it only prints a warning. A plain "try PRIMARY, else
+          # FALLBACK" chain therefore always stops at PRIMARY, and the test
+          # dependencies declared under FALLBACK are never installed. Read the
+          # warning to tell a real install from a silent miss.
+          try_extra() {
+            EXTRA_OUT=$(uv pip install -e ".[$1]" 2>&1) || { echo "$EXTRA_OUT"; return 1; }
+            echo "$EXTRA_OUT"
+            case "$EXTRA_OUT" in
+              *"does not have an extra named"*) return 1 ;;
+            esac
+            return 0
+          }
+          if [ -n "$PRIMARY" ] && try_extra "$PRIMARY"; then
             echo "Installed package with [$PRIMARY] extras"
-          elif [ -n "$FALLBACK" ] && uv pip install -e ".[$FALLBACK]" 2>/dev/null; then
+          elif [ -n "$FALLBACK" ] && try_extra "$FALLBACK"; then
             echo "Installed package with [$FALLBACK] extras"
           elif uv pip install -e . 2>/dev/null; then
             echo "Installed package (no test extras found)"
