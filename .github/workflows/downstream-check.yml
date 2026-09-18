@@ -82,17 +82,32 @@ jobs:
             mpg123 \
             ${{ inputs.system_deps }}
       - name: Install OVOS ecosystem and pipdeptree
+        id: install
         run: |
           curl -fsSL -o constraints.txt "${{ inputs.constraints_url }}"
-          # Install the full OVOS ecosystem so pipdeptree can find all reverse deps
-          uv pip install -r constraints.txt || true
-          # Re-install the target package pinned to the constraints version
-          uv pip install -c constraints.txt "${{ inputs.package_name }}" || true
+          # The ecosystem install may leave packages out (a wheel that does not
+          # build here is not a finding about the target); the report says how
+          # many made it. The target install is a hard requirement: a report
+          # about a package that is not installed describes nothing (T-2338).
+          if uv pip install -r constraints.txt; then
+            echo "ecosystem=complete" >> "$GITHUB_OUTPUT"
+          else
+            echo "ecosystem=partial" >> "$GITHUB_OUTPUT"
+            echo "::warning title=downstream-check ecosystem install incomplete::uv pip install -r constraints.txt did not finish clean; the reverse-dependency tree below is over the packages that installed"
+          fi
+          uv pip install -c constraints.txt "${{ inputs.package_name }}"
+          uv pip show "${{ inputs.package_name }}" > /tmp/target-package.txt
+          echo "target=$(sed -n 's/^Version: //p' /tmp/target-package.txt)" >> "$GITHUB_OUTPUT"
+          echo "installed=$(uv pip list 2>/dev/null | tail -n +3 | wc -l)" >> "$GITHUB_OUTPUT"
       - name: Generate downstream report
         run: |
           python action/github/scripts/check_downstream.py \
             --package "${{ inputs.package_name }}" \
             --output "${{ inputs.output_file }}"
+          {
+            echo
+            echo "Environment: ${{ inputs.package_name }} ${{ steps.install.outputs.target }} installed; ${{ steps.install.outputs.installed }} packages in the environment; ecosystem install ${{ steps.install.outputs.ecosystem }}."
+          } >> "${{ inputs.output_file }}"
       - name: Upload report as artifact
         uses: actions/upload-artifact@v7
         with:
