@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -66,12 +67,15 @@ def run_step(tmp_path, files):
     assert "${{" not in script
     out = tmp_path / "out"
     out.touch()
-    r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, capture_output=True, text=True,
-                       env=dict(os.environ, GITHUB_OUTPUT=str(out)))
+    assert Path(ACTIONLINT).exists(), f"actionlint not installed at {ACTIONLINT}"
+    env = dict(os.environ, GITHUB_OUTPUT=str(out), PATH=f"{Path(ACTIONLINT).parent}:{os.environ['PATH']}")
+    r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, capture_output=True, text=True, env=env)
     return r, dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
 
 
-pytestmark = pytest.mark.skipif(shutil.which("actionlint") is None, reason="actionlint not on PATH")
+# actionlint-py puts the binary beside the interpreter; the Test workflow
+# installs it, so a missing binary is a failure here, not a skip.
+ACTIONLINT = shutil.which("actionlint") or str(Path(sys.executable).parent / "actionlint")
 
 
 def test_clean_workflows_pass_with_the_file_count(tmp_path):
