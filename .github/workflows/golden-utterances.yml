@@ -1,0 +1,185 @@
+name: Golden Utterances
+# Reusable workflow: one runner for every skill's golden-utterance corpus
+# (test/end2end/golden_utterances*.jsonl). The runner is `ovoscope golden`
+# (ovoscope 1.10.0a1 and later): one MiniCroft per locale, the skill loaded
+# from its entry point, the loaded skill's root_dir asserted to be this
+# checkout, every row fired with a Session in the row's lang, the fired intent
+# read back from the bus, scoreboard.json and predictions.jsonl written.
+# Plan: knowledge/wiki/plans/golden-utterances-shared-workflow.md (T-3471).
+on:
+  workflow_call:
+    inputs:
+      rows:
+        type: string
+        default: "test/end2end/golden_utterances*.jsonl"
+        description: "Glob(s) of the golden .jsonl files, space-separated."
+      skill_extra:
+        type: string
+        default: "test"
+        description: >
+          Extra of the skill to install with it, editable. Bare name ('test'),
+          bracketed ('[test,plugins]') or empty for none. The extra must carry
+          the pipeline plugins the corpus needs.
+      pipeline:
+        type: string
+        default: ""
+        description: >
+          Comma-separated pipeline plugin ids for the Session, the same list
+          the skill's own runner used. Empty takes MiniCroft's lean default,
+          which includes the stop pipeline: on ovos-skill-parrot that default
+          took 11 stop_parrot rows before padacioso (T-3515), so a caller
+          names its pipeline.
+      locales:
+        type: string
+        default: ""
+        description: "Comma-separated lang list to run; empty runs every locale in the rows."
+      python_versions:
+        type: string
+        default: '["3.11"]'
+        description: "JSON list of Python versions, one job each."
+      ovoscope_floor:
+        type: string
+        default: "1.10.0a1"
+        description: "The ovoscope release floor; the first with `ovoscope golden` is 1.10.0a1."
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      system_deps:
+        type: string
+        default: ""
+        description: "Extra apt packages, space-separated."
+      uv_prerelease:
+        type: string
+        default: "allow"
+      timeout_per_utterance:
+        type: string
+        default: "30"
+        description: "Seconds ovoscope waits for one utterance."
+
+env:
+  UV_SYSTEM_PYTHON: "1"
+  UV_PRERELEASE: ${{ inputs.uv_prerelease }}
+
+jobs:
+  golden:
+    name: golden (${{ matrix.python-version }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python_versions) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install System Dependencies
+        if: ${{ inputs.system_deps != '' }}
+        run: |
+          sudo apt-get update -q
+          # shellcheck disable=SC2086
+          sudo apt-get install -yq ${{ inputs.system_deps }}
+
+      - name: Install the skill (editable) and ovoscope
+        env:
+          SKILL_EXTRA: ${{ inputs.skill_extra }}
+          OVOSCOPE_FLOOR: ${{ inputs.ovoscope_floor }}
+        run: |
+          # Editable, so the loaded skill IS this checkout. A non-editable
+          # install older than the checkout fails exactly the freshly added
+          # rows (parrot#154, T-3351); `ovoscope golden` asserts root_dir too.
+          case "$SKILL_EXTRA" in
+            "") TARGET="." ;;
+            \[*) TARGET=".$SKILL_EXTRA" ;;
+            *) TARGET=".[$SKILL_EXTRA]" ;;
+          esac
+          uv pip install -e "$TARGET" "ovoscope>=$OVOSCOPE_FLOOR"
+          ovoscope golden --help >/dev/null
+
+      - name: Read the skill id from the entry point
+        id: skill
+        run: |
+          # The id the skill registers on the bus is the entry-point key, never
+          # the repository name (ovos-skill-easter-eggs declares
+          # skill-easter-eggs.openvoiceos). pyproject first, setup.py second.
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import re, sys, tomllib, pathlib
+          sid = ""
+          p = pathlib.Path("pyproject.toml")
+          if p.exists():
+              eps = tomllib.loads(p.read_text()).get("project", {}).get("entry-points", {})
+              for group in ("ovos.plugin.skill", "opm.skill"):
+                  if eps.get(group):
+                      sid = next(iter(eps[group]))
+                      break
+          if not sid and pathlib.Path("setup.py").exists():
+              text = pathlib.Path("setup.py").read_text()
+              env = dict(re.findall(r"^([A-Z_]+)\s*=\s*f?['\"]([^'\"]+)['\"]", text, re.M))
+              m = re.search(r"PLUGIN_ENTRY_POINT\s*=\s*\(?\s*f?['\"]([^'\"]*?)=", text, re.S)
+              if m:
+                  sid = re.sub(r"\{([A-Z_]+)(?:\.lower\(\))?\}",
+                               lambda mm: env.get(mm.group(1), mm.group(0)).lower(), m.group(1))
+          if not sid or "{" in sid:
+              sys.exit("no skill entry point in pyproject.toml or setup.py")
+          print(f"id={sid.strip().lower()}")
+          PY
+
+      - name: Run the golden corpus
+        env:
+          ROWS: ${{ inputs.rows }}
+          SKILL_ID: ${{ steps.skill.outputs.id }}
+          LOCALES: ${{ inputs.locales }}
+          PIPELINE: ${{ inputs.pipeline }}
+          UTT_TIMEOUT: ${{ inputs.timeout_per_utterance }}
+        run: |
+          set +e
+          ARGS=(--rows $ROWS --skill "$SKILL_ID" --checkout . --out golden-results --timeout "$UTT_TIMEOUT")
+          [ -n "$LOCALES" ] && ARGS+=(--locales "$LOCALES")
+          [ -n "$PIPELINE" ] && ARGS+=(--pipeline "$PIPELINE")
+          echo "ovoscope golden ${ARGS[*]}"
+          ovoscope golden "${ARGS[@]}" 2>&1 | tee golden-results.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Golden utterances (${SKILL_ID}, Python ${{ matrix.python-version }})"
+            echo
+            grep -E '^[0-9]+ rows, ' golden-results.log || echo "no summary line (exit $RC)"
+            echo
+            if [ -f golden-results/scoreboard.json ]; then
+              python3 - <<'PY'
+          import json
+          s = json.load(open("golden-results/scoreboard.json"))
+          rows = s if isinstance(s, dict) else {}
+          print("| key | value |"); print("| --- | --- |")
+          for k in ("total", "matched", "failed", "skipped", "pct", "gate_passed"):
+              if k in rows:
+                  print(f"| {k} | {rows[k]} |")
+          PY
+            fi
+            echo
+            echo "exit codes: 0 all matched, 1 a miss, 2 no rows, 3 the loaded skill is not this checkout, 4 every row needs_manual"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+
+      - name: Upload the scoreboard and predictions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-results-py${{ matrix.python-version }}
+          path: |
+            golden-results/
+            golden-results.log
+          if-no-files-found: warn
+          retention-days: 14
