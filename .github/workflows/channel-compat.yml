@@ -301,6 +301,23 @@ jobs:
           # shellcheck disable=SC2086
           python -m pytest ${{ inputs.test_path }} ${{ inputs.pytest_args }}
 
+      - name: Say so when soft_fail swallowed a failure
+        # With soft_fail the install and test steps carry continue-on-error
+        # and the job is green. The PR comment states the failure on a
+        # pull_request run; a push or dispatch run said nothing at all. Now
+        # every run carries a warning annotation and a job summary line
+        # (T-2338).
+        if: ${{ always() && inputs.soft_fail && (steps.install.outcome == 'failure' || steps.tests.outcome == 'failure') }}
+        run: |
+          CH="${{ steps.channel.outputs.name }}"
+          if [ "${{ steps.install.outcome }}" = "failure" ]; then
+            MSG="channel $CH: the repo does not resolve against the channel constraints (soft_fail held the job green)"
+          else
+            MSG="channel $CH: the test suite failed (soft_fail held the job green)"
+          fi
+          echo "::warning title=channel-compat soft failure::$MSG"
+          printf '> ⚠️ **channel-compat**: %s. See the job log and the channel-compat-%s artifact.\n\n' "$MSG" "$CH" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout gh-automations (PR-comment script)
         if: ${{ always() && inputs.pr_comment && github.event_name == 'pull_request' }}
         uses: actions/checkout@v7
