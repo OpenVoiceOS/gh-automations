@@ -234,6 +234,7 @@ jobs:
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         env:
           CATEGORY: ${{ inputs.sarif_category }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # A caller that runs this workflow more than once on one pull
           # request (once per extras set) gives each call its own
@@ -252,5 +253,3 @@ jobs:
             --section-id "$SECTION_ID" \
             --title "$TITLE" \
             --content-file /tmp/security-section.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
