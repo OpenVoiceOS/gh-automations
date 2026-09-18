@@ -51,12 +51,24 @@ def one_line(text: str, limit: int = 120) -> str:
 
 
 def findings_of(deps):
-    """[(name, version, vuln dict)] for every vulnerability in the report."""
+    """[(name, version, vuln dict)] for every vulnerability in the report,
+    one per (package, version, id). pip-audit queries more than one
+    vulnerability service and reports the same id once per service (jinja2
+    3.1.2 comes back with 10 records over 5 ids), the same dedupe as
+    pip_audit_sarif.build_sarif. GitHub keeps at most 10 annotations per
+    step, so a duplicate would push a real finding off the list."""
     out = []
+    seen = set()
     for dep in deps:
+        name, version = dep.get("name", "?"), dep.get("version", "?")
         for vuln in dep.get("vulns") or []:
-            if isinstance(vuln, dict):
-                out.append((dep.get("name", "?"), dep.get("version", "?"), vuln))
+            if not isinstance(vuln, dict):
+                continue
+            fingerprint = (name, version, vuln.get("id", "?"))
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            out.append((name, version, vuln))
     return out
 
 

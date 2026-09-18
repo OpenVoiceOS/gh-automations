@@ -731,7 +731,7 @@ jobs:
 
 ## `pip-audit.yml`
 
-Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](https://github.com/pypa/gh-action-pip-audit). Optionally uploads a SARIF report to GitHub's Security tab.
+Scans installed dependencies for known CVEs with `pip-audit`. The job warns and never fails. A finding shows in four places. One `::warning` annotation per vulnerability. A table in the job summary. The same table in the shared PR comment. A SARIF alert in the Security tab. The job's check stays green in every case. A caller that wants a finding to block a merge reads the Security tab or the annotations.
 
 **Source:** `.github/workflows/pip-audit.yml`
 
@@ -744,9 +744,10 @@ Scans installed dependencies for known CVEs using [`pypa/gh-action-pip-audit`](h
 | `install_extras` | string | `""` | pip extras to install |
 | `system_deps` | string | `""` | Extra `apt-get` packages beyond `python3-dev` |
 | `ignore_vulns` | string | `GHSA-r9hx-vwmv-q579` | Newline-separated GHSA IDs to ignore. Default ignores GHSA-r9hx-vwmv-q579 (setuptools path traversal: dev-only, not exploitable at OVOS runtime). |
-| `warn_only` | boolean | `false` | When true, report vulnerabilities in the PR comment but do NOT fail the job. Useful for repos that want visibility without blocking merges. |
+| `warn_only` | boolean | `true` | Kept so existing callers keep parsing. The job never fails on a finding, whatever this says. |
 | `pr_comment` | boolean | `true` | Post a `🔒 Security (pip-audit)` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
-| `upload_sarif` | boolean | `true` | Upload a SARIF report to GitHub's Security tab (Code scanning alerts). Requires the repo to have GitHub Advanced Security enabled, or be public. Uses `github/codeql-action/upload-sarif@v3`. `continue-on-error: true` so the job does not fail for private repos without GHAS. |
+| `upload_sarif` | boolean | `true` | Upload a SARIF report to GitHub's Security tab (Code scanning alerts). Requires the repo to have GitHub Advanced Security enabled, or be public. Uses `github/codeql-action/upload-sarif@v4`. `continue-on-error: true` so the job does not fail for private repos without GHAS. |
+| `sarif_category` | string | `pip-audit` | Code scanning category of the SARIF upload, and the key of the PR comment section. A caller that runs the workflow more than once on one ref gives each call its own category. Without that, the last call deletes the alerts and overwrites the table of the others. The default keeps the section id `security`. Another value gives `security-<category>` and the title `🔒 Security (pip-audit: <category>)`. |
 
 ### Typical usage
 
@@ -1220,7 +1221,7 @@ The following workflows post their results as named sections in a **single share
 | `repo-health.yml` | `health` | `📋 Repo Health` |
 | `repo-health.yml` | `welcome` | `👋 Welcome` (first-time contributors only) |
 | `release-preview.yml` | `release` | `🏷️ Release Preview` |
-| `pip-audit.yml` | `security` | `🔒 Security (pip-audit)` |
+| `pip-audit.yml` | `security`, or `security-<sarif_category>` | `🔒 Security (pip-audit)`, or `🔒 Security (pip-audit: <sarif_category>)` |
 
 | Workflow | Section ID | Section title |
 |----------|-----------|---------------|

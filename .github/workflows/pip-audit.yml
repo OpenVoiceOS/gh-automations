@@ -76,11 +76,14 @@ on:
         type: string
         default: "pip-audit"
         description: >
-          Code scanning category for the SARIF upload. Code scanning keeps one
-          analysis per (ref, category), and the last upload wins. A caller that
-          runs this workflow more than once on one ref, for example once per
-          extras set, must give each call its own category, or the last one
-          deletes the alerts of the others.
+          Code scanning category for the SARIF upload, and the key of the
+          PR comment section. Code scanning keeps one analysis per (ref,
+          category), and the last upload wins; the PR comment keeps one
+          section per id. A caller that runs this workflow more than once on
+          one ref, for example once per extras set, must give each call its
+          own category, or the last one deletes the alerts and overwrites
+          the table of the others. The default keeps the section id
+          "security"; another value gives "security-<category>".
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -229,12 +232,25 @@ jobs:
 
       - name: Post security section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        env:
+          CATEGORY: ${{ inputs.sarif_category }}
         run: |
+          # A caller that runs this workflow more than once on one pull
+          # request (once per extras set) gives each call its own
+          # sarif_category. The comment section is keyed on it the same way,
+          # or the clean call overwrites the table of the vulnerable one.
+          # The default category keeps the historical section id.
+          if [ "$CATEGORY" = "pip-audit" ]; then
+            SECTION_ID="security"; TITLE="🔒 Security (pip-audit)"
+          else
+            SECTION_ID="security-$(printf '%s' "$CATEGORY" | tr -c 'A-Za-z0-9_-' '-')"
+            TITLE="🔒 Security (pip-audit: $CATEGORY)"
+          fi
           python3 _gh_automations/scripts/update_pr_comment.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
-            --section-id "security" \
-            --title "🔒 Security (pip-audit)" \
+            --section-id "$SECTION_ID" \
+            --title "$TITLE" \
             --content-file /tmp/security-section.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

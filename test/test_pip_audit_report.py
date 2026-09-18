@@ -91,6 +91,21 @@ def test_unreadable_report_is_one_warning_not_a_failure(tmp_path, capsys, report
     assert section in summary
 
 
+def test_duplicate_records_give_one_warning_per_id(tmp_path, capsys):
+    """pip-audit reports one record per vulnerability service: jinja2 3.1.2
+    comes back with 10 records over 5 ids. GitHub keeps 10 annotations per
+    step, so a duplicate would push a real finding off the list."""
+    v = {"id": "GHSA-1", "description": "d", "fix_versions": ["2"]}
+    rep = {"dependencies": [
+        {"name": "jinja2", "version": "3.1.2", "vulns": [v, dict(v), {"id": "GHSA-2", "description": "e"}]},
+        {"name": "jinja2", "version": "3.1.3", "vulns": [v]},  # another version is another finding
+    ]}
+    _, out, section, _ = run(tmp_path, rep, capsys)
+    assert out.count("::warning") == 3
+    assert "**3 known vulnerabilities** in 1 package" in section
+    assert section.count("GHSA-1") == 4  # two rows, each with the id in the link text and the url
+
+
 def test_a_single_vulnerability_reads_singular(tmp_path, capsys):
     rep = {"dependencies": [{"name": "x", "version": "1", "vulns": [{"id": "V-1", "description": "d"}]}]}
     _, _, section, _ = run(tmp_path, rep, capsys)
@@ -131,6 +146,30 @@ class TestWorkflowNeverFails:
         inp = wf[True]["workflow_call"]["inputs"]["warn_only"]  # yaml reads the `on` key as True
         assert inp["default"] is True
         assert "never fails" in inp["description"]
+
+    @pytest.mark.parametrize("category, section_id, title", [
+        ("pip-audit", "security", "🔒 Security (pip-audit)"),
+        ("pip-audit-all", "security-pip-audit-all", "🔒 Security (pip-audit: pip-audit-all)"),
+        ("extras/gui x", "security-extras-gui-x", "🔒 Security (pip-audit: extras/gui x)"),
+    ])
+    def test_comment_section_is_keyed_on_sarif_category(self, wf, tmp_path, category, section_id, title):
+        """Two calls on one pull request must not share a section, or the
+        clean call overwrites the vulnerable call's table (hello-world#143,
+        comment 5723386358)."""
+        import os
+        import subprocess
+        step = next(s for s in self.steps(wf) if s.get("name") == "Post security section to PR comment")
+        script = step["run"]
+        for k, v in (("github.repository", "o/r"), ("github.event.pull_request.number", "7")):
+            script = script.replace("${{ %s }}" % k, v)
+        assert "${{" not in script
+        fake = tmp_path / "_gh_automations" / "scripts"
+        fake.mkdir(parents=True)
+        (fake / "update_pr_comment.py").write_text("import sys; print(' '.join(sys.argv[1:]))")
+        r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, capture_output=True, text=True,
+                           env=dict(os.environ, CATEGORY=category))
+        assert r.returncode == 0, r.stderr
+        assert f"--section-id {section_id} --title {title} " in r.stdout
 
     def test_self_check_has_no_job_that_must_fail(self):
         sc = yaml.safe_load((ROOT / ".github/workflows/self-check-pip-audit.yml").read_text())
