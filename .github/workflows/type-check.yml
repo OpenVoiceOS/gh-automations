@@ -129,8 +129,10 @@ jobs:
             echo "Installed package with [$FALLBACK] extras"
           elif uv pip install -e . 2>/dev/null; then
             echo "Installed package (no test extras found)"
+            BARE_INSTALL=1
           else
             echo "No installable package found — type-checking source tree directly"
+            BARE_INSTALL=1
           fi
           # install_extras accepts several caller spellings ("dev", "[dev]",
           # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot tell
@@ -149,6 +151,14 @@ jobs:
           fi
           if [ -n "$NORMALIZED" ]; then
             uv pip install $NORMALIZED
+          fi
+          # A caller that declares neither extra and sets no install_extras
+          # gets the bare package. The job still goes green, so say so where
+          # a human reads it: an annotation and the job summary (T-2191).
+          if [ -n "${BARE_INSTALL:-}" ] && [ -z "$NORMALIZED" ]; then
+            MSG="No typing extra installed: the package declares neither [$PRIMARY] nor [$FALLBACK] and install_extras is empty. This job runs against the bare package, with no typing dependency from pyproject.toml."
+            echo "::warning title=No typing extra installed::$MSG"
+            printf '> ⚠️ **No typing extra installed.** %s\n\n' "$MSG" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run mypy
