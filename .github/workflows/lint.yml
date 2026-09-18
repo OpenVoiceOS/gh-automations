@@ -116,6 +116,20 @@ jobs:
         run: ruff check ${{ inputs.ruff_args }} --output-format=github
         continue-on-error: true
 
+      - name: Count the files ruff checked
+        # ruff exits 0 for a clean tree and for a ruff_args that matched no
+        # file, and the comment read "no issues" for both. The count tells
+        # them apart (T-2338).
+        if: ${{ inputs.ruff }}
+        id: ruff_files
+        run: |
+          N=$(ruff check ${{ inputs.ruff_args }} --show-files 2>/dev/null | grep -c . || true)
+          echo "ruff matched $N file(s)"
+          echo "count=$N" >> "$GITHUB_OUTPUT"
+          if [ "$N" = "0" ]; then
+            echo "::warning title=ruff checked nothing::ruff_args '${{ inputs.ruff_args }}' matched no file; the lint result is empty, not clean"
+          fi
+
       - name: Install pre-commit
         if: ${{ inputs.pre_commit }}
         run: uv pip install pre-commit
@@ -155,10 +169,13 @@ jobs:
         run: |
           {
             if [ "${{ inputs.ruff }}" == "true" ]; then
-              if [ "${{ steps.ruff.outcome }}" == "success" ]; then
-                echo "✅ **ruff**: no issues"
+              N="${{ steps.ruff_files.outputs.count }}"
+              if [ "$N" == "0" ]; then
+                echo "⚠️ **ruff**: checked no file (ruff_args matched nothing) — not a clean result"
+              elif [ "${{ steps.ruff.outcome }}" == "success" ]; then
+                echo "✅ **ruff**: no issues in $N file(s)"
               elif [ "${{ steps.ruff.outcome }}" == "failure" ]; then
-                echo "❌ **ruff**: issues found — see job log"
+                echo "❌ **ruff**: issues found in $N file(s) — see job log"
               fi
             fi
             if [ "${{ inputs.pre_commit }}" == "true" ]; then
