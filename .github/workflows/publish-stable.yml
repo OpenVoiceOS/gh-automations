@@ -240,6 +240,12 @@ jobs:
         env:
           MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}
         run: |
+          # Same guard as publish-alpha: an empty token warns and stops, it
+          # does not redden a release that is already out.
+          if [ -z "$MATRIX_TOKEN" ]; then
+            echo "::warning title=Matrix notification skipped::MATRIX_TOKEN is empty for ${{ github.repository }}: add it as a repository or organisation secret, or set notify_matrix: false"
+            exit 0
+          fi
           MSG="${{ steps.msg.outputs.message }}"
           ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '${{ inputs.matrix_channel }}')
           curl -sf -X PUT \
