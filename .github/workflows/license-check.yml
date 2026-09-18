@@ -138,10 +138,34 @@ jobs:
           else
             NORMALIZED=".[$RAW]"
           fi
-          uv pip install $NORMALIZED
+          # The torch wheel PyPI serves on Linux x86_64 pins the NVIDIA CUDA
+          # runtime wheels (nvidia-*, cuda-toolkit). They are proprietary and
+          # carry no licence metadata, so every torch caller failed here on
+          # sixteen packages it never ships: they are the GPU host's own
+          # runtime, and the same requirement resolves without them on every
+          # other platform. The CPU index carries the torch family only, so
+          # this audits the platform-neutral closure. A package that names an
+          # nvidia-* wheel itself still gets it from PyPI and still fails
+          # (T-2791). The CPU index also carries old copies of common
+          # packages (requests, numpy), so uv must pick the best version
+          # across both indexes: the +cpu local version wins for torch, PyPI
+          # wins for everything newer there.
+          uv pip install $NORMALIZED \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            --index-strategy unsafe-best-match
 
       - name: Collect transitive dependencies
-        run: uv pip freeze > requirements-all.txt
+        run: |
+          uv pip freeze > requirements-all.txt
+          if grep -qE '^torch==.*\+cpu' requirements-all.txt; then
+            echo "torch resolved from the CPU index: the NVIDIA CUDA runtime wheels are not in this audit (T-2791)"
+            printf '> torch resolved from the CPU index; the NVIDIA CUDA runtime wheels are not part of this audit.\n\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The checker reads each licence from PyPI by name and version. A
+          # PEP 440 local version label (torch==2.14.0+cpu) names a build
+          # PyPI does not list, and the lookup read "Error". The label never
+          # changes the licence, so it is dropped for the lookup.
+          sed -i -E 's/^([^=]+==[^+[:space:]]+)\+[A-Za-z0-9.]+/\1/' requirements-all.txt
 
       - name: Detect combined-license packages safe by component
         id: combined
