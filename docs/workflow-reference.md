@@ -416,7 +416,10 @@ jobs:
 One runner for every skill's golden-utterance corpus, `ovoscope golden`
 (ovoscope 1.10.0a1 and later). The workflow installs the skill editable
 with its extra and ovoscope at the floor, reads the skill id from the
-checkout's entry point, and runs the corpus: one MiniCroft per locale, the
+installed metadata (the entry point in group `ovos.plugin.skill` or
+`opm.skill` of the distribution installed from the checkout; no parse of
+`pyproject.toml` or `setup.py`, so the skill template's `URL.split()`
+names work), and runs the corpus: one MiniCroft per locale, the
 loaded skill's `root_dir` asserted to be the checkout, every row fired with
 a Session in the row's `lang`, the fired intent read back from the bus.
 The scoreboard and the predictions are an artifact and a job summary.
@@ -458,6 +461,8 @@ jobs:
 
 ### Notes
 
+- An empty `pipeline` prints a `::warning` on the run step, so a caller
+  that forgot it sees why rows went to the stop pipeline.
 - The per-repo runner files (`test/end2end/test_golden_utterances*.py`)
   are what this replaces; a repository deletes them when it adds the
   caller and keeps the `.jsonl` rows.

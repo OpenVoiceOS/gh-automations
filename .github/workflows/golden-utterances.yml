@@ -114,37 +114,37 @@ jobs:
         run: |
           # The id the skill registers on the bus is the entry-point key, never
           # the repository name (ovos-skill-easter-eggs declares
-          # skill-easter-eggs.openvoiceos). pyproject first, setup.py second.
+          # skill-easter-eggs.openvoiceos). The step before installed the skill
+          # editable, so the key is in the installed metadata: no parse of
+          # pyproject.toml or setup.py, which the skill template derives from
+          # URL.split() and no parser reads (hello-world, fallback-unknown).
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import re, sys, pathlib
-          sid = ""
-          p = pathlib.Path("pyproject.toml")
-          if p.exists():
-              text = p.read_text()
-              try:
-                  import tomllib   # 3.11+
-                  eps = tomllib.loads(text).get("project", {}).get("entry-points", {})
-                  for group in ("ovos.plugin.skill", "opm.skill"):
-                      if eps.get(group):
-                          sid = next(iter(eps[group]))
-                          break
-              except ImportError:
-                  # 3.10 has no tomllib: the first key of the entry-point table
-                  for group in ("ovos.plugin.skill", "opm.skill"):
-                      m = re.search(r'\[project\.entry-points\."%s"\]\s*\n\s*"?([A-Za-z0-9_.\-]+)"?\s*=' % re.escape(group), text)
-                      if m:
-                          sid = m.group(1)
-                          break
-          if not sid and pathlib.Path("setup.py").exists():
-              text = pathlib.Path("setup.py").read_text()
-              env = dict(re.findall(r"^([A-Z_]+)\s*=\s*f?['\"]([^'\"]+)['\"]", text, re.M))
-              m = re.search(r"PLUGIN_ENTRY_POINT\s*=\s*\(?\s*f?['\"]([^'\"]*?)=", text, re.S)
-              if m:
-                  sid = re.sub(r"\{([A-Z_]+)(?:\.lower\(\))?\}",
-                               lambda mm: env.get(mm.group(1), mm.group(0)).lower(), m.group(1))
-          if not sid or "{" in sid:
-              sys.exit("no skill entry point in pyproject.toml or setup.py")
-          print(f"id={sid.strip().lower()}")
+          import json, os, sys
+          from importlib.metadata import distributions
+          from urllib.parse import unquote, urlparse
+          here = os.path.realpath(os.getcwd())
+          GROUPS = ("ovos.plugin.skill", "opm.skill")
+          found = []   # (id, dist name, editable from this checkout)
+          for dist in distributions():
+              eps = [ep for ep in dist.entry_points if ep.group in GROUPS]
+              if not eps:
+                  continue
+              # This checkout: the editable install's direct_url.json points
+              # at it, or the metadata (an egg-info) sits inside it.
+              raw = dist.read_text("direct_url.json")
+              url = urlparse(json.loads(raw).get("url", "")) if raw else None
+              local = bool(url) and url.scheme == "file" and os.path.realpath(unquote(url.path)) == here
+              path = getattr(dist, "_path", None)
+              local = local or (path is not None and os.path.realpath(str(path)).startswith(here + os.sep))
+              for ep in eps:
+                  found.append((ep.name, dist.metadata["Name"], local))
+          mine = sorted({f[0] for f in found if f[2]})
+          if len(mine) == 1:
+              sid = mine[0]
+          else:
+              have = ", ".join(f"{n} ({d})" for n, d, _ in found) or "none"
+              sys.exit(f"no single skill entry point installed from {here} in groups {GROUPS}; installed: {have}")
+          print(f"id={sid.strip()}")
           PY
 
       - name: Run the golden corpus
@@ -158,7 +158,11 @@ jobs:
           set +e
           ARGS=(--rows $ROWS --skill "$SKILL_ID" --checkout . --out golden-results --timeout "$UTT_TIMEOUT")
           [ -n "$LOCALES" ] && ARGS+=(--locales "$LOCALES")
-          [ -n "$PIPELINE" ] && ARGS+=(--pipeline "$PIPELINE")
+          if [ -n "$PIPELINE" ]; then
+            ARGS+=(--pipeline "$PIPELINE")
+          else
+            echo "::warning title=pipeline is empty::ovoscope golden runs MiniCroft's default pipeline, stop included. Rows that a stop intent takes first miss (parrot: 11 rows). Set the pipeline input to a preset or a list of plugin ids."
+          fi
           echo "ovoscope golden ${ARGS[*]}"
           ovoscope golden "${ARGS[@]}" 2>&1 | tee golden-results.log
           RC=${PIPESTATUS[0]}
