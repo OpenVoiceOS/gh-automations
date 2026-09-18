@@ -112,15 +112,32 @@ jobs:
         # continue-on-error so the PR comment step always runs.
         continue-on-error: true
         run: |
-          npm install -g markdownlint-cli2 2>/dev/null
-          if [ -n "${{ inputs.markdownlint_config }}" ]; then
-            markdownlint-cli2 --config "${{ inputs.markdownlint_config }}" "**/*.md" \
-              2>&1 | tee /tmp/markdownlint-output.txt || true
-          else
-            markdownlint-cli2 "**/*.md" \
-              2>&1 | tee /tmp/markdownlint-output.txt || true
+          # One run, its own exit status, and the file count it prints. The
+          # old step muted the install, piped the run into tee behind
+          # `|| true`, then ran the linter a third time for the outcome; a
+          # crashed install or a lint that never ran read as clean (T-2338).
+          rm -f /tmp/markdownlint-output.txt /tmp/markdownlint-status.txt
+          if ! npm install -g markdownlint-cli2; then
+            echo "status=install-failed" > /tmp/markdownlint-status.txt
+            echo "::warning title=markdownlint did not install::npm install -g markdownlint-cli2 failed; the documents were not linted"
+            exit 1
           fi
-          markdownlint-cli2 "**/*.md" 2>&1
+          CONFIG_ARGS=()
+          if [ -n "${{ inputs.markdownlint_config }}" ]; then
+            CONFIG_ARGS=(--config "${{ inputs.markdownlint_config }}")
+          fi
+          set +e
+          markdownlint-cli2 "${CONFIG_ARGS[@]}" "**/*.md" 2>&1 | tee /tmp/markdownlint-output.txt
+          RC=${PIPESTATUS[0]}
+          set -e
+          # markdownlint-cli2 prints "Linting: N file(s)" before the findings
+          FILES=$(grep -oE '^Linting: [0-9]+ file' /tmp/markdownlint-output.txt | grep -oE '[0-9]+' | head -1)
+          ISSUES=$(grep -oE '^Summary: [0-9]+ issue' /tmp/markdownlint-output.txt | grep -oE '[0-9]+' | head -1)
+          echo "status=ran rc=$RC files=${FILES:-unknown} issues=${ISSUES:-unknown}" > /tmp/markdownlint-status.txt
+          if [ "${FILES:-0}" = "0" ]; then
+            echo "::warning title=markdownlint linted nothing::no *.md file matched; the result is empty, not clean"
+          fi
+          exit $RC
 
       - name: Format docs check section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -153,20 +170,26 @@ jobs:
           except (FileNotFoundError, json.JSONDecodeError):
               lines.append("⚠️ Docs check did not produce a report — check the job log.")
 
-          # Markdownlint results
+          # Markdownlint results, from the status the lint step wrote, so a
+          # lint that never ran is never reported as clean.
           if run_markdownlint:
               lines.append("")
-              if markdownlint_outcome == "success":
-                  lines.append("✅ **markdownlint**: no issues found")
-              elif markdownlint_outcome == "failure":
-                  try:
-                      ml_output = open("/tmp/markdownlint-output.txt").read().strip()
-                      error_lines = [l for l in ml_output.splitlines() if l.strip()]
-                      lines.append(f"⚠️ **markdownlint**: {len(error_lines)} issue(s) found — check job log")
-                  except FileNotFoundError:
-                      lines.append("⚠️ **markdownlint**: issues found — check job log")
+              try:
+                  status = open("/tmp/markdownlint-status.txt").read().split()
+              except FileNotFoundError:
+                  status = []
+              kv = dict(p.split("=", 1) for p in status if "=" in p)
+              files = kv.get("files", "unknown")
+              if kv.get("status") == "install-failed":
+                  lines.append("⚠️ **markdownlint**: did not install — the documents were not linted; see the job log")
+              elif kv.get("status") != "ran":
+                  lines.append("⚠️ **markdownlint**: did not run — see the job log")
+              elif files == "0":
+                  lines.append("⚠️ **markdownlint**: no *.md file matched — nothing was linted")
+              elif markdownlint_outcome == "success":
+                  lines.append(f"✅ **markdownlint**: no issues in {files} file(s)")
               else:
-                  lines.append("ℹ️ **markdownlint**: skipped")
+                  lines.append(f"⚠️ **markdownlint**: {kv.get('issues', 'some')} issue(s) in {files} file(s) — check the job log")
 
           with open("/tmp/docs-check-section.md", "w") as f:
               f.write("\n".join(lines))
