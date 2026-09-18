@@ -108,6 +108,11 @@ jobs:
           fi
 
       - name: Run Tests with Coverage
+        id: tests
+        # continue-on-error so the report still deploys when the suite fails;
+        # the last step then fails the job on this outcome. Before that step
+        # existed nothing read the outcome, and a failing suite was a green
+        # job (T-2338).
         run: |
           python -m pytest \
             ${{ inputs.test_path }} \
@@ -143,3 +148,9 @@ jobs:
           git diff --cached --quiet && echo "No changes to deploy" && exit 0
           git commit -m "Update coverage report [skip ci]"
           git push origin "$BRANCH"
+
+      - name: Fail the job when the tests failed
+        if: ${{ steps.tests.outcome != 'success' }}
+        run: |
+          echo "::error::the test suite did not pass (pytest outcome: ${{ steps.tests.outcome }}); the coverage report above describes a failing suite"
+          exit 1
