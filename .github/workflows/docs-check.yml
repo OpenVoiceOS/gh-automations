@@ -127,7 +127,11 @@ jobs:
             CONFIG_ARGS=(--config "${{ inputs.markdownlint_config }}")
           fi
           set +e
-          markdownlint-cli2 "${CONFIG_ARGS[@]}" "**/*.md" 2>&1 | tee /tmp/markdownlint-output.txt
+          # "#_gh_automations/**" keeps the helper checkout out of the glob:
+          # the first honest run linted this repository's own docs under the
+          # caller's tree and reported 991 issues in 10 files that were not
+          # the caller's.
+          markdownlint-cli2 "${CONFIG_ARGS[@]}" "**/*.md" "#_gh_automations/**" 2>&1 | tee /tmp/markdownlint-output.txt
           RC=${PIPESTATUS[0]}
           set -e
           # markdownlint-cli2 prints "Linting: N file(s)" before the findings
