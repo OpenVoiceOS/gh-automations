@@ -116,8 +116,7 @@ class TestBumpLoop:
         for m in remote.glob("rejected-once-*"):
             m.unlink()  # arm the hook again for the loop under test
         s = step("bump_version", "Increment Version and push")["run"]
-        r = run_bash(s, pkg, {"PART": "alpha", "BRANCH": "dev", "VERSION_FILE": "version.py",
-                              "SCRIPTS": str(ROOT / "scripts")})
+        r = run_bash(s, pkg, bump_env("1"))
         assert r.returncode == 0, r.stdout + r.stderr
         # attempt 1 reads 0.1.0a1, bumps to 0.1.0a2, is rejected by the hook;
         # attempt 2 reads the head again and lands 0.1.0a2 on top of it
@@ -134,11 +133,93 @@ class TestBumpLoop:
         (remote / "hooks" / "pre-receive").unlink()
         pkg = package_checkout(tmp_path, remote)
         s = step("bump_version", "Increment Version and push")["run"]
-        r = run_bash(s, pkg, {"PART": "alpha", "BRANCH": "dev", "VERSION_FILE": "version.py",
-                              "SCRIPTS": str(ROOT / "scripts")})
+        r = run_bash(s, pkg, bump_env("1"))
         assert r.returncode == 0, r.stdout + r.stderr
         assert "on attempt 1" in r.stdout and "rejected" not in r.stdout
         assert r.outputs["version"] == "0.1.1a1"  # alpha after a released 0.1.0, per update_version.py
+
+
+def bump_env(run_id: str, version_file: str = "version.py") -> dict:
+    return {"PART": "alpha", "BRANCH": "dev", "VERSION_FILE": version_file,
+            "SCRIPTS": str(ROOT / "scripts"), "GITHUB_RUN_ID": run_id}
+
+
+class TestConcurrentRuns:
+    """Runs that reach the commit at the same moment. Two runs that read one
+    head and commit in the same second used to write the same sha: the
+    second push read "up to date" and both reported one version (review of
+    #130, CONFIRMED 1). The run id in the commit message keeps them apart."""
+
+    def test_same_second_two_loops_land_two_versions(self, tmp_path, remote):
+        (remote / "hooks" / "pre-receive").unlink()
+        s = step("bump_version", "Increment Version and push")["run"]
+        stamp = "2026-09-18T03:00:00 +0000"
+        results = []
+        for run_id in ("1001", "1002"):
+            pkg = package_checkout(tmp_path / run_id, remote)
+            env = dict(bump_env(run_id), GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+            results.append((run_id, pkg, run_bash(s, pkg, env)))
+        for _, _, r in results:
+            assert r.returncode == 0, r.stdout + r.stderr
+        versions = sorted(r.outputs["version"] for _, _, r in results)
+        shas = {r.outputs["sha"] for _, _, r in results}
+        assert versions == ["0.1.1a1", "0.1.1a2"]
+        assert len(shas) == 2
+        log = subprocess.run(["git", "--git-dir", str(remote), "log", "--format=%s%n%b", "dev"],
+                             check=True, capture_output=True, text=True).stdout
+        assert "run 1001" in log and "run 1002" in log
+        assert log.count("Increment Version") == 2
+
+    def test_three_loops_at_once_ten_times(self, tmp_path):
+        """Three runs started together, ten times over. Every time: three
+        distinct shas, three distinct alphas, rc 0 for all."""
+        import threading
+        s = step("bump_version", "Increment Version and push")["run"]
+        for trial in range(10):
+            base = tmp_path / f"t{trial}"
+            base.mkdir()
+            bare = base / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", "-b", "dev", str(bare)], check=True)
+            seed = base / "seed"
+            subprocess.run(["git", "clone", "-q", str(bare), str(seed)], check=True)
+            git(seed, "checkout", "-q", "-b", "dev")
+            (seed / "version.py").write_text(VERSION_PY.format(alpha=1))
+            git(seed, "add", "."), git(seed, "commit", "-q", "-m", "seed"), git(seed, "push", "-q", "origin", "dev")
+            pkgs = [package_checkout(base / f"r{i}", bare) for i in range(3)]
+            stamp = "2026-09-18T03:00:00 +0000"
+            out = [None] * 3
+
+            def go(i):
+                env = dict(bump_env(f"run{i}"), GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+                out[i] = run_bash(s, pkgs[i], env)
+
+            threads = [threading.Thread(target=go, args=(i,)) for i in range(3)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert [r.returncode for r in out] == [0, 0, 0], [r.stdout + r.stderr for r in out]
+            versions = sorted(r.outputs["version"] for r in out)
+            assert versions == ["0.1.0a2", "0.1.0a3", "0.1.0a4"], (trial, versions)
+            assert len({r.outputs["sha"] for r in out}) == 3, trial
+            head = git(pkgs[0], "ls-remote", str(bare), "refs/heads/dev").split()[0]
+            assert head in {r.outputs["sha"] for r in out}
+            log = subprocess.run(["git", "--git-dir", str(bare), "log", "--format=%s", "dev"],
+                                 check=True, capture_output=True, text=True).stdout.splitlines()
+            assert log[:3] == ["Increment Version to 0.1.0a4", "Increment Version to 0.1.0a3",
+                               "Increment Version to 0.1.0a2"], (trial, log)
+
+    def test_empty_version_file_default_stages_what_the_script_found(self, tmp_path, remote):
+        """The input default is "": update_version.py finds version.py on its
+        own, and `git add -u` stages what it wrote. `git add -- ""` was a
+        fatal pathspec error (review of #130, PLAUSIBLE 1)."""
+        (remote / "hooks" / "pre-receive").unlink()
+        pkg = package_checkout(tmp_path, remote)
+        s = step("bump_version", "Increment Version and push")["run"]
+        r = run_bash(s, pkg, bump_env("7", version_file=""))
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert r.outputs["version"] == "0.1.1a1"
+        assert git(pkg, "show", "--stat", "--format=", "HEAD").strip().startswith("version.py")
 
 
 class TestChangelogLoop:

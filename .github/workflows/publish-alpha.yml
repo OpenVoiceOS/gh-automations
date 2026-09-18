@@ -194,8 +194,14 @@ jobs:
             git reset -q --hard "origin/$BRANCH"
             python "$SCRIPTS/update_version.py" "$PART" --version-file "$VERSION_FILE"
             VERSION="$(python "$SCRIPTS/get_version.py" --version-file "$VERSION_FILE")"
-            git add -- "$VERSION_FILE"
-            git commit -q -m "Increment Version to $VERSION"
+            # -u stages what update_version.py wrote, whatever its path: the
+            # input default "" lets the script find the file itself.
+            git add -u
+            # Two runs that read one head and commit in the same second would
+            # write the same tree, parent, author, message and timestamp, so
+            # the same sha; the second push would be "up to date" and both
+            # runs would carry one version. The run id makes the commit its own.
+            git commit -q -m "Increment Version to $VERSION" -m "run ${GITHUB_RUN_ID:-local}"
             if git push origin "HEAD:$BRANCH"; then
               echo "version=$VERSION" >> "$GITHUB_OUTPUT"
               echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -313,7 +319,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
-          # this run's commits, not a branch head another run may have moved
+          # The changelog commit when there is one, else this run's bump. The
+          # changelog lands on whatever head was current at its push time, so
+          # under a race it can sit on another run's later bump; the release
+          # branch then carries that later version too. That is the shape dev
+          # had (the branch head), narrowed to the changelog commit.
           ref: ${{ needs.update_changelog.outputs.sha || needs.bump_version.outputs.sha }}
       - name: Create and push release branch
         run: |
