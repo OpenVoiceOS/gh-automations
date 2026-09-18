@@ -24,11 +24,13 @@ on:
         type: string
         default: ""
         description: >
-          Comma-separated pipeline plugin ids for the Session, the same list
-          the skill's own runner used. Empty takes MiniCroft's lean default,
-          which includes the stop pipeline: on ovos-skill-parrot that default
-          took 11 stop_parrot rows before padacioso (T-3515), so a caller
-          names its pipeline.
+          What `ovoscope golden --pipeline` receives: a named preset (repo,
+          m2v-prototype, m2v-dual; the command resolves them, T-3533) or an
+          explicit comma-separated list of pipeline plugin ids. Empty takes
+          MiniCroft's lean default, which includes the stop pipeline: on
+          ovos-skill-parrot that default took 11 stop_parrot rows before
+          padacioso (T-3515), so a caller names its pipeline. A preset needs
+          the ovoscope release that ships it; raise ovoscope_floor with it.
       locales:
         type: string
         default: ""

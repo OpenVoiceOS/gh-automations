@@ -427,7 +427,7 @@ The scoreboard and the predictions are an artifact and a job summary.
 | --- | --- | --- |
 | `rows` | `test/end2end/golden_utterances*.jsonl` | glob(s) of the golden files, space-separated |
 | `skill_extra` | `test` | the extra installed with the skill; it must carry the pipeline plugins the corpus needs |
-| `pipeline` | `""` | comma-separated pipeline plugin ids for the Session. Empty is MiniCroft's lean default, which includes the stop pipeline; a skill whose own runner named a pipeline names it here (parrot: 11 rows go to the stop pipeline without it) |
+| `pipeline` | `""` | what `ovoscope golden --pipeline` receives: a named preset (`repo`, `m2v-prototype`, `m2v-dual`, resolved by the command) or an explicit comma-separated list of pipeline plugin ids. Empty is MiniCroft's lean default, which includes the stop pipeline; a skill whose own runner named a pipeline names it here (parrot: 11 rows go to the stop pipeline without it). A preset needs the ovoscope release that ships it: raise `ovoscope_floor` with it |
 | `locales` | `""` | comma-separated lang list; empty runs every locale in the rows |
 | `python_versions` | `["3.11"]` | JSON list, one job each |
 | `ovoscope_floor` | `1.10.0a1` | the ovoscope release floor |
