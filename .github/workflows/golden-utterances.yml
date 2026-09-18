@@ -116,15 +116,25 @@ jobs:
           # the repository name (ovos-skill-easter-eggs declares
           # skill-easter-eggs.openvoiceos). pyproject first, setup.py second.
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import re, sys, tomllib, pathlib
+          import re, sys, pathlib
           sid = ""
           p = pathlib.Path("pyproject.toml")
           if p.exists():
-              eps = tomllib.loads(p.read_text()).get("project", {}).get("entry-points", {})
-              for group in ("ovos.plugin.skill", "opm.skill"):
-                  if eps.get(group):
-                      sid = next(iter(eps[group]))
-                      break
+              text = p.read_text()
+              try:
+                  import tomllib   # 3.11+
+                  eps = tomllib.loads(text).get("project", {}).get("entry-points", {})
+                  for group in ("ovos.plugin.skill", "opm.skill"):
+                      if eps.get(group):
+                          sid = next(iter(eps[group]))
+                          break
+              except ImportError:
+                  # 3.10 has no tomllib: the first key of the entry-point table
+                  for group in ("ovos.plugin.skill", "opm.skill"):
+                      m = re.search(r'\[project\.entry-points\."%s"\]\s*\n\s*"?([A-Za-z0-9_.\-]+)"?\s*=' % re.escape(group), text)
+                      if m:
+                          sid = m.group(1)
+                          break
           if not sid and pathlib.Path("setup.py").exists():
               text = pathlib.Path("setup.py").read_text()
               env = dict(re.findall(r"^([A-Z_]+)\s*=\s*f?['\"]([^'\"]+)['\"]", text, re.M))
