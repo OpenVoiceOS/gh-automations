@@ -105,7 +105,11 @@ jobs:
           done
           if [ "$SPEC_SCOPE" = "changed" ] && [ -n "$BASE_REF" ]; then
             git diff --name-only --diff-filter=AM "origin/$BASE_REF"...HEAD > changed.txt
-            grep -F -f changed.txt findings.txt > blocking.txt || true
+            # A finding blocks when its path field IS a changed path. A substring
+            # match (grep -F -f) also took foo.dialog.bak for foo.dialog.
+            awk -F: 'NR == FNR { changed[$0] = 1; next }
+                     { p = $1; sub(/^\.\//, "", p); if (p in changed) print }' \
+              changed.txt findings.txt > blocking.txt
           else
             cp findings.txt blocking.txt
           fi

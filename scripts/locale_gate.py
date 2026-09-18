@@ -3,9 +3,14 @@
 Seven checks: parser load (with vocab loaded, not bare), basename parity
 against en-US, placeholder/slot survival, reachability in the skill's own
 code, dialog completeness against the names the skill's own code speaks,
-resource basename compliance, and STE prose lint on any .md in scope.
-Prints a per-file table, an "N in, N out" line, and exits non-zero if any
-check that ran failed.
+resource basename compliance, and STE prose lint on any .md named with
+--md. Prints a per-file table, an "N in, N out" line, and exits non-zero if
+any check that ran failed.
+
+The prose lint runs only for a local caller that passes --md: the linter
+lives at ~/.claude/skills/ste-writing/scripts/ste_lint.py, which a GitHub
+runner does not have, so locale-lint.yml never passes --md and makes no
+prose claim.
 
 Without --base, the run is a state census: it reports what is wrong in the
 tree today, with no claim about who put it there.
@@ -51,6 +56,7 @@ import argparse
 import contextlib
 import glob
 import io
+import json
 import os
 import re
 import shutil
@@ -270,18 +276,22 @@ def _by_basename(locale_dir, ext):
 
 
 def check_slot_survival(locale, locale_dir, en_dir, ran, skill_path):
-    """OVOS-INTENT-2 SS4.2: every phrase in a file MUST declare the same SET
-    of named slots -- a rule about a file, not about two languages, and a
-    set rather than a count. A locale is free to carry more (or fewer)
-    template lines than en-US; comparing occurrence counts across the whole
-    file would fail any locale whose line count differs from en-US even
-    when every locale phrase uses exactly the slot set en-US uses. So this
-    compares the slot SET a locale file uses against the slot SET en-US
-    uses, and reports the two directions separately, because they mean
-    different things: dropping a slot en-US has means a value the skill
-    supplies is never spoken or captured; using one en-US does not have
-    means the locale expects a value nothing fills. The same set-not-count
-    comparison applies to <voc> vocabulary references.
+    """Slot survival across languages for .intent files: the SET of slot
+    names a locale file uses against the SET en-US uses, in both
+    directions. Dropping a slot en-US has means a value the skill supplies
+    is never spoken or captured; using one en-US does not have means the
+    locale expects a value nothing fills. The same set-not-count comparison
+    applies to <voc> vocabulary references.
+
+    This is NOT the same-slot-set rule. OVOS-INTENT-1 SS5.5 binds .dialog
+    definitions only and says a tool MUST NOT reject a .intent definition
+    because its templates declare different slots; OVOS-INTENT-2 SS4.1 says
+    lines of a .intent file MAY declare different sets of named slots (the
+    .dialog rule is SS4.2, and ovos-spec-lint already checks it). So the
+    comparison here is file-level and set-based, never per phrase: a locale
+    is free to carry more (or fewer) template lines than en-US, and a
+    per-phrase or per-count check would put this gate out of conformance
+    (architecture ruling T-3423).
     """
     en_by_name = _by_basename(en_dir, '.intent')
     loc_by_name = _by_basename(locale_dir, '.intent')
@@ -685,15 +695,31 @@ def check_prose_lint(md_files, skill_path, ran):
                 if os.path.commonpath([abs_skill, abs_f]) == abs_skill else abs_f
         except ValueError:
             key = os.path.abspath(f)
+        # The linter reads the file on stdin and answers JSON, so the kinds of
+        # finding are known. The identity of a failing row is the path plus
+        # the sorted kinds: a new kind of finding in a file that already had
+        # one is introduced, not pre-existing (gh-automations#113, :696).
         try:
-            out = subprocess.run([sys.executable, STE_LINT, f],
+            with open(f, encoding='utf-8') as fh:
+                text = fh.read()
+            out = subprocess.run([sys.executable, STE_LINT], input=text,
                                   capture_output=True, text=True, timeout=60)
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             row(key, '-', 'prose_lint', False, f'lint could not run: {e}', key=key)
             continue
-        ok = out.returncode == 0
-        row(key, '-', 'prose_lint', ok,
-            '' if ok else (out.stdout + out.stderr).strip()[:400], key=key)
+        kinds, ok, detail = (), out.returncode == 0, ''
+        try:
+            report = json.loads(out.stdout)
+            kinds = tuple(sorted(report.get('violations', {})))
+            ok = bool(report.get('pass', ok))
+            if not ok:
+                detail = (f"{report.get('per100w')} findings per 100 words: "
+                          + ', '.join(f"{k} {report['violations'][k]}" for k in kinds))
+        except (ValueError, TypeError, KeyError):
+            if not ok:
+                detail = (out.stdout + out.stderr).strip()[:400]
+        row(key, '-', 'prose_lint', ok, detail,
+            key=key if ok else f"{key}|{','.join(kinds) or detail[:120]}")
 
 
 def collect(skill_path, wanted_locales, md_files):
@@ -1565,6 +1591,35 @@ def selftest():
     with tempfile.TemporaryDirectory(prefix='localegate-slots-cross-') as root:
         _slot_tree(root, '{"city": c}', '{"time": t}')
         expect_fail('slots per call, cross', root, "supply slot(s) ['city', 'time']")
+
+    # 25. prose identity: a .md that already failed the prose lint at base
+    # gains a NEW kind of finding at head. Keyed on the path alone the row
+    # reads pre-existing and the run passes; the identity carries the kinds
+    # of finding, so the new one is introduced and the run fails.
+    with tempfile.TemporaryDirectory(prefix='localegate-prose-id-') as root:
+        _build_clean_tree(root)
+        md = os.path.join(root, 'README.md')
+        dense = ('This functionality will basically allow the user to utilize '
+                 'the system; it is leveraged going forward; the thing is done; ok.\n')
+        _write(md, dense)
+        _git(root, 'init', '--quiet')
+        _git_commit_all(root, 'base: README with semicolons and a banned word')
+        base_ref = subprocess.run(['git', '-C', root, 'rev-parse', 'HEAD'],
+                                   capture_output=True, text=True, check=True).stdout.strip()
+        _write(md, dense + 'The seamless experience is powered by a robust engine.\n')
+        rows, files_in, files_reported = [], 0, 0
+        code = run_gate(root, [], [md], base_ref=base_ref)
+        prose = [r for r in rows if r[2] == 'prose_lint']
+        intro = [r for r in prose if r[3] == 'introduced']
+        if not prose:
+            print('SELFTEST FAIL [prose identity]: no prose_lint row at all')
+            ok = False
+        elif not intro or code == 0:
+            print(f'SELFTEST FAIL [prose identity]: a new kind of finding must be introduced and fail the run, '
+                  f'got {[(r[3], r[5]) for r in prose]} exit {code}')
+            ok = False
+        else:
+            print(f'SELFTEST OK [prose identity]: {intro[0][5]!r} introduced, run failed')
 
     return 0 if ok else 1
 
