@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,11 @@ STEP = "Detect combined-license packages safe by component"
 
 # pip-licenses is not on the test box; the step tolerates an empty report
 FAKE_PIP_LICENSES = "#!/usr/bin/env bash\necho '[]'\n"
+
+# The step reads importlib.metadata.distributions(), which walks the whole
+# sys.path. A python3 without site-packages (-S) sees only the fake site on
+# PYTHONPATH, so the real environment of the test box never leaks in.
+FAKE_PYTHON = f"#!/usr/bin/env bash\nexec {sys.executable} -S \"$@\"\n"
 
 SYNTHETIC = {
     "mutagen-1.48.1": "License-Expression: GPL-2.0-or-later\n",
@@ -76,6 +82,9 @@ def run_step(tmp_path: Path, fail: str = "NetworkCopyleft,StrongCopyleft,WeakCop
     fake = bindir / "pip-licenses"
     fake.write_text(FAKE_PIP_LICENSES)
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    py = bindir / "python3"
+    py.write_text(FAKE_PYTHON)
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
     out = tmp_path / "github_output"
     out.touch()
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", PYTHONPATH=str(site),
