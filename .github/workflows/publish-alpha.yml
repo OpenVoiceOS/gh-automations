@@ -107,12 +107,18 @@ jobs:
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
+      # The commit that carries the bump. Every later job checks this out,
+      # never the branch head: two runs on one repository race, and the
+      # branch head is whatever the other run pushed last (T-2782).
+      sha: ${{ steps.version.outputs.sha }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch }}
           path: action/package/
+          # the retry loop below fetches and pushes
+          persist-credentials: true
       - name: Checkout Scripts Repo
         uses: actions/checkout@v7
         with:
@@ -165,19 +171,48 @@ jobs:
             echo "part=alpha" >> $GITHUB_OUTPUT
           fi
 
-      - name: Increment Version
+      - name: Increment Version and push
         id: version
-        working-directory: action/github/scripts
+        working-directory: action/package
+        env:
+          PART: ${{ steps.version_bump.outputs.part }}
+          BRANCH: ${{ inputs.branch }}
+          VERSION_FILE: ${{ inputs.version_file }}
+          SCRIPTS: ${{ github.workspace }}/action/github/scripts
         run: |
-          python update_version.py ${{ steps.version_bump.outputs.part }} --version-file ../../package/${{ inputs.version_file }}
-          echo "version=$(python get_version.py --version-file ../../package/${{ inputs.version_file }})" >> $GITHUB_OUTPUT
-
-      - name: Push Version Change
-        uses: stefanzweifel/git-auto-commit-action@v7
-        with:
-          commit_message: Increment Version to ${{ steps.version.outputs.version }}
-          branch: ${{ inputs.branch }}
-          repository: action/package/
+          # Several pull requests merge within a minute and each starts a run.
+          # Two runs that read the same version file compute the same next
+          # alpha; the second push is rejected ("fetch first") and the run
+          # dies, or it lands and a later job builds the other run's version.
+          # So the bump is computed from the branch head at push time and
+          # pushed at once; a rejected push means another run bumped first,
+          # and the loop reads the new head and bumps again (T-2782).
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5 6; do
+            git fetch --depth=1 origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            python "$SCRIPTS/update_version.py" "$PART" --version-file "$VERSION_FILE"
+            VERSION="$(python "$SCRIPTS/get_version.py" --version-file "$VERSION_FILE")"
+            # -u stages what update_version.py wrote, whatever its path: the
+            # input default "" lets the script find the file itself.
+            git add -u
+            # Two runs that read one head and commit in the same second would
+            # write the same tree, parent, author, message and timestamp, so
+            # the same sha; the second push would be "up to date" and both
+            # runs would carry one version. The run id makes the commit its own.
+            git commit -q -m "Increment Version to $VERSION" -m "run ${GITHUB_RUN_ID:-local}"
+            if git push origin "HEAD:$BRANCH"; then
+              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              echo "bumped to $VERSION at $(git rev-parse HEAD) on attempt $attempt"
+              exit 0
+            fi
+            echo "push of $VERSION rejected on attempt $attempt: another run moved $BRANCH, reading it again"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push the version bump to $BRANCH after 6 attempts"
+          exit 1
 
   update_changelog:
     needs: bump_version
@@ -186,12 +221,15 @@ jobs:
     if: ${{ inputs.update_changelog && needs.bump_version.result == 'success' }}
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
+      # the changelog commit, or the bump commit when there was nothing to commit
+      sha: ${{ steps.push_changelog.outputs.sha }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.bump_version.outputs.sha }}
           path: action/package/
+          persist-credentials: true
       - name: Check Latest Release
         id: latest_release
         uses: pozetroninc/github-action-get-latest-release@v0.8.0
@@ -209,11 +247,40 @@ jobs:
           maxIssues: ${{ inputs.changelog_max_issues }}
           sinceTag: ${{ steps.latest_release.outputs.release }}
       - name: Push Changelog
-        uses: stefanzweifel/git-auto-commit-action@v7
-        with:
-          commit_message: Update Changelog
-          repository: action/package/
-          branch: ${{ inputs.branch }}
+        id: push_changelog
+        working-directory: action/package
+        env:
+          BRANCH: ${{ inputs.branch }}
+          CHANGELOG: ${{ inputs.changelog_file }}
+          BUMP_SHA: ${{ needs.bump_version.outputs.sha }}
+        run: |
+          # The generated file is kept and committed on top of whatever the
+          # branch head is at push time; a rejected push means another run
+          # pushed in between, so the head is read again (T-2782).
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp -- "$CHANGELOG" "$RUNNER_TEMP/changelog.generated"
+          for attempt in 1 2 3 4 5 6; do
+            git fetch --depth=1 origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            cp -- "$RUNNER_TEMP/changelog.generated" "$CHANGELOG"
+            if git diff --quiet -- "$CHANGELOG"; then
+              echo "changelog unchanged on $BRANCH"
+              echo "sha=$BUMP_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git add -- "$CHANGELOG"
+            git commit -q -m "Update Changelog"
+            if git push origin "HEAD:$BRANCH"; then
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              echo "changelog pushed at $(git rev-parse HEAD) on attempt $attempt"
+              exit 0
+            fi
+            echo "push rejected on attempt $attempt: another run moved $BRANCH, reading it again"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push the changelog to $BRANCH after 6 attempts"
+          exit 1
 
   tag_prerelease:
     needs:
@@ -226,14 +293,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.bump_version.outputs.sha }}
           path: action/package/
       - name: Create Pre-release
         uses: ncipollo/release-action@v1
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           tag: ${{needs.bump_version.outputs.version}}
-          commit: ${{ inputs.branch }}
+          # the bump commit, not the branch head another run may have moved
+          commit: ${{ needs.bump_version.outputs.sha }}
           prerelease: true
           generateReleaseNotes: true
 
@@ -251,7 +319,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.branch }}
+          # The changelog commit when there is one, else this run's bump. The
+          # changelog lands on whatever head was current at its push time, so
+          # under a race it can sit on another run's later bump; the release
+          # branch then carries that later version too. That is the shape dev
+          # had (the branch head), narrowed to the changelog commit.
+          ref: ${{ needs.update_changelog.outputs.sha || needs.bump_version.outputs.sha }}
       - name: Create and push release branch
         run: |
           VERSION="${{needs.bump_version.outputs.version}}"
@@ -317,7 +390,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.branch }}
+          # the bump commit: a branch head checkout built whatever version a
+          # later run had pushed, and the upload failed with "file already
+          # exists" while this run's own version never reached PyPI
+          ref: ${{ needs.bump_version.outputs.sha }}
           fetch-depth: 0
       - name: Setup Python
         uses: actions/setup-python@v7
