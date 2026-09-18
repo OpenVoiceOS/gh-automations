@@ -1,6 +1,6 @@
 name: Self Check Pip Audit
-# The pip-audit workflow, run against this repository, to prove two things
-# that could not happen before: a vulnerability fails the job, and the SARIF
+# The pip-audit workflow, run against this repository, to prove that a
+# vulnerability is reported and the job stays green, and that the SARIF
 # report carries findings.
 #
 # test/canary/pip-audit-vulnerable.txt pins jinja2 3.1.2, which OSV reports
@@ -8,7 +8,24 @@ name: Self Check Pip Audit
 # not a dependency of pip-audit, so the `Install Build Tools` step of the
 # audit workflow does not upgrade it away.
 #
-# Read the log, not the job conclusion:
+# Read the log and the annotations, not the job conclusion alone:
+#   - `Run pip-audit` must report the vulnerabilities and end with the exit
+#     code of pip-audit, not of `tee`; the job stays green all the same.
+#   - `Report findings` must print one ::warning per vulnerability and the
+#     job summary must carry the table. The clean job prints none.
+#   - `Generate SARIF report` must print a result count above zero. Before
+#     this change, pip-audit had no `sarif` format, the step took its
+#     fallback, and the report was always empty.
+#   - `Upload SARIF to GitHub Security tab` keeps continue-on-error, so its
+#     log line is the evidence that the upload was accepted.
+#
+# The two jobs upload under their own sarif_category. Code scanning keeps one
+# analysis per (ref, category) and the last upload wins, so a shared category
+# let the clean job delete the alerts the vulnerable job had just raised.
+#
+# gh_automations_ref names the branch under test, so that the scripts the
+# workflow checks out are the ones this branch adds.
+on:
 #   - `Run pip-audit` must report the vulnerabilities and the step must end
 #     with the exit code of pip-audit, not of `tee`.
 #   - `Generate SARIF report` must print a result count above zero. Before
@@ -35,6 +52,7 @@ on:
       - '.github/workflows/pip-audit.yml'
       - '.github/workflows/self-check-pip-audit.yml'
       - 'scripts/pip_audit_sarif.py'
+      - 'scripts/pip_audit_report.py'
   workflow_dispatch:
 
 jobs:
@@ -47,25 +65,12 @@ jobs:
       pr_comment: false
       sarif_category: pip-audit-self-check-clean
 
-  # Must pass, and must report the jinja2 vulnerabilities and a SARIF report
-  # with findings. warn_only holds the job green, so this is the evidence for
-  # the SARIF path that is safe on a pull request head.
-  vulnerable_environment_warn_only:
+  # Must pass, and must report the jinja2 vulnerabilities as warnings, with
+  # a SARIF report that carries findings. The job never fails on a finding.
+  vulnerable_environment_warns:
     uses: ./.github/workflows/pip-audit.yml
     with:
       gh_automations_ref: ${{ github.head_ref || github.ref_name }}
       install_extras: "-r test/canary/pip-audit-vulnerable.txt"
-      warn_only: true
       pr_comment: false
       sarif_category: pip-audit-self-check-vulnerable
-
-  # Must fail: the same vulnerable environment, with warn_only off. This is
-  # the job that was green before this change.
-  vulnerable_environment_fails:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    uses: ./.github/workflows/pip-audit.yml
-    with:
-      gh_automations_ref: ${{ github.head_ref || github.ref_name }}
-      install_extras: "-r test/canary/pip-audit-vulnerable.txt"
-      pr_comment: false
-      sarif_category: pip-audit-self-check-fails
