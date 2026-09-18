@@ -58,12 +58,24 @@ def sort_pipdeptree_output(text: str) -> str:
     return "\n".join(_sort_block(lines)) + "\n"
 
 
+class DownstreamError(RuntimeError):
+    """pipdeptree did not run, or is not installed: the report would
+    describe nothing. It used to read "No dependents found" (T-2899)."""
+
+
 def get_downstream(package_name: str) -> str:
     result = subprocess.run(
         [sys.executable, "-m", "pipdeptree", "-r", "-p", package_name],
         capture_output=True, text=True
     )
-    raw = result.stdout or f"No dependents found for {package_name}\n"
+    if result.returncode != 0:
+        raise DownstreamError(
+            f"pipdeptree exited {result.returncode} for {package_name}: "
+            f"{(result.stderr or result.stdout).strip()[-400:] or 'no output'}"
+        )
+    raw = result.stdout
+    if not raw.strip():
+        raw = f"No dependents found for {package_name}\n"
     return sort_pipdeptree_output(raw)
 
 
@@ -73,7 +85,11 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="downstream_report.txt", help="Output file path")
     args = parser.parse_args()
 
-    report = get_downstream(args.package)
+    try:
+        report = get_downstream(args.package)
+    except DownstreamError as e:
+        print(f"::error title=downstream-check did not run::{e}")
+        sys.exit(2)
     with open(args.output, "w") as f:
         f.write(report)
     print(report)

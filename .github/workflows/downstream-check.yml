@@ -85,6 +85,10 @@ jobs:
         id: install
         run: |
           curl -fsSL -o constraints.txt "${{ inputs.constraints_url }}"
+          # The step's name promised pipdeptree and never installed it, so
+          # check_downstream.py's `python -m pipdeptree` failed on every run
+          # and the report read "No dependents found" (T-2899).
+          uv pip install pipdeptree
           # The ecosystem install may leave packages out (a wheel that does not
           # build here is not a finding about the target); the report says how
           # many made it. The target install is a hard requirement: a report
