@@ -38,6 +38,7 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install test dependencies
-        run: uv pip install pytest pyyaml ovos-plugin-manager actionlint-py
+        # the same actionlint release lint.yml pins (env ACTIONLINT_PY there)
+        run: uv pip install pytest pyyaml ovos-plugin-manager actionlint-py==1.7.12.24
       - name: Run tests
         run: pytest test/ -v

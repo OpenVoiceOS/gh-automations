@@ -2,5 +2,19 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "actionlint-py exact pin in the workflows (lint.yml env, test.yml install)",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "actionlint-py==(?<currentValue>[0-9][0-9.]*)"
+      ],
+      "depNameTemplate": "actionlint-py",
+      "datasourceTemplate": "pypi"
+    }
   ]
 }
