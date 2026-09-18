@@ -271,6 +271,39 @@ jobs:
                       name_re = re.escape(canonical).replace(r"\-", "[-_.]")
                       safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
 
+          # PEP 639 packages. A distribution that declares its license only as a
+          # `License-Expression` (no legacy `License` field, no license
+          # classifier) reads as category "Error" in the checker, which does not
+          # parse the expression. build, packaging, wheel, urllib3 and zipp all
+          # do this, so every repo that pulls them in went red for a permissive
+          # license. Read the expression from the installed metadata and exclude
+          # the package only when EVERY license identifier in it is on the
+          # permissive SPDX list below. An expression with any other identifier
+          # (GPL, LGPL, MPL, an unknown id, a LicenseRef) is left to the checker,
+          # so no election between licence options is made here.
+          from importlib.metadata import distributions
+          PERMISSIVE_SPDX = {
+              "0BSD", "APACHE-2.0", "BSD-1-CLAUSE", "BSD-2-CLAUSE", "BSD-3-CLAUSE",
+              "BSD-3-CLAUSE-CLEAR", "CC0-1.0", "HPND", "ISC", "MIT", "MIT-0",
+              "MIT-CMU", "PSF-2.0", "PYTHON-2.0", "UNLICENSE", "ZLIB",
+          }
+          seen = set()
+          for dist in distributions():
+              name = dist.metadata.get("Name") or ""
+              expression = (dist.metadata.get("License-Expression") or "").strip()
+              if not name or not expression:
+                  continue
+              ids = re.findall(r"[A-Za-z0-9.+-]+", expression)
+              ids = [i for i in ids if i.upper() not in ("AND", "OR", "WITH")]
+              if not ids or not all(i.upper() in PERMISSIVE_SPDX for i in ids):
+                  continue
+              canonical = re.sub(r'[-_.]+', '-', name).lower()
+              if canonical in seen:
+                  continue
+              seen.add(canonical)
+              name_re = re.escape(canonical).replace(r"\-", "[-_.]")
+              safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
+
           print(f"regex={'|'.join(safe_names)}")
           PYEOF
 
@@ -373,12 +406,19 @@ jobs:
           #          unmodified imported library — same footing as tqdm. The
           #          checker categorises the combined expression as WeakCopyleft.
           #          Pulled transitively across OVOS via ovos-bus-client/ovos-config.
+          #   setuptools — MIT (bundled LICENSE file). The 79.x wheels declare
+          #          no `License`, no `License-Expression` and no license
+          #          classifier, only `License-File: LICENSE`, so the checker
+          #          reports category "Error". 80.0 and later declare
+          #          `License-Expression: MIT`, which the PEP 639 step above
+          #          reads. Pulled by nearly every build.
           central = (r"(?i:^bidict([=<>!~ @;].*)?$)"
                      r"|(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
                      r"|(?i:^orjson([=<>!~ @;].*)?$)"
-                     r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)")
+                     r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)"
+                     r"|(?i:^setuptools([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
