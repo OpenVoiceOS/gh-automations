@@ -45,6 +45,16 @@ on:
         type: boolean
         default: true
         description: "Post a section in the OVOS PR Checks comment on pull_request events"
+      section_key:
+        type: string
+        default: ""
+        description: >
+          Key of the PR comment section. The comment keeps one section per
+          id, so a caller that runs this workflow more than once on one pull
+          request (one ruff_args per package, say) gives each call its own
+          key, or the last call overwrites the section of the others. Empty
+          keeps the historical id "lint"; a value gives "lint-<key>" and the
+          title "Lint (<key>)".
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -120,15 +130,24 @@ jobs:
 
       - name: Post lint section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECTION_KEY: ${{ inputs.section_key }}
         run: |
+          # One section per call: two lint jobs on one pull request used to
+          # share the id "lint" and the second overwrote the first (T-2899).
+          if [ -z "$SECTION_KEY" ]; then
+            SECTION_ID="lint"; TITLE="🔍 Lint"
+          else
+            SECTION_ID="lint-$(printf '%s' "$SECTION_KEY" | tr -c 'A-Za-z0-9_-' '-')"
+            TITLE="🔍 Lint ($SECTION_KEY)"
+          fi
           python3 _gh_automations/scripts/update_pr_comment.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
-            --section-id "lint" \
-            --title "🔍 Lint" \
+            --section-id "$SECTION_ID" \
+            --title "$TITLE" \
             --content-file /tmp/lint-section.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Lint is informational — it never blocks merges.
       # Fix the issues at your own pace; the PR Checks comment shows what needs attention.
