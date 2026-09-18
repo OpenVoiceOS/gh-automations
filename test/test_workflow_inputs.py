@@ -39,7 +39,18 @@ DEPRECATED_WORKFLOWS = {
 # Workflows that use `workflow_call` (reusable).
 # Excluded: test.yml (gh-automations' own CI, not a reusable workflow)
 #           notify-matrix.yml (internal-only, not designed for external callers)
-NON_REUSABLE_WORKFLOWS = {"test.yml", "notify-matrix.yml"}
+#           self-check*.yml (this repository calling a reusable workflow
+#                            against itself, so it is a caller, not a callee)
+#
+# The self-check rule is a prefix, not a list of names. Three open pull
+# requests each add one self-check file (self-check.yml on #124,
+# self-check-tts.yml on #125, self-check-pip-audit.yml here). A prefix takes
+# all three, so this line does not have to change again, and the pull
+# requests do not have to merge in a set order.
+SELF_CHECK_PREFIX = "self-check"
+NON_REUSABLE_WORKFLOWS = {"test.yml", "notify-matrix.yml"} | {
+    f.name for f in WORKFLOW_FILES if f.name.startswith(SELF_CHECK_PREFIX)
+}
 REUSABLE_WORKFLOWS = {f.name for f in WORKFLOW_FILES} - NON_REUSABLE_WORKFLOWS
 
 
@@ -76,6 +87,26 @@ class TestWorkflowYaml:
         """Every workflow file must be valid YAML."""
         content = load_workflow(wf_path)
         assert isinstance(content, dict), f"{wf_path.name}: top-level is not a mapping"
+
+    def test_no_duplicate_mapping_keys(self, wf_path: Path) -> None:
+        """GitHub refuses a workflow file with a key twice in one mapping
+        ("'env' is already defined"); PyYAML keeps the last one and says
+        nothing. Two heads of gh-automations#126 were refused at push for
+        that, so parse with a loader that raises on a duplicate."""
+
+        class Strict(yaml.SafeLoader):
+            pass
+
+        def mapping(loader, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                assert key not in seen, f"{wf_path.name}: line {key_node.start_mark.line + 1}: `{key}` is already defined"
+                seen.add(key)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+        Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+        yaml.load(wf_path.read_text(), Loader=Strict)
 
     def test_has_name(self, wf_path: Path) -> None:
         """Every workflow should have a `name:` field."""
