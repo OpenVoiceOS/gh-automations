@@ -26,25 +26,6 @@ name: Self Check Pip Audit
 # gh_automations_ref names the branch under test, so that the scripts the
 # workflow checks out are the ones this branch adds.
 on:
-#   - `Run pip-audit` must report the vulnerabilities and the step must end
-#     with the exit code of pip-audit, not of `tee`.
-#   - `Generate SARIF report` must print a result count above zero. Before
-#     this change, pip-audit had no `sarif` format, the step took its
-#     fallback, and the report was always empty.
-#   - `Upload SARIF to GitHub Security tab` keeps continue-on-error, so its
-#     log line is the evidence that the upload was accepted.
-#
-# The two jobs upload under their own sarif_category. Code scanning keeps one
-# analysis per (ref, category) and the last upload wins, so a shared category
-# let the clean job delete the alerts the vulnerable job had just raised.
-#
-# The job that must fail runs on workflow_dispatch only. A reusable-workflow
-# job takes no continue-on-error, so a negative control on the pull request
-# head would redden the head for as long as the pull request is open.
-#
-# gh_automations_ref names the branch under test, so that the SARIF script
-# the workflow checks out is the one this branch adds.
-on:
   pull_request:
     branches: [dev]
     types: [opened, synchronize, reopened, ready_for_review]
