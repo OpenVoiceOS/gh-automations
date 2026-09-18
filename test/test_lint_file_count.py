@@ -6,6 +6,7 @@ fake ruff."""
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -32,10 +33,20 @@ def step(name):
 
 def run(tmp_path, name, files, outcome="success", ruff_args="."):
     script = step(name)["run"]
-    for k, v in (("inputs.ruff_args", ruff_args), ("inputs.ruff", "true"), ("inputs.pre_commit", "false"),
-                 ("steps.ruff.outcome", outcome), ("steps.ruff_files.outputs.count", str(len(files.split()))),
-                 ("steps.pre_commit.outcome", "skipped")):
-        script = script.replace("${{ %s }}" % k, v)
+    known = {"inputs.ruff_args": ruff_args, "inputs.ruff": "true", "steps.ruff.outcome": outcome,
+             "steps.ruff_files.outputs.count": str(len(files.split()))}
+
+    def value(m):
+        # Every other lint (pre_commit, actionlint, whatever lint.yml gains
+        # next) is off, and its step outputs are skipped or empty.
+        k = m.group(1)
+        if k in known:
+            return known[k]
+        if k.startswith("inputs."):
+            return "false"
+        return "skipped" if k.endswith(".outcome") else ""
+
+    script = re.sub(r"\$\{\{\s*([A-Za-z0-9_.]+)\s*\}\}", value, script)
     assert "${{" not in script, script
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
