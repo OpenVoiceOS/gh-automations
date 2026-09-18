@@ -34,7 +34,7 @@ specific justification.
 | `tqdm` | `MPL-2.0 AND MIT` | WeakCopyleft | Dual-licensed. The MIT option makes it fully permissive to use as a library; the checker flags it only because of the MPL-2.0 component. We use `tqdm` as an unmodified, imported progress-bar dependency (pulled transitively by `huggingface_hub`, and thus by many OVOS ML repos): no MPL-2.0 files are modified or redistributed, so the MIT terms govern and it is compatible with Apache 2.0 distribution. |
 | `marisa-trie` | `MIT AND (BSD-2-Clause OR LGPL-2.1-or-later)` | WeakCopyleft | Dual-licensed. The checker flags the whole expression because of the LGPL-2.1-or-later option, but the license grants an explicit `BSD-2-Clause OR LGPL` choice: we elect the permissive BSD-2-Clause. We use `marisa-trie` as an unmodified, imported static-trie library (pulled transitively via `langcodes`/`language_data`, and thus by many OVOS repos that resolve language data): no source is modified or redistributed, so the BSD-2-Clause terms govern and it is compatible with Apache 2.0 distribution. |
 | `paho-mqtt` | `EPL-2.0 OR BSD-3-Clause` | WeakCopyleft | Dual-licensed. The license grants an explicit `EPL-2.0 OR BSD-3-Clause` choice: we elect the permissive BSD-3-Clause. The checker flags the whole expression because of the EPL-2.0 option. We use `paho-mqtt` as an unmodified, imported MQTT client library (a direct dependency of the `*2mqtt` bridges and other OVOS/TigreGotico MQTT integrations): no source is modified or redistributed, so the BSD-3-Clause terms govern and it is compatible with Apache 2.0 distribution. |
-| `setuptools` | MIT (bundled `LICENSE` file only) | Error | Permissive. From 79.x the wheel declares no `License` field, no `License-Expression` and no license classifier, so the checker cannot find a license and reports `Error`. The bundled `LICENSE` file is the MIT text. It is a build tool that almost every package pulls in. |
+| `setuptools` | MIT (bundled `LICENSE` file only in 79.x) | Error | Permissive. The 79.x wheels declare no `License` field, no `License-Expression` and no license classifier, so the checker cannot find a license and reports `Error`. The bundled `LICENSE` file is the MIT text. 80.0 and later declare `License-Expression: MIT`, which the PEP 639 rule below reads. It is a build tool that almost every package pulls in. |
 
 ## Packages with a permissive PEP 639 expression
 
@@ -42,7 +42,8 @@ The workflow also excludes, with no entry in this table, a package that declares
 its license only as a PEP 639 `License-Expression` when **every** SPDX identifier
 in that expression is permissive. The checker does not parse the expression and
 reports `Error` for these packages (for example `build`, `packaging`, `wheel`,
-`urllib3` and `zipp`). The permissive identifiers are: `0BSD`, `Apache-2.0`,
+`urllib3`, `zipp` and `setuptools` 80 and later). The test
+`test/test_license_check_pep639.py` runs the step against wheel METADATA samples. The permissive identifiers are: `0BSD`, `Apache-2.0`,
 `BSD-1-Clause`, `BSD-2-Clause`, `BSD-3-Clause`, `BSD-3-Clause-Clear`, `CC0-1.0`,
 `HPND`, `ISC`, `MIT`, `MIT-0`, `MIT-CMU`, `PSF-2.0`, `Python-2.0`, `Unlicense`
 and `Zlib`. An expression that contains any other identifier stays with the

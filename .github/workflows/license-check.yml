@@ -406,10 +406,12 @@ jobs:
           #          unmodified imported library — same footing as tqdm. The
           #          checker categorises the combined expression as WeakCopyleft.
           #          Pulled transitively across OVOS via ovos-bus-client/ovos-config.
-          #   setuptools — MIT (bundled LICENSE file). From 79.x the wheel
-          #          declares no `License`, no `License-Expression` and no license
+          #   setuptools — MIT (bundled LICENSE file). The 79.x wheels declare
+          #          no `License`, no `License-Expression` and no license
           #          classifier, only `License-File: LICENSE`, so the checker
-          #          reports category "Error". Pulled by nearly every build.
+          #          reports category "Error". 80.0 and later declare
+          #          `License-Expression: MIT`, which the PEP 639 step above
+          #          reads. Pulled by nearly every build.
           central = (r"(?i:^bidict([=<>!~ @;].*)?$)"
                      r"|(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
