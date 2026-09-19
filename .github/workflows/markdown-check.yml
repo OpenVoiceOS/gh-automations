@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
       - name: markdownlint
         run: |
           npm install -g markdownlint-cli2@0.18.1
