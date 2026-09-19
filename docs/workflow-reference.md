@@ -408,6 +408,67 @@ jobs:
 
 ---
 
+## `golden-utterances.yml`
+
+**File:** `.github/workflows/golden-utterances.yml`
+**Trigger:** `workflow_call` from a skill repository.
+
+One runner for every skill's golden-utterance corpus, `ovoscope golden`
+(ovoscope 1.10.0a1 and later). The workflow installs the skill editable
+with its extra and ovoscope at the floor, reads the skill id from the
+installed metadata (the entry point in group `ovos.plugin.skill` or
+`opm.skill` of the distribution installed from the checkout; no parse of
+`pyproject.toml` or `setup.py`, so the skill template's `URL.split()`
+names work), and runs the corpus: one MiniCroft per locale, the
+loaded skill's `root_dir` asserted to be the checkout, every row fired with
+a Session in the row's `lang`, the fired intent read back from the bus.
+The scoreboard and the predictions are an artifact and a job summary.
+
+### Inputs
+
+| Input | Default | What it does |
+| --- | --- | --- |
+| `rows` | `test/end2end/golden_utterances*.jsonl` | glob(s) of the golden files, space-separated |
+| `skill_extra` | `test` | the extra installed with the skill; it must carry the pipeline plugins the corpus needs |
+| `pipeline` | `""` | what `ovoscope golden --pipeline` receives: a named preset (`repo`, `m2v-prototype`, `m2v-dual`, resolved by the command) or an explicit comma-separated list of pipeline plugin ids. Empty is MiniCroft's lean default, which includes the stop pipeline; a skill whose own runner named a pipeline names it here (parrot: 11 rows go to the stop pipeline without it). A preset needs the ovoscope release that ships it: raise `ovoscope_floor` with it |
+| `locales` | `""` | comma-separated lang list; empty runs every locale in the rows |
+| `python_versions` | `["3.11"]` | JSON list, one job each |
+| `ovoscope_floor` | `1.10.0a1` | the ovoscope release floor |
+| `runner`, `system_deps`, `uv_prerelease`, `timeout_per_utterance` | as the other workflows | |
+
+### Exit codes
+
+`0` every row matched. `1` a miss (the summary names each). `2` no rows
+matched the glob. `3` the loaded skill is not this checkout (an installed
+copy shadows it). `4` every row is `needs_manual`.
+
+### Typical usage
+
+```yaml
+name: Golden Utterances
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+jobs:
+  golden:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/golden-utterances.yml@dev
+    secrets: inherit
+    with:
+      skill_extra: test
+      pipeline: ovos-padatious-pipeline-plugin-high,ovos-padacioso-pipeline-plugin-high,ovos-padacioso-pipeline-plugin-medium,ovos-padacioso-pipeline-plugin-low
+```
+
+### Notes
+
+- An empty `pipeline` prints a `::warning` on the run step, so a caller
+  that forgot it sees why rows went to the stop pipeline.
+- The per-repo runner files (`test/end2end/test_golden_utterances*.py`)
+  are what this replaces; a repository deletes them when it adds the
+  caller and keeps the `.jsonl` rows.
+- Plan and inventory: `knowledge/wiki/plans/golden-utterances-shared-workflow.md`.
+
+
 ## `ovoscope.yml`
 
 Runs ovoscope end-to-end skill tests on a **single Python version**. Installs the skill with its test extras (which must include `ovoscope`), executes pytest against the end-to-end test directory, and posts a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment.
