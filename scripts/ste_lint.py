@@ -138,6 +138,7 @@ if __name__ == "__main__":
                     r["total"] += n; r["pass"] = False
             flag = "PASS" if r["pass"] else "FAIL"
             print(f"{os.path.basename(f):32} {flag} words={r['words']:4d} total={r['total']:3d} "
+                  f"SLOP={r['violations'].get('SLOP', 0):3d} "
                   f"per100w={r['per100w']:6.2f} " + (f"hits={','.join(r['hits'][:4])}" if r['hits'] else ""))
             fail = fail or not r["pass"]
     sys.exit(1 if fail else 0)
