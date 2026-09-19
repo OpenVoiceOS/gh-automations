@@ -139,16 +139,28 @@ jobs:
           # which single form a given reusable workflow expects, and a wrong
           # guess used to abort the job (pip install of a bare extras name
           # fails) before any test ever ran. Normalize all spellings here.
+          # Each whitespace-separated token is normalized on its own, so a
+          # value that combines a requirements file and an extra ('-r
+          # test/requirements.txt test', OCP 23e423f) installs both instead
+          # of asking PyPI for a package named "test" (T-1096). The token
+          # after -r/-c/-e/--requirement/--constraint/--editable is that
+          # option's argument and stays as written.
           RAW="${{ inputs.install_extras }}"
-          if [ -z "$RAW" ]; then
-            NORMALIZED=""
-          elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
-            NORMALIZED="$RAW"
-          elif [[ "$RAW" == \[* ]]; then
-            NORMALIZED=".$RAW"
-          else
-            NORMALIZED=".[$RAW]"
-          fi
+          NORMALIZED=""
+          ARG_NEXT=""
+          for TOK in $RAW; do
+            if [ -n "$ARG_NEXT" ]; then
+              NORM="$TOK"; ARG_NEXT=""
+            elif [[ "$TOK" == -* || "$TOK" == */* || "$TOK" == .* ]]; then
+              NORM="$TOK"
+              case "$TOK" in -r|-c|-e|--requirement|--constraint|--editable) ARG_NEXT=1 ;; esac
+            elif [[ "$TOK" == \[* ]]; then
+              NORM=".$TOK"
+            else
+              NORM=".[$TOK]"
+            fi
+            NORMALIZED="${NORMALIZED:+$NORMALIZED }$NORM"
+          done
           if [ -n "$NORMALIZED" ]; then
             uv pip install $NORMALIZED
           fi
