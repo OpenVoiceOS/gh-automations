@@ -4,7 +4,9 @@ GitHub refuses at parse time and PyYAML accepts, and on a clean file."""
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -63,7 +65,7 @@ def run_step(tmp_path, files):
     wfdir.mkdir(parents=True)
     for name, text in files.items():
         (wfdir / name).write_text(text)
-    script = step()["run"].replace("uv pip install actionlint-py\n", "")  # the tool is on PATH here
+    script = step()["run"].replace('uv pip install "$ACTIONLINT_PY"\n', "")  # the tool is on PATH here
     assert "${{" not in script
     out = tmp_path / "out"
     out.touch()
@@ -111,3 +113,31 @@ def test_gate_step_fails_only_on_a_finding_when_asked():
     assert "exit 1" in gate["run"]
     inputs = wf[True]["workflow_call"]["inputs"]
     assert inputs["actionlint"]["default"] is True and inputs["actionlint_fail"]["default"] is True
+
+
+# T-3335: one exact actionlint release for the fleet. lint.yml pins it in
+# its env, test.yml installs the same one for these tests, and Renovate's
+# regex manager moves both. A drift between the two means the tests ran a
+# different linter than the fleet.
+ACTIONLINT_PIN = re.compile(r"actionlint-py==([0-9][0-9.]*)")
+
+
+def test_the_actionlint_pin_is_exact_and_the_same_in_both_workflows():
+    lint_env = yaml.safe_load(WORKFLOW.read_text())["env"]["ACTIONLINT_PY"]
+    m = ACTIONLINT_PIN.fullmatch(lint_env)
+    assert m, f"lint.yml env ACTIONLINT_PY is not an exact pin: {lint_env!r}"
+    test_wf = (ROOT / ".github/workflows/test.yml").read_text()
+    pins = set(ACTIONLINT_PIN.findall(test_wf))
+    assert pins == {m.group(1)}, f"test.yml installs {pins or 'no pin'}, lint.yml pins {m.group(1)}"
+
+
+def test_renovate_moves_the_actionlint_pin():
+    cfg = json.loads((ROOT / "renovate.json").read_text())
+    managers = [c for c in cfg.get("customManagers", []) if c.get("depNameTemplate") == "actionlint-py"]
+    assert managers, "renovate.json has no custom manager for actionlint-py"
+    # Renovate writes RE2 named groups, (?<name>); Python spells them (?P<name>)
+    pattern = re.compile(managers[0]["matchStrings"][0].replace("(?<", "(?P<"))
+    lint_env = yaml.safe_load(WORKFLOW.read_text())["env"]["ACTIONLINT_PY"]
+    assert pattern.search(lint_env), "the Renovate matchString does not match lint.yml's pin"
+    assert pattern.search((ROOT / ".github/workflows/test.yml").read_text()), \
+        "the Renovate matchString does not match test.yml's pin"
