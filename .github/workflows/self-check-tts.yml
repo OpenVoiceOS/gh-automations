@@ -1,0 +1,53 @@
+name: Self Check TTS
+# The TTS intelligibility workflow, run against this repository, to prove that
+# pre_test_command reaches pytest in the same shell.
+#
+# The positive job supplies a command that writes the test file, and names that
+# same file as test_path. If the command runs where the comment says it does,
+# pytest collects the file. Without the command there is no file to collect.
+#
+# Read the pytest counts in the log, not the job conclusion. The run_tests step
+# pipes pytest into tee and does not check PIPESTATUS, so the step exits with
+# the status of tee and a collection error reads as a pass. build-tests.yml
+# checks PIPESTATUS on the same line; this workflow does not.
+#
+# The negative job is the same call with no command. Its log must show that
+# pytest collected nothing. It cannot fail as a job: the PIPESTATUS gap above
+# means the step passes whatever pytest did. It runs on workflow_dispatch
+# only, so that it stays off the pull request head if that gap is ever closed
+# and the job starts failing as it should.
+#
+# install_extras is '-r /dev/null', the raw-pip-arguments spelling the input
+# documents. This repository ships no package at its root, and the workflow
+# installs the repository before testing.
+#
+# Fold this file into self-check.yml when #124 lands; both are this
+# repository's own workflows run against itself.
+#
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/tts-intelligibility.yml'
+      - '.github/workflows/self-check-tts.yml'
+  workflow_dispatch:
+
+jobs:
+  # Must pass: the command writes the file that test_path names.
+  pre_test_command_reaches_pytest:
+    uses: ./.github/workflows/tts-intelligibility.yml
+    with:
+      install_extras: "-r /dev/null"
+      pre_test_command: "mkdir -p test/canary && printf 'def test_tts_hook_canary():\\n    assert True\\n' > test/canary/test_tts_hook_canary.py"
+      test_path: "test/canary/test_tts_hook_canary.py"
+      pr_comment: false
+
+  # Must fail: same call, no command, so pytest has no file to collect.
+  pre_test_command_absent:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/tts-intelligibility.yml
+    with:
+      install_extras: "-r /dev/null"
+      test_path: "test/canary/test_tts_hook_canary.py"
+      pr_comment: false
