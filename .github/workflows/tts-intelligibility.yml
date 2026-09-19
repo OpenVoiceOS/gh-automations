@@ -46,6 +46,13 @@ on:
         description: >
           Extra apt packages to install before testing (space-separated), e.g.
           'espeak-ng sox'. Engines backed by a system binary need this.
+      pre_test_command:
+        type: string
+        default: ""
+        description: >
+          Command run after the package is installed and before pytest, in the
+          repository root. For test dependencies that are not pip packages:
+          a model download, a generated fixture, a service the tests talk to.
       install_extras:
         type: string
         default: "test"
@@ -168,6 +175,10 @@ jobs:
         env:
           TTS_MAX_WER: ${{ inputs.max_wer }}
         run: |
+          # pre_test_command runs in this step, not a step of its own: a
+          # separate step is a separate shell process, so an export or a
+          # venv activation in it is lost before pytest starts.
+          ${{ inputs.pre_test_command }}
           python -m pytest \
             ${{ inputs.test_path }} \
             --json-report \
