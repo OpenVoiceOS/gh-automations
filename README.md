@@ -37,6 +37,7 @@ uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
 | `notify-matrix.yml` | Send a message to the OVOS Matrix channel | [reference](docs/workflow-reference.md#notify-matrixyml) |
 | `type-check.yml` | Run mypy. Post a Type Check section to the PR comment | [reference](docs/workflow-reference.md#type-checkyml) |
 | `docs-check.yml` | Verify required docs files exist. Optional markdownlint | [reference](docs/workflow-reference.md#docs-checkyml) |
+| `markdown-check.yml` | markdownlint and a lychee link check, both blocking, for Markdown-only repositories | [reference](docs/workflow-reference.md#markdown-checkyml) |
 
 ---
 

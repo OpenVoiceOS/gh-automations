@@ -1,0 +1,78 @@
+name: Markdown Check
+# Reusable workflow for a repository whose content is Markdown: a specification
+# set, a documentation tree, a blog. Two blocking jobs: markdownlint-cli2 on
+# every Markdown file, and lychee on every link those files carry. A repository
+# with no code has no other check, so these are the ones its pull requests wait on.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: "ubuntu-latest"
+      globs:
+        type: string
+        default: "**/*.md"
+        description: "Space-separated markdownlint-cli2 globs."
+      markdownlint_config:
+        type: string
+        default: ""
+        description: >
+          Path to a markdownlint-cli2 configuration file in the caller. When
+          empty, markdownlint-cli2 finds .markdownlint-cli2.* at the repository
+          root by itself, and falls back to its built-in defaults.
+      lychee_args:
+        type: string
+        default: "--no-progress --accept 200..=299,403,429 --timeout 20 --max-retries 2 ."
+        description: >
+          Arguments for lychee. The default checks every link under the
+          repository root and accepts 403 and 429 as reachable (bot-hostile
+          hosts). Mail addresses are skipped unless --include-mail is given.
+      lychee_fail:
+        type: boolean
+        default: true
+        description: "Fail the job when lychee reports a dead link."
+      lychee_fail_if_empty:
+        type: boolean
+        default: false
+        description: >
+          Fail the links job when lychee finds no link at all. lychee-action
+          fails on that by default; a small Markdown repository may carry none.
+
+jobs:
+  markdownlint:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: markdownlint
+        run: |
+          npm install -g markdownlint-cli2@0.18.1
+          # the globs are markdownlint-cli2's to expand, not the shell's:
+          # an unquoted **/*.md is one directory deep in plain bash
+          set -f
+          if [ -n "${{ inputs.markdownlint_config }}" ]; then
+            markdownlint-cli2 --config "${{ inputs.markdownlint_config }}" ${{ inputs.globs }}
+          else
+            markdownlint-cli2 ${{ inputs.globs }}
+          fi
+
+  links:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    # neither job writes, and this token reaches a third-party action
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: ${{ inputs.lychee_args }}
+          fail: ${{ inputs.lychee_fail }}
+          failIfEmpty: ${{ inputs.lychee_fail_if_empty }}
+          token: ${{ secrets.GITHUB_TOKEN }}
