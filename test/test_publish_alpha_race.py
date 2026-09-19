@@ -77,6 +77,10 @@ def remote(tmp_path: Path):
     hook = bare / "hooks" / "pre-receive"
     hook.write_text(PRE_RECEIVE)
     hook.chmod(hook.stat().st_mode | stat.S_IEXEC)
+    # a global core.hooksPath points every repository at one hook directory and
+    # hides the hook above. The tests that follow read a rejected push, so the
+    # remote names its own hook directory and does not read the global value.
+    git(bare, "config", "core.hooksPath", str(bare / "hooks"))
     return bare
 
 
