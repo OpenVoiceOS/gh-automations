@@ -114,3 +114,22 @@ class TestBareInstall:
     def test_no_extras_asked_warns(self, tmp_path, name):
         out, summary, _ = run_step(tmp_path, name, test_extras="", fallback="", declared="test")
         assert "declares neither [] nor []" in summary
+
+
+# install_extras is normalized per token (T-1096). The value ovos-ocp-pipeline-plugin
+# set at 23e423f, '-r test/requirements.txt test', reached uv as written, and
+# uv asked PyPI for a package named "test".
+@pytest.mark.parametrize("name", list(WORKFLOWS))
+@pytest.mark.parametrize("value, expected", [
+    ("-r test/requirements.txt test", "uv pip install -r test/requirements.txt .[test]"),
+    ("test -r test/requirements.txt", "uv pip install .[test] -r test/requirements.txt"),
+    ("[dev,rl] -c constraints.txt", "uv pip install .[dev,rl] -c constraints.txt"),
+    ("-r reqs.txt", "uv pip install -r reqs.txt"),
+    ("--requirement extras", "uv pip install --requirement extras"),
+    ("dev", "uv pip install .[dev]"),
+    ("[dev]", "uv pip install .[dev]"),
+    (".[dev]", "uv pip install .[dev]"),
+])
+def test_install_extras_tokens_are_normalized_one_by_one(tmp_path, name, value, expected):
+    _, _, log = run_step(tmp_path, name, declared="", install_extras=value)
+    assert expected in log.splitlines(), log
