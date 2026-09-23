@@ -389,6 +389,8 @@ jobs:
                       continue
                   info = data.get("info", {}) or {}
                   lic = (info.get("license") or "").strip()
+                  if lic.upper() == "UNKNOWN":
+                      lic = ""
                   lic_expression = (info.get("license_expression") or "").strip()
                   lic_classifier = next(
                       (c for c in info.get("classifiers", []) if c.startswith("License ::")), "")
@@ -730,6 +732,14 @@ jobs:
           # Packages with no licence metadata at all: reported as a WARN row,
           # never a hard failure, unless denied by name (see the "Detect
           # packages with no licence metadata" step).
+          def short_licence(value):
+              # A PyPI-reported licence value can be a full classifier string
+              # or a multi-line blurb; keep the WARN row to one short line.
+              first_line = (value or "").splitlines()[0].strip() if value else ""
+              if len(first_line) > 60:
+                  first_line = first_line[:60].rstrip() + "…"
+              return first_line
+
           if no_metadata_warnings:
               lines.append("\n**⚠️ No licence metadata found (not blocking):**")
               for w in no_metadata_warnings:
@@ -737,10 +747,10 @@ jobs:
                   status = inherited.get("status")
                   if status == "found" and w.get("forbidden"):
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
-                              f"{inherited['license']} (forbidden; NOT excluded, still fails)")
+                              f"{short_licence(inherited['license'])} (forbidden; NOT excluded, still fails)")
                   elif status == "found":
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
-                              f"{inherited['license']}")
+                              f"{short_licence(inherited['license'])}")
                   elif status == "unavailable":
                       note = " — licence lookup unavailable"
                   else:
