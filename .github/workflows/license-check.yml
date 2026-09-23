@@ -496,12 +496,22 @@ jobs:
               if canonical in DENY_NO_METADATA:
                   continue  # explicit deny: left to fail via the checker as "Error"
 
+              def _classifier_stripped(v):
+                  # "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+                  # -> "Mozilla Public License 2.0": the form a caller's exclude
+                  # pattern is written against, matching the license-field form.
+                  stripped = re.sub(r"^License :: (OSI Approved :: )?", "", v)
+                  return re.sub(r"\s*\([^)]*\)\s*$", "", stripped).strip()
+
               inherited = _released_licence(name)
               inherited_offending = [
                   v for v in inherited.get("values", []) if classify(v) in fail_categories
               ] if inherited.get("status") == "found" else []
               inherited_forbidden = bool(inherited_offending) and not (
-                  exclude_licenses and all(re.search(exclude_licenses, v) for v in inherited_offending)
+                  exclude_licenses and all(
+                      re.search(exclude_licenses, v) or re.search(exclude_licenses, _classifier_stripped(v))
+                      for v in inherited_offending
+                  )
               )
 
               if not inherited_forbidden:

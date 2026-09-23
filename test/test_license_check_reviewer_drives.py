@@ -192,3 +192,16 @@ def test_exclude_licenses_does_not_swallow_a_classifier_form_mpl_by_default(tmp_
         classifiers=["License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"]))
     assert warns[0]["forbidden"] is True, warns
     assert not matches(regex, "shady==1.0rc1"), f"STILL EXCLUDED: {regex!r}"
+
+
+def test_exclude_licenses_matches_the_classifier_form_of_an_inherited_licence(tmp_path):
+    """CodeRabbit's finding: exclude_licenses matched the raw inherited value
+    only, so a caller excluding the licence-field spelling ("^Mozilla Public
+    License.*") never matched the classifier spelling PyPI actually reports
+    ("License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"). The
+    package must be excluded and warned, same as the licence-field form."""
+    regex, warns = drive(tmp_path, SHADY_PKG, SHADY_DIST, shady_pypi_info(
+        classifiers=["License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"]),
+        exclude=r"^Mozilla Public License.*")
+    assert warns[0]["forbidden"] is False, warns
+    assert matches(regex, "shady==1.0rc1"), f"NOT excluded: {regex!r}"
