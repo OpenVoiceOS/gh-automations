@@ -82,6 +82,14 @@ on:
         description: >
           Post a section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
+      deny_no_metadata:
+        type: string
+        default: ""
+        description: >
+          Comma-separated package names that ship no licence metadata but
+          whose PyPI history a maintainer has read and confirmed carries a
+          forbidden licence. Such a package fails the hard check instead of
+          being excluded as a WARN, without editing this shared workflow.
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -326,6 +334,7 @@ jobs:
         # not, is left untouched and still fails as before.
         env:
           FAIL_LICENSES: ${{ inputs.fail_licenses }}
+          DENY_NO_METADATA_INPUT: ${{ inputs.deny_no_metadata }}
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import json
@@ -406,8 +415,51 @@ jobs:
 
           # Reserved for a package confirmed by a human to ship a forbidden
           # licence despite carrying no machine-readable licence metadata on
-          # PyPI. Empty: no such package is known today.
-          DENY_NO_METADATA: set[str] = set()
+          # PyPI. Fed by the caller's deny_no_metadata workflow_call input so
+          # denying a package does not require editing this shared workflow.
+          DENY_NO_METADATA: set[str] = {
+              re.sub(r'[-_.]+', '-', n.strip()).lower()
+              for n in os.environ.get("DENY_NO_METADATA_INPUT", "").split(",")
+              if n.strip()
+          }
+
+          # Same categoriser and fail_licenses parsing as the "Detect combined-
+          # license packages safe by component" step above (kept in sync
+          # rather than imported: each step is an independent inline script).
+          # Used below so a package whose OWN metadata is absent but whose
+          # inherited (PyPI history) licence classifies as forbidden is not
+          # silently excluded.
+          NETWORK = [r"\bAffero", r"\bAGPL", r"GNU Affero General Public License",
+                     r"\bOSL", r"Open Software License", r"\bRPSL"]
+          STRONG = [r"GNU General Public License(?!.*classpath|.*linking|.*exception)",
+                    r"\bGPL(?!.*classpath|.*linking|.*exception)",
+                    r"IBM Public License", r"\bRPL", r"Reciprocal Public License",
+                    r"Sleepycat License"]
+          WEAK = [r"GNU Lesser General Public License", r"\bLGPL",
+                  r"GNU General Public License.*(?:classpath|linking|exception)",
+                  r"\bGPL.*(?:classpath|linking|exception)",
+                  r"\bMPL", r"Mozilla Public License", r"\bEPL", r"Eclipse Public License",
+                  r"\bEUPL", r"European Union Public Licence", r"\bCDDL",
+                  r"Common Development and Distribution License", r"\bCPL",
+                  r"Common Public License", r"\bAPSL", r"Apple Public Source License",
+                  r"\bODbL", r"Open Database License"]
+          PERMISSIVE = [r"\bApache", r"Apache Software License", r"BSD", r"\bMIT\b",
+                        r"MIT License", r"Artistic", r"CC0", r"Public Domain",
+                        r"Unlicense", r"\bISC\b", r"ISC License",
+                        r"Python Software Foundation License", r"\bPSF", r"\bzlib",
+                        r"WTFPL", r"\bW3C\b", r"Historical Permission Notice"]
+
+          def classify(component):
+              for bucket, cats in ((NETWORK, "NetworkCopyleft"), (STRONG, "StrongCopyleft"),
+                                    (WEAK, "WeakCopyleft"), (PERMISSIVE, "Permissive")):
+                  if any(re.search(p, component, re.IGNORECASE) for p in bucket):
+                      return cats
+              return "Other"
+
+          fail_raw = {c.strip() for c in (os.environ.get("FAIL_LICENSES", "")).split(",") if c.strip()}
+          fail_categories = set(fail_raw)
+          if "Copyleft" in fail_categories:
+              fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
 
           expression_by_name = {}
           classifier_by_name = {}
@@ -438,10 +490,16 @@ jobs:
                   continue  # explicit deny: left to fail via the checker as "Error"
 
               inherited = _released_licence(name)
+              inherited_forbidden = (
+                  inherited.get("status") == "found"
+                  and classify(inherited["license"]) in fail_categories
+              )
 
-              name_re = re.escape(canonical).replace(r"\-", "[-_.]")
-              safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
-              warnings.append({"name": name, "version": version, "inherited": inherited})
+              if not inherited_forbidden:
+                  name_re = re.escape(canonical).replace(r"\-", "[-_.]")
+                  safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
+              warnings.append({"name": name, "version": version, "inherited": inherited,
+                                "forbidden": inherited_forbidden})
 
           print(f"regex={'|'.join(safe_names)}")
           print(f"warnings={json.dumps(warnings)}")
@@ -677,7 +735,10 @@ jobs:
               for w in no_metadata_warnings:
                   inherited = w.get("inherited") or {}
                   status = inherited.get("status")
-                  if status == "found":
+                  if status == "found" and w.get("forbidden"):
+                      note = (f" — inherited from {w['name']} {inherited['version']}: "
+                              f"{inherited['license']} (forbidden; NOT excluded, still fails)")
+                  elif status == "found":
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
                               f"{inherited['license']}")
                   elif status == "unavailable":
