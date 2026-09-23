@@ -335,6 +335,63 @@ jobs:
           import urllib.request
           from importlib.metadata import distributions
 
+          from packaging.version import InvalidVersion, Version
+
+          def _released_licence(name: str) -> dict | None:
+              """Look up the newest release (of the ten most recent) that
+              carries licence metadata on PyPI.
+
+              Returns a dict with a "status" of "found" or "unavailable" (the
+              lookup itself failed, e.g. network or parse error) or "none"
+              (every inspected release truly lacks licence metadata).
+              """
+              try:
+                  req = urllib.request.Request(
+                      f"https://pypi.org/pypi/{name}/json",
+                      headers={"User-Agent": "gh-automations-license-check"},
+                  )
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      project = json.load(r)
+              except Exception:
+                  return {"status": "unavailable"}
+
+              releases = project.get("releases", {}) or {}
+              parsed = []
+              for version_str, files in releases.items():
+                  if not files:
+                      continue  # yanked/empty releases publish no artifacts
+                  try:
+                      parsed.append((Version(version_str), version_str))
+                  except InvalidVersion:
+                      continue
+              parsed.sort(key=lambda v: v[0], reverse=True)
+
+              lookup_failed = False
+              for _, version_str in parsed[:10]:
+                  try:
+                      req = urllib.request.Request(
+                          f"https://pypi.org/pypi/{name}/{version_str}/json",
+                          headers={"User-Agent": "gh-automations-license-check"},
+                      )
+                      with urllib.request.urlopen(req, timeout=10) as r:
+                          data = json.load(r)
+                  except Exception:
+                      lookup_failed = True
+                      continue
+                  info = data.get("info", {}) or {}
+                  lic = (info.get("license") or "").strip()
+                  lic_expression = (info.get("license_expression") or "").strip()
+                  lic_classifier = next(
+                      (c for c in info.get("classifiers", []) if c.startswith("License ::")), "")
+                  if lic or lic_expression or lic_classifier:
+                      return {
+                          "status": "found",
+                          "version": version_str,
+                          "license": lic or lic_expression or lic_classifier,
+                      }
+
+              return {"status": "unavailable" if lookup_failed else "none"}
+
           subprocess.run(
               ["pip-licenses", "--format=json", "--with-urls"],
               stdout=open("/tmp/pip-licenses-nometa.json", "w"),
@@ -380,22 +437,7 @@ jobs:
               if canonical in DENY_NO_METADATA:
                   continue  # explicit deny: left to fail via the checker as "Error"
 
-              inherited = None
-              try:
-                  req = urllib.request.Request(
-                      f"https://pypi.org/pypi/{name}/json",
-                      headers={"User-Agent": "gh-automations-license-check"},
-                  )
-                  with urllib.request.urlopen(req, timeout=10) as r:
-                      data = json.load(r)
-                  info = data.get("info", {}) or {}
-                  lic = (info.get("license") or "").strip()
-                  lic_classifier = next(
-                      (c for c in info.get("classifiers", []) if c.startswith("License ::")), "")
-                  if lic or lic_classifier:
-                      inherited = {"version": info.get("version", ""), "license": lic or lic_classifier}
-              except Exception:
-                  inherited = None
+              inherited = _released_licence(name)
 
               name_re = re.escape(canonical).replace(r"\-", "[-_.]")
               safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
@@ -633,10 +675,13 @@ jobs:
           if no_metadata_warnings:
               lines.append("\n**⚠️ No licence metadata found (not blocking):**")
               for w in no_metadata_warnings:
-                  inherited = w.get("inherited")
-                  if inherited:
+                  inherited = w.get("inherited") or {}
+                  status = inherited.get("status")
+                  if status == "found":
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
                               f"{inherited['license']}")
+                  elif status == "unavailable":
+                      note = " — licence lookup unavailable"
                   else:
                       note = " — no released version carries licence metadata either"
                   lines.append(f"- `{w['name']}=={w['version']}`{note}")
