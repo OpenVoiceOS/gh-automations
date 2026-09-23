@@ -82,6 +82,14 @@ on:
         description: >
           Post a section in the shared 'OVOS PR Checks' comment on the PR.
           Only runs when the workflow is triggered by a pull_request event.
+      deny_no_metadata:
+        type: string
+        default: ""
+        description: >
+          Comma-separated package names that ship no licence metadata but
+          whose PyPI history a maintainer has read and confirmed carries a
+          forbidden licence. Such a package fails the hard check instead of
+          being excluded as a WARN, without editing this shared workflow.
 
 # uv installs into the setup-python interpreter (no venv on the runner)
 env:
@@ -307,20 +315,234 @@ jobs:
           print(f"regex={'|'.join(safe_names)}")
           PYEOF
 
+      - name: Detect packages with no licence metadata
+        id: no_metadata
+        # A distribution can carry no `License` field, no `License-Expression`
+        # and no `License ::` classifier at all (T-2477): a resolver picking up
+        # a fresh prerelease before its licence metadata lands, e.g. tokenizers
+        # 1.0.0rc2 on PyPI. pilosus reads that as category "Error" and
+        # FAIL_LICENSES includes "Error" by default, so a dependency drift
+        # nobody in the caller repo touched turns the job red.
+        #
+        # "No licence metadata at all" is not "an unreadable/forbidden
+        # licence": there is nothing to read, so the caller cannot judge it.
+        # Exclude such a package from the hard failure (this repo's WARN
+        # section below reports it by name and version) unless it is named in
+        # DENY_NO_METADATA — reserved for a package a maintainer has read the
+        # source of and confirmed ships a forbidden licence despite the gap in
+        # its PyPI metadata. A package with any licence metadata, forbidden or
+        # not, is left untouched and still fails as before.
+        env:
+          FAIL_LICENSES: ${{ inputs.fail_licenses }}
+          EXCLUDE_LICENSES: ${{ inputs.exclude_licenses }}
+          DENY_NO_METADATA_INPUT: ${{ inputs.deny_no_metadata }}
+        run: |
+          python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.request
+          from importlib.metadata import distributions
+
+          from packaging.version import InvalidVersion, Version
+
+          def _released_licence(name: str) -> dict | None:
+              """Look up the newest release (of the ten most recent) that
+              carries licence metadata on PyPI.
+
+              Returns a dict with a "status" of "found" or "unavailable" (the
+              lookup itself failed, e.g. network or parse error) or "none"
+              (every inspected release truly lacks licence metadata).
+              """
+              try:
+                  req = urllib.request.Request(
+                      f"https://pypi.org/pypi/{name}/json",
+                      headers={"User-Agent": "gh-automations-license-check"},
+                  )
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      project = json.load(r)
+              except Exception:
+                  return {"status": "unavailable"}
+
+              releases = project.get("releases", {}) or {}
+              parsed = []
+              for version_str, files in releases.items():
+                  if not files:
+                      continue  # yanked/empty releases publish no artifacts
+                  try:
+                      parsed.append((Version(version_str), version_str))
+                  except InvalidVersion:
+                      continue
+              parsed.sort(key=lambda v: v[0], reverse=True)
+
+              lookup_failed = False
+              for _, version_str in parsed[:10]:
+                  try:
+                      req = urllib.request.Request(
+                          f"https://pypi.org/pypi/{name}/{version_str}/json",
+                          headers={"User-Agent": "gh-automations-license-check"},
+                      )
+                      with urllib.request.urlopen(req, timeout=10) as r:
+                          data = json.load(r)
+                  except Exception:
+                      lookup_failed = True
+                      continue
+                  info = data.get("info", {}) or {}
+                  lic = (info.get("license") or "").strip()
+                  if lic.upper() == "UNKNOWN":
+                      lic = ""
+                  lic_expression = (info.get("license_expression") or "").strip()
+                  lic_classifiers = [
+                      c for c in info.get("classifiers", []) if c.startswith("License ::")]
+                  values = [v for v in (lic, lic_expression, *lic_classifiers) if v]
+                  if values:
+                      return {
+                          "status": "found",
+                          "version": version_str,
+                          "license": values[0],
+                          "values": values,
+                      }
+
+              return {"status": "unavailable" if lookup_failed else "none"}
+
+          subprocess.run(
+              ["pip-licenses", "--format=json", "--with-urls"],
+              stdout=open("/tmp/pip-licenses-nometa.json", "w"),
+              stderr=subprocess.DEVNULL,
+              check=False,
+          )
+          try:
+              with open("/tmp/pip-licenses-nometa.json") as f:
+                  packages = json.load(f)
+          except Exception:
+              packages = []
+
+          # Reserved for a package confirmed by a human to ship a forbidden
+          # licence despite carrying no machine-readable licence metadata on
+          # PyPI. Fed by the caller's deny_no_metadata workflow_call input so
+          # denying a package does not require editing this shared workflow.
+          DENY_NO_METADATA: set[str] = {
+              re.sub(r'[-_.]+', '-', n.strip()).lower()
+              for n in os.environ.get("DENY_NO_METADATA_INPUT", "").split(",")
+              if n.strip()
+          }
+
+          # Same categoriser and fail_licenses parsing as the "Detect combined-
+          # license packages safe by component" step above (kept in sync
+          # rather than imported: each step is an independent inline script).
+          # Used below so a package whose OWN metadata is absent but whose
+          # inherited (PyPI history) licence classifies as forbidden is not
+          # silently excluded.
+          NETWORK = [r"\bAffero", r"\bAGPL", r"GNU Affero General Public License",
+                     r"\bOSL", r"Open Software License", r"\bRPSL"]
+          STRONG = [r"GNU General Public License(?!.*classpath|.*linking|.*exception)",
+                    r"\bGPL(?!.*classpath|.*linking|.*exception)",
+                    r"IBM Public License", r"\bRPL", r"Reciprocal Public License",
+                    r"Sleepycat License"]
+          WEAK = [r"GNU Lesser General Public License", r"\bLGPL",
+                  r"GNU General Public License.*(?:classpath|linking|exception)",
+                  r"\bGPL.*(?:classpath|linking|exception)",
+                  r"\bMPL", r"Mozilla Public License", r"\bEPL", r"Eclipse Public License",
+                  r"\bEUPL", r"European Union Public Licence", r"\bCDDL",
+                  r"Common Development and Distribution License", r"\bCPL",
+                  r"Common Public License", r"\bAPSL", r"Apple Public Source License",
+                  r"\bODbL", r"Open Database License"]
+          PERMISSIVE = [r"\bApache", r"Apache Software License", r"BSD", r"\bMIT\b",
+                        r"MIT License", r"Artistic", r"CC0", r"Public Domain",
+                        r"Unlicense", r"\bISC\b", r"ISC License",
+                        r"Python Software Foundation License", r"\bPSF", r"\bzlib",
+                        r"WTFPL", r"\bW3C\b", r"Historical Permission Notice"]
+
+          def classify(component):
+              for bucket, cats in ((NETWORK, "NetworkCopyleft"), (STRONG, "StrongCopyleft"),
+                                    (WEAK, "WeakCopyleft"), (PERMISSIVE, "Permissive")):
+                  if any(re.search(p, component, re.IGNORECASE) for p in bucket):
+                      return cats
+              return "Other"
+
+          fail_raw = {c.strip() for c in (os.environ.get("FAIL_LICENSES", "")).split(",") if c.strip()}
+          fail_categories = set(fail_raw)
+          if "Copyleft" in fail_categories:
+              fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+
+          exclude_licenses = os.environ.get("EXCLUDE_LICENSES", "").strip()
+
+          expression_by_name = {}
+          classifier_by_name = {}
+          for dist in distributions():
+              name = dist.metadata.get("Name") or ""
+              if not name:
+                  continue
+              canonical = re.sub(r'[-_.]+', '-', name).lower()
+              expression_by_name[canonical] = (dist.metadata.get("License-Expression") or "").strip()
+              classifiers = dist.metadata.get_all("Classifier") or []
+              classifier_by_name[canonical] = any(c.startswith("License ::") for c in classifiers)
+
+          safe_names = []
+          warnings = []
+          for pkg in packages:
+              name = pkg.get("Name", "")
+              version = pkg.get("Version", "")
+              if not name:
+                  continue
+              canonical = re.sub(r'[-_.]+', '-', name).lower()
+              license_field = (pkg.get("License") or "").strip()
+              has_license_field = bool(license_field) and license_field.upper() != "UNKNOWN"
+              has_expression = bool(expression_by_name.get(canonical))
+              has_classifier = classifier_by_name.get(canonical, False)
+              if has_license_field or has_expression or has_classifier:
+                  continue  # some licence metadata exists; leave to the existing checks
+              if canonical in DENY_NO_METADATA:
+                  continue  # explicit deny: left to fail via the checker as "Error"
+
+              def _classifier_stripped(v):
+                  # "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+                  # -> "Mozilla Public License 2.0": the form a caller's exclude
+                  # pattern is written against, matching the license-field form.
+                  stripped = re.sub(r"^License :: (OSI Approved :: )?", "", v)
+                  return re.sub(r"\s*\([^)]*\)\s*$", "", stripped).strip()
+
+              inherited = _released_licence(name)
+              inherited_offending = [
+                  v for v in inherited.get("values", []) if classify(v) in fail_categories
+              ] if inherited.get("status") == "found" else []
+              inherited_forbidden = bool(inherited_offending) and not (
+                  exclude_licenses and all(
+                      re.search(exclude_licenses, v) or re.search(exclude_licenses, _classifier_stripped(v))
+                      for v in inherited_offending
+                  )
+              )
+
+              if not inherited_forbidden:
+                  name_re = re.escape(canonical).replace(r"\-", "[-_.]")
+                  safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
+              inherited = dict(inherited, offending=inherited_offending)
+              warnings.append({"name": name, "version": version, "inherited": inherited,
+                                "forbidden": inherited_forbidden})
+
+          print(f"regex={'|'.join(safe_names)}")
+          print(f"warnings={json.dumps(warnings)}")
+          PYEOF
+
       - name: Build exclude regex
         id: exclude
-        # Union four sources into one anchored PCRE alternation:
+        # Union five sources into one anchored PCRE alternation:
         #   1. the package under test (auto-derived from pyproject.toml/setup.py) — its
         #      own Apache-2.0 metadata trips pilosus on PEP 639 `license = {text = ...}`;
         #   2. the central whitelist of license-flagged-but-safe packages;
         #   3. the caller's repo-specific exclude_packages.
         #   4. packages auto-detected as safe combined-license strings (see the
         #      "Detect combined-license packages safe by component" step above).
+        #   5. packages carrying no licence metadata at all (see the "Detect
+        #      packages with no licence metadata" step above): reported as a
+        #      WARN row, not a hard failure, unless denied by name.
         # Each branch stays anchored, so an empty caller input produces no leading/
         # trailing '|' and no empty alternation. Source of truth: docs/license-whitelist.md.
         env:
           CALLER_EXCLUDE: ${{ inputs.exclude_packages }}
           COMBINED_EXCLUDE: ${{ steps.combined.outputs.regex }}
+          NO_METADATA_EXCLUDE: ${{ steps.no_metadata.outputs.regex }}
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
           import os
@@ -426,7 +648,10 @@ jobs:
           # 4. Packages auto-detected as safe combined-license strings.
           combined = (os.environ.get("COMBINED_EXCLUDE") or "").strip()
 
-          parts = [p for p in (self_pattern, central.strip(), caller, combined) if p]
+          # 5. Packages carrying no licence metadata at all.
+          no_metadata = (os.environ.get("NO_METADATA_EXCLUDE") or "").strip()
+
+          parts = [p for p in (self_pattern, central.strip(), caller, combined, no_metadata) if p]
           if not parts:
               merged = ""
           elif len(parts) == 1:
@@ -495,6 +720,10 @@ jobs:
           outcome = os.environ["OUTCOME"]
           report = os.environ["REPORT"].strip()
           total_packages = int(os.environ.get("TOTAL_PACKAGES", "0"))
+          try:
+              no_metadata_warnings = json.loads(os.environ.get("NO_METADATA_WARNINGS") or "[]")
+          except json.JSONDecodeError:
+              no_metadata_warnings = []
 
           # Load full license breakdown from pip-licenses
           try:
@@ -517,6 +746,37 @@ jobs:
               lines.append(f"❌ License violations detected{pkg_note} — review required before merging.")
               if report:
                   lines.append(f"\n```\n{report}\n```")
+
+          # Packages with no licence metadata at all: reported as a WARN row,
+          # never a hard failure, unless denied by name (see the "Detect
+          # packages with no licence metadata" step).
+          def short_licence(value):
+              # A PyPI-reported licence value can be a full classifier string
+              # or a multi-line blurb; keep the WARN row to one short line.
+              first_line = (value or "").splitlines()[0].strip() if value else ""
+              if len(first_line) > 60:
+                  first_line = first_line[:60].rstrip() + "…"
+              return first_line
+
+          if no_metadata_warnings:
+              lines.append("\n**⚠️ No licence metadata found (not blocking):**")
+              for w in no_metadata_warnings:
+                  inherited = w.get("inherited") or {}
+                  status = inherited.get("status")
+                  if status == "found" and w.get("forbidden"):
+                      offending = (inherited.get("offending") or inherited.get("values")
+                                   or [inherited["license"]])
+                      note = (f" — inherited from {w['name']} {inherited['version']}: "
+                              f"{', '.join(short_licence(v) for v in offending)} "
+                              f"(forbidden; NOT excluded, still fails)")
+                  elif status == "found":
+                      note = (f" — inherited from {w['name']} {inherited['version']}: "
+                              f"{short_licence(inherited['license'])}")
+                  elif status == "unavailable":
+                      note = " — licence lookup unavailable"
+                  else:
+                      note = " — no released version carries licence metadata either"
+                  lines.append(f"- `{w['name']}=={w['version']}`{note}")
 
           # License distribution summary (always shown)
           if all_pkgs:
@@ -567,6 +827,7 @@ jobs:
           OUTCOME: ${{ steps.license_check_report.outcome }}
           REPORT: ${{ steps.license_check_report.outputs.report }}
           TOTAL_PACKAGES: ${{ steps.license_breakdown.outputs.total_packages }}
+          NO_METADATA_WARNINGS: ${{ steps.no_metadata.outputs.warnings }}
 
       - name: Post license section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
