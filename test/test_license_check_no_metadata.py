@@ -237,3 +237,71 @@ def test_gpl_package_still_fails(tmp_path):
     regex, warnings = run_step(tmp_path, packages, dists)
     assert not matches(regex, "some-gpl-pkg==2.0.0"), regex
     assert warnings == [], warnings
+
+
+def run_step_without_pip_licenses(tmp_path: Path, dists: dict[str, str]) -> tuple[str, str]:
+    # PATH holds only the fake python3 — no pip-licenses executable at all,
+    # reproducing the T-3910 failure mode where the step's own
+    # `pip-licenses --format=json --with-urls` call could not run in the
+    # real job.
+    site = build_site(tmp_path, dists)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    py = bindir / "python3"
+    py.write_text(FAKE_PYTHON)
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    out = tmp_path / "github_output"
+    out.touch()
+    assert shutil.which("pip-licenses") is None, (
+        "pip-licenses is on the real PATH; this test needs it genuinely absent")
+    env = dict(
+        os.environ, PATH=f"{bindir}:{os.environ['PATH']}", PYTHONPATH=str(site),
+        GITHUB_OUTPUT=str(out),
+        FAIL_LICENSES="NetworkCopyleft,StrongCopyleft,WeakCopyleft,Other,Error",
+        EXCLUDE_LICENSES="", DENY_NO_METADATA_INPUT="",
+        HTTPS_PROXY="http://127.0.0.1:1", https_proxy="http://127.0.0.1:1",
+        NO_PROXY="", no_proxy="",
+    )
+    r = subprocess.run(["bash", "-e", "-c", step_script()], cwd=tmp_path, env=env,
+                        capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return r.stdout + r.stderr, out.read_text()
+
+
+def test_pip_licenses_missing_reports_status_unavailable_with_diagnostic():
+    # Before the fix, a pip-licenses read/parse failure was swallowed by a
+    # bare `except Exception: packages = []`: the step emitted
+    # `warnings=[]` and reported success, with nothing in the log naming
+    # why. This must now surface as scan_status=unavailable and a non-empty
+    # diagnostic, so a future red run does not look like a clean scan of
+    # zero candidates.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        log, output = run_step_without_pip_licenses(tmp_path, {})
+    lines = output.splitlines()
+    status_line = next(l for l in lines if l.startswith("scan_status="))
+    diagnostic_line = next(l for l in lines if l.startswith("diagnostic="))
+    assert status_line == "scan_status=unavailable", output
+    assert diagnostic_line != "diagnostic=", output
+    assert "pip-licenses" in diagnostic_line, output
+    assert "no-metadata scan unavailable" in log, log
+
+
+def test_pip_licenses_missing_falls_back_to_importlib_metadata():
+    # With pip-licenses entirely absent, the step must still find a
+    # metadata-less package via importlib.metadata (the second source) and
+    # exclude/warn it exactly as it would have if pip-licenses had listed
+    # it, rather than reporting zero candidates.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        dists = {"tokenizers-1.0.0rc2": ""}  # no License, no Expression, no classifier
+        _, output = run_step_without_pip_licenses(tmp_path, dists)
+    lines = output.splitlines()
+    regex = next(l for l in lines if l.startswith("regex="))[len("regex="):]
+    warnings = json.loads(next(l for l in lines if l.startswith("warnings="))[len("warnings="):])
+    assert matches(regex, "tokenizers==1.0.0rc2"), regex
+    assert len(warnings) == 1, warnings
+    assert warnings[0]["name"] == "tokenizers", warnings
+    assert warnings[0]["version"] == "1.0.0rc2", warnings

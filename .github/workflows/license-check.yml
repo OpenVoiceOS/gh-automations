@@ -406,17 +406,57 @@ jobs:
 
               return {"status": "unavailable" if lookup_failed else "none"}
 
-          subprocess.run(
-              ["pip-licenses", "--format=json", "--with-urls"],
-              stdout=open("/tmp/pip-licenses-nometa.json", "w"),
-              stderr=subprocess.DEVNULL,
-              check=False,
-          )
-          try:
-              with open("/tmp/pip-licenses-nometa.json") as f:
-                  packages = json.load(f)
-          except Exception:
-              packages = []
+          # A failure here (pip-licenses missing from PATH, a non-zero exit,
+          # unparsable JSON) used to be swallowed by a bare
+          # `except Exception: packages = []`, so the scan silently reported
+          # zero candidates and the job reported success with
+          # NO_METADATA_WARNINGS: [] even while a package like
+          # tokenizers==1.0.0rc2 genuinely had no licence metadata (T-3910).
+          # The failure is now surfaced (command, return code, stderr) and a
+          # scan_status output distinguishes "the scan ran and found nothing"
+          # from "the scan could not run", and importlib.metadata is used as
+          # a second source so a missing/broken pip-licenses does not leave
+          # the step with zero candidates.
+          import shutil as _shutil
+
+          scan_status = "ok"
+          diagnostic = ""
+          packages = []
+
+          pip_licenses = _shutil.which("pip-licenses")
+          if pip_licenses is None:
+              scan_status = "unavailable"
+              diagnostic = "pip-licenses not found on PATH"
+          else:
+              proc = subprocess.run(
+                  [pip_licenses, "--format=json", "--with-urls"],
+                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                  check=False,
+              )
+              if proc.returncode != 0:
+                  scan_status = "unavailable"
+                  diagnostic = (f"pip-licenses exited {proc.returncode}: "
+                                f"{proc.stderr.strip()[:2000]}")
+              else:
+                  try:
+                      packages = json.loads(proc.stdout)
+                  except json.JSONDecodeError as exc:
+                      scan_status = "unavailable"
+                      diagnostic = f"pip-licenses produced unparsable JSON: {exc}"
+
+          if scan_status == "unavailable":
+              import sys as _sys
+              diagnostic = diagnostic.replace("\n", " ").replace("\r", " ")
+              # printed to stderr, not stdout: the whole heredoc's stdout is
+              # redirected into $GITHUB_OUTPUT, so a stdout print here would
+              # land inside the step outputs file rather than the job log.
+              print(f"::warning::no-metadata scan unavailable: {diagnostic}", file=_sys.stderr)
+              packages = [
+                  {"Name": dist.metadata.get("Name") or "",
+                   "Version": dist.metadata.get("Version") or "",
+                   "License": dist.metadata.get("License") or ""}
+                  for dist in distributions() if dist.metadata.get("Name")
+              ]
 
           # Reserved for a package confirmed by a human to ship a forbidden
           # licence despite carrying no machine-readable licence metadata on
@@ -523,6 +563,8 @@ jobs:
 
           print(f"regex={'|'.join(safe_names)}")
           print(f"warnings={json.dumps(warnings)}")
+          print(f"scan_status={scan_status}")
+          print(f"diagnostic={diagnostic}")
           PYEOF
 
       - name: Build exclude regex
@@ -724,6 +766,8 @@ jobs:
               no_metadata_warnings = json.loads(os.environ.get("NO_METADATA_WARNINGS") or "[]")
           except json.JSONDecodeError:
               no_metadata_warnings = []
+          no_metadata_scan_status = os.environ.get("NO_METADATA_SCAN_STATUS", "ok")
+          no_metadata_diagnostic = os.environ.get("NO_METADATA_DIAGNOSTIC", "")
 
           # Load full license breakdown from pip-licenses
           try:
@@ -757,6 +801,12 @@ jobs:
               if len(first_line) > 60:
                   first_line = first_line[:60].rstrip() + "…"
               return first_line
+
+          if no_metadata_scan_status == "unavailable":
+              lines.append(
+                  f"\n**⚠️ No-metadata scan unavailable:** {no_metadata_diagnostic} "
+                  "— falling back to installed-distribution metadata; a package "
+                  "with no licence metadata could still be missed here.")
 
           if no_metadata_warnings:
               lines.append("\n**⚠️ No licence metadata found (not blocking):**")
@@ -828,6 +878,8 @@ jobs:
           REPORT: ${{ steps.license_check_report.outputs.report }}
           TOTAL_PACKAGES: ${{ steps.license_breakdown.outputs.total_packages }}
           NO_METADATA_WARNINGS: ${{ steps.no_metadata.outputs.warnings }}
+          NO_METADATA_SCAN_STATUS: ${{ steps.no_metadata.outputs.scan_status }}
+          NO_METADATA_DIAGNOSTIC: ${{ steps.no_metadata.outputs.diagnostic }}
 
       - name: Post license section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
