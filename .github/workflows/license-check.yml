@@ -123,7 +123,16 @@ jobs:
         run: pip install uv
 
       - name: Install Build Tools
-        run: uv pip install build wheel pip-licenses
+        # pip-licenses is a CI-only tool, never a shipped dependency, so its
+        # own prerelease line is irrelevant to the audited closure. Installed
+        # under the job's UV_PRERELEASE=allow, the resolver picks up
+        # pip-licenses 6.0.0b11, whose console script cannot import its own
+        # package ("No module named 'piplicenses'") — 5.5.5 (stable) works
+        # (T-3941). Pinning the CLI flag here overrides the job-wide env var
+        # for this one install; build and wheel keep the ambient default.
+        run: |
+          uv pip install build wheel
+          uv pip install --prerelease=disallow pip-licenses
 
       - name: Install System Dependencies
         run: |
@@ -708,6 +717,12 @@ jobs:
         uses: pilosus/action-pip-license-checker@v3
         # continue-on-error so the PR comment step always runs, even when licenses fail.
         # The job still fails at the end via the outcome check below (unless warn_only).
+        #
+        # report-format: json (rather than the default padded-text table)
+        # so the "Re-check Error rows" step below can read each failing row's
+        # name, version and category structurally instead of splitting a
+        # printf-padded line, which breaks on any license name containing a
+        # space (T-3910 second finding).
         continue-on-error: true
         with:
           requirements: 'requirements-all.txt'
@@ -715,8 +730,225 @@ jobs:
           fails-only: true
           totals: true
           headers: true
+          report-format: 'json'
           exclude: ${{ steps.exclude.outputs.regex }}
           exclude-license: ${{ inputs.exclude_licenses }}
+
+      - name: Re-check Error rows from installed metadata
+        id: recheck
+        # T-3910 second finding: the pilosus action's own PyPI lookup fails
+        # non-deterministically — nine rows in one caller run (httpx,
+        # huggingface-hub, markdown-it-py, ovos-config, pyyaml,
+        # quebra-frases, standard-aifc, standard-chunk, watchdog) read
+        # category "Error", yet pyyaml carries MIT and an OSI classifier on
+        # PyPI, and the same head passed a plain re-run with nothing changed
+        # (ovos-skill-mark1-ctrl#55). An "Error" row is a failed lookup
+        # inside the checker, not a licence fact.
+        #
+        # For every row the action marked "Error", read the installed
+        # distribution's own metadata (License / License-Expression /
+        # classifiers), falling back to the PyPI JSON for the exact
+        # installed version as a second source, and classify the result with
+        # the same categoriser pasted into the two steps above. A row that
+        # resolves to a category the caller does not fail on passes with a
+        # WARN; a row that resolves to a forbidden category still fails; a
+        # row with no metadata anywhere is left to the existing no-metadata
+        # WARN path rather than treated as a fresh forbidden finding. A row
+        # in any OTHER failing category (StrongCopyleft, NetworkCopyleft,
+        # WeakCopyleft, Other) is untouched — only "Error" rows are
+        # re-judged, so a genuine forbidden licence still fails the job.
+        env:
+          OUTCOME: ${{ steps.license_check_report.outcome }}
+          REPORT: ${{ steps.license_check_report.outputs.report }}
+          FAIL_LICENSES: ${{ inputs.fail_licenses }}
+        run: |
+          python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+          from importlib.metadata import distributions
+
+          # Same categoriser as the "Detect combined-license packages safe by
+          # component" and "Detect packages with no licence metadata" steps
+          # above (kept in sync rather than imported: each step is an
+          # independent inline script). Covered by
+          # test_license_check_classifier_parity.py.
+          NETWORK = [r"\bAffero", r"\bAGPL", r"GNU Affero General Public License",
+                     r"\bOSL", r"Open Software License", r"\bRPSL"]
+          STRONG = [r"GNU General Public License(?!.*classpath|.*linking|.*exception)",
+                    r"\bGPL(?!.*classpath|.*linking|.*exception)",
+                    r"IBM Public License", r"\bRPL", r"Reciprocal Public License",
+                    r"Sleepycat License"]
+          WEAK = [r"GNU Lesser General Public License", r"\bLGPL",
+                  r"GNU General Public License.*(?:classpath|linking|exception)",
+                  r"\bGPL.*(?:classpath|linking|exception)",
+                  r"\bMPL", r"Mozilla Public License", r"\bEPL", r"Eclipse Public License",
+                  r"\bEUPL", r"European Union Public Licence", r"\bCDDL",
+                  r"Common Development and Distribution License", r"\bCPL",
+                  r"Common Public License", r"\bAPSL", r"Apple Public Source License",
+                  r"\bODbL", r"Open Database License"]
+          PERMISSIVE = [r"\bApache", r"Apache Software License", r"BSD", r"\bMIT\b",
+                        r"MIT License", r"Artistic", r"CC0", r"Public Domain",
+                        r"Unlicense", r"\bISC\b", r"ISC License",
+                        r"Python Software Foundation License", r"\bPSF", r"\bzlib",
+                        r"WTFPL", r"\bW3C\b", r"Historical Permission Notice"]
+
+          def classify(component):
+              for bucket, cats in ((NETWORK, "NetworkCopyleft"), (STRONG, "StrongCopyleft"),
+                                    (WEAK, "WeakCopyleft"), (PERMISSIVE, "Permissive")):
+                  if any(re.search(p, component, re.IGNORECASE) for p in bucket):
+                      return cats
+              return "Other"
+
+          fail_raw = {c.strip() for c in (os.environ.get("FAIL_LICENSES", "")).split(",") if c.strip()}
+          fail_categories = set(fail_raw)
+          if "Copyleft" in fail_categories:
+              fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+
+          outcome = os.environ.get("OUTCOME", "success")
+          raw_report = (os.environ.get("REPORT") or "").strip()
+
+          def emit(still_failing, notes):
+              print(f"still_failing={'true' if still_failing else 'false'}")
+              print(f"notes={json.dumps(notes)}")
+
+          if outcome != "failure":
+              emit(False, [])
+              sys.exit(0)
+
+          if not raw_report:
+              # The pilosus step carries continue-on-error: true, so a
+              # failing outcome can still leave outputs.report empty (the
+              # action crashed or exited non-zero for its own reasons before
+              # emitting a report). Nothing here can vouch for that run, so
+              # it stays a hard failure exactly as dev's raw-outcome gate
+              # would have made it, rather than reading "no rows" as "no
+              # violations".
+              emit(True, [])
+              sys.exit(0)
+
+          try:
+              report = json.loads(raw_report)
+              items = report.get("items") or []
+          except (json.JSONDecodeError, AttributeError):
+              # Can't parse the structured report: stay conservative and keep
+              # the original failing verdict rather than silently pass a run
+              # this step cannot actually judge.
+              emit(True, [])
+              sys.exit(0)
+
+          # Split into rows the checker marked "Error" (re-judged below) and
+          # every other row in this fails-only report. A row whose `license`
+          # object carries no `type`, or is null/missing altogether, is an
+          # unrecognised shape rather than a confirmed non-issue — it stays
+          # in the "other" bucket and keeps the job failing, the same as any
+          # named category (StrongCopyleft, etc).
+          error_items = []
+          non_error_forbidden = False
+          for it in items:
+              lic = it.get("license")
+              lic_type = lic.get("type") if isinstance(lic, dict) else None
+              if lic_type == "Error":
+                  error_items.append(it)
+              else:
+                  non_error_forbidden = True
+
+          def read_values(get_field, get_classifiers):
+              # get_field("License") / get_field("License-Expression") style
+              # accessor plus a classifier list; shared by the installed
+              # distribution's metadata and the PyPI JSON `info` block below.
+              values = []
+              lf = (get_field("License") or "").strip()
+              if lf and lf.upper() != "UNKNOWN":
+                  values.append(lf)
+              expr = (get_field("License-Expression") or "").strip()
+              if expr:
+                  values.append(expr)
+              values += [c for c in get_classifiers() if c.startswith("License ::")]
+              return values
+
+          installed_by_name = {}
+          for dist in distributions():
+              dn = dist.metadata.get("Name") or ""
+              if not dn:
+                  continue
+              canonical = re.sub(r"[-_.]+", "-", dn).lower()
+              values = read_values(
+                  dist.metadata.get, lambda: dist.metadata.get_all("Classifier") or [])
+              if values:
+                  installed_by_name[canonical] = values
+
+          def pypi_licence(name, version):
+              """Look up the exact installed version on PyPI. Returns a dict
+              with a "status" of "found" (values present), "none" (the
+              lookup succeeded and genuinely carries no licence metadata) or
+              "unavailable" (the lookup itself failed — network, timeout,
+              404 — which must never read the same as a confirmed absence,
+              e.g. on a fork PR with no network egress)."""
+              try:
+                  req = urllib.request.Request(
+                      f"https://pypi.org/pypi/{name}/{version}/json",
+                      headers={"User-Agent": "gh-automations-license-check"})
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      data = json.load(r)
+              except Exception:
+                  return {"status": "unavailable", "values": []}
+              info = data.get("info", {}) or {}
+              values = read_values(
+                  lambda k: {"License": info.get("license"),
+                             "License-Expression": info.get("license_expression")}.get(k),
+                  lambda: info.get("classifiers", []) or [])
+              return {"status": "found" if values else "none", "values": values}
+
+          any_error_forbidden = False
+          notes = []
+          for it in error_items:
+              dep = it.get("dependency") or {}
+              name = dep.get("name", "")
+              version = dep.get("version", "")
+              canonical = re.sub(r"[-_.]+", "-", name).lower()
+
+              values = installed_by_name.get(canonical)
+              lookup_status = None
+              if values is None:
+                  if name and version:
+                      result = pypi_licence(name, version)
+                      lookup_status = result["status"]
+                      values = result["values"] or None
+                  else:
+                      lookup_status = "none"
+
+              if not values:
+                  if lookup_status == "unavailable":
+                      notes.append(f"`{name}=={version}` — licence lookup failed in the "
+                                   "checker; the installed metadata is absent and the "
+                                   "PyPI lookup failed too (excluded, see no-metadata WARN)")
+                  else:
+                      notes.append(f"`{name}=={version}` — licence lookup failed in the "
+                                   "checker; no installed or PyPI metadata found either "
+                                   "(excluded, see no-metadata WARN)")
+                  continue
+
+              # Every value found (License field, License-Expression, every
+              # `License ::` classifier) is classified — not only the first
+              # one — so a stale permissive `License:` field beside a newer
+              # forbidden `License-Expression` (the ordinary shape of a
+              # PEP 639 migration) still fails, regardless of which value a
+              # tool happened to write first.
+              offending = [v for v in values if classify(v) in fail_categories]
+              if offending:
+                  any_error_forbidden = True
+                  notes.append(f"`{name}=={version}` — licence lookup failed in the "
+                               f"checker; installed metadata reads {', '.join(values)} "
+                               f"(forbidden: {', '.join(offending)}; still fails)")
+              else:
+                  notes.append(f"`{name}=={version}` — licence lookup failed in the "
+                               f"checker; installed metadata reads {', '.join(values)}")
+
+          emit(non_error_forbidden or any_error_forbidden, notes)
+          PYEOF
 
       - name: Generate full license breakdown
         id: license_breakdown
@@ -759,8 +991,17 @@ jobs:
           python3 - <<'PYEOF'
           import json, os, collections
 
-          outcome = os.environ["OUTCOME"]
-          report = os.environ["REPORT"].strip()
+          # The pilosus action's raw outcome can include "Error" rows that
+          # the re-check step below clears from installed metadata (T-3910
+          # second finding), so the still_failing verdict — not the action's
+          # own outcome — is what the header and the final job-fail step act on.
+          still_failing = os.environ.get("STILL_FAILING", "false") == "true"
+          outcome = "failure" if still_failing else "success"
+          report_raw = os.environ["REPORT"].strip()
+          try:
+              recheck_notes = json.loads(os.environ.get("RECHECK_NOTES") or "[]")
+          except json.JSONDecodeError:
+              recheck_notes = []
           total_packages = int(os.environ.get("TOTAL_PACKAGES", "0"))
           try:
               no_metadata_warnings = json.loads(os.environ.get("NO_METADATA_WARNINGS") or "[]")
@@ -768,6 +1009,27 @@ jobs:
               no_metadata_warnings = []
           no_metadata_scan_status = os.environ.get("NO_METADATA_SCAN_STATUS", "ok")
           no_metadata_diagnostic = os.environ.get("NO_METADATA_DIAGNOSTIC", "")
+
+          # The action's report is now requested as JSON (report-format:
+          # json) so the re-check step can read each row structurally; render
+          # it back into the same plain rows-of-text shape the comment used
+          # to show, one "name:version  License Name  License Type  Misc"
+          # line per failing row.
+          report = ""
+          if report_raw:
+              try:
+                  parsed_report = json.loads(report_raw)
+                  rows = []
+                  for it in parsed_report.get("items") or []:
+                      dep = it.get("dependency") or {}
+                      lic = it.get("license") or {}
+                      rows.append(
+                          f"{dep.get('name', '')}:{dep.get('version', '')}  "
+                          f"{lic.get('name', '')}  {lic.get('type', '')}  "
+                          f"{it.get('misc') or ''}".rstrip())
+                  report = "\n".join(rows)
+              except json.JSONDecodeError:
+                  report = report_raw
 
           # Load full license breakdown from pip-licenses
           try:
@@ -801,6 +1063,15 @@ jobs:
               if len(first_line) > 60:
                   first_line = first_line[:60].rstrip() + "…"
               return first_line
+
+          # T-3910 second finding: rows the checker itself marked "Error"
+          # (a failed licence lookup, not a licence fact) re-judged from
+          # installed/PyPI metadata. Shown regardless of the final verdict,
+          # so a passing run still names what it cleared.
+          if recheck_notes:
+              lines.append("\n**🔁 Re-checked \"Error\" rows (checker lookup failed):**")
+              for note in recheck_notes:
+                  lines.append(f"- {note}")
 
           if no_metadata_scan_status == "unavailable":
               lines.append(
@@ -874,8 +1145,9 @@ jobs:
               f.write("\n".join(lines))
           PYEOF
         env:
-          OUTCOME: ${{ steps.license_check_report.outcome }}
+          STILL_FAILING: ${{ steps.recheck.outputs.still_failing }}
           REPORT: ${{ steps.license_check_report.outputs.report }}
+          RECHECK_NOTES: ${{ steps.recheck.outputs.notes }}
           TOTAL_PACKAGES: ${{ steps.license_breakdown.outputs.total_packages }}
           NO_METADATA_WARNINGS: ${{ steps.no_metadata.outputs.warnings }}
           NO_METADATA_SCAN_STATUS: ${{ steps.no_metadata.outputs.scan_status }}
@@ -895,13 +1167,18 @@ jobs:
 
       # Fail the job after posting the PR comment so the check status is correct.
       # Skipped when warn_only is true — violations are reported but don't block the merge.
+      #
+      # Gated on the re-check step's still_failing output rather than the
+      # pilosus action's own outcome: an "Error" row the checker could not
+      # look up is judged from installed/PyPI metadata first (T-3910 second
+      # finding), and the job only fails when a forbidden row remains.
       - name: Fail job if license check failed
-        if: ${{ steps.license_check_report.outcome == 'failure' && !inputs.warn_only }}
+        if: ${{ steps.recheck.outputs.still_failing == 'true' && !inputs.warn_only }}
         run: |
           echo "License check failed — see report above."
           exit 1
 
       - name: Warn about license violations (warn_only mode)
-        if: ${{ steps.license_check_report.outcome == 'failure' && inputs.warn_only }}
+        if: ${{ steps.recheck.outputs.still_failing == 'true' && inputs.warn_only }}
         run: |
           echo "::warning::License violations found (warn_only=true — job not failed). See PR comment for details."
