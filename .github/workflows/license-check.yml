@@ -507,6 +507,7 @@ jobs:
               if not inherited_forbidden:
                   name_re = re.escape(canonical).replace(r"\-", "[-_.]")
                   safe_names.append(rf"(?i:^{name_re}([=<>!~ @;].*)?$)")
+              inherited = dict(inherited, offending=inherited_offending)
               warnings.append({"name": name, "version": version, "inherited": inherited,
                                 "forbidden": inherited_forbidden})
 
@@ -753,8 +754,11 @@ jobs:
                   inherited = w.get("inherited") or {}
                   status = inherited.get("status")
                   if status == "found" and w.get("forbidden"):
+                      offending = (inherited.get("offending") or inherited.get("values")
+                                   or [inherited["license"]])
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
-                              f"{short_licence(inherited['license'])} (forbidden; NOT excluded, still fails)")
+                              f"{', '.join(short_licence(v) for v in offending)} "
+                              f"(forbidden; NOT excluded, still fails)")
                   elif status == "found":
                       note = (f" — inherited from {w['name']} {inherited['version']}: "
                               f"{short_licence(inherited['license'])}")
