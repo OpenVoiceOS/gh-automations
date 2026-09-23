@@ -983,7 +983,16 @@ jobs:
 
       - name: Print report
         if: always()
-        run: echo "${{ steps.license_check_report.outputs.report }}"
+        # The report is a JSON string that can carry a license name with
+        # parentheses, e.g. "GNU General Public License (GPL)". Expanded
+        # straight onto the run line ("run: echo ${{ ... }}") that text
+        # becomes bare bash words, and an unescaped "(" is a syntax error
+        # ("syntax error near unexpected token '('"), failing the whole
+        # step regardless of the licence verdict. Passed through env and
+        # printed with a quoted variable, the content is inert to the shell.
+        env:
+          REPORT: ${{ steps.license_check_report.outputs.report }}
+        run: printf '%s\n' "$REPORT"
 
       - name: Format license section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
