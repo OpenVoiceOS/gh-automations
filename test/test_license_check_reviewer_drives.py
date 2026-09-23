@@ -17,15 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_license_check_no_metadata import (
     build_site, install_fake_urllib, step_script, matches,
     FAKE_PIP_LICENSES_TEMPLATE, FAKE_PYTHON)
-import json, os, stat, subprocess, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_license_check_no_metadata import (
-    build_site, install_fake_urllib, step_script, matches,
-    FAKE_PIP_LICENSES_TEMPLATE, FAKE_PYTHON)
 
 
-def drive(tmp_path, packages, dists, responses=None, fail=None, deny=None):
+def drive(tmp_path, packages, dists, responses=None, fail=None, deny=None, exclude=None):
     site = build_site(tmp_path, dists)
     if responses is not None:
         install_fake_urllib(site, responses)
@@ -39,6 +33,7 @@ def drive(tmp_path, packages, dists, responses=None, fail=None, deny=None):
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", PYTHONPATH=str(site),
                GITHUB_OUTPUT=str(out),
                FAIL_LICENSES=fail or "NetworkCopyleft,StrongCopyleft,WeakCopyleft,Other,Error",
+               EXCLUDE_LICENSES=exclude or "",
                DENY_NO_METADATA_INPUT=deny or "")
     if responses is None:
         env.update(HTTPS_PROXY="http://127.0.0.1:1", https_proxy="http://127.0.0.1:1",
@@ -60,6 +55,17 @@ def shady_pypi(lic):
             "1.0rc1": [{"filename": "a.tar.gz"}], "0.9": [{"filename": "b.tar.gz"}]}},
         "https://pypi.org/pypi/shady/1.0rc1/json": {"info": {"license": "", "classifiers": []}},
         "https://pypi.org/pypi/shady/0.9/json": {"info": {"license": lic, "classifiers": []}},
+    }
+
+
+def shady_pypi_info(license="", license_expression="", classifiers=None):
+    return {
+        "https://pypi.org/pypi/shady/json": {"releases": {
+            "1.0rc1": [{"filename": "a.tar.gz"}], "0.9": [{"filename": "b.tar.gz"}]}},
+        "https://pypi.org/pypi/shady/1.0rc1/json": {"info": {"license": "", "classifiers": []}},
+        "https://pypi.org/pypi/shady/0.9/json": {"info": {
+            "license": license, "license_expression": license_expression,
+            "classifiers": classifiers or []}},
     }
 
 
@@ -123,8 +129,8 @@ def test_narrowed_fail_licenses_makes_an_unmatched_licence_pass(tmp_path):
     regex, warns = drive(tmp_path, SHADY_PKG, SHADY_DIST,
                          shady_pypi("Some-Bespoke-Copyleft-2.0"),
                          fail="StrongCopyleft,NetworkCopyleft")
-    print("\nunmatched licence, fail_licenses without Other -> forbidden:",
-          warns[0]["forbidden"], "excluded:", matches(regex, "shady==1.0rc1"))
+    assert warns[0]["forbidden"] is False, warns
+    assert matches(regex, "shady==1.0rc1"), f"NOT excluded: {regex!r}"
 
 
 def test_pypi_unknown_licence_string_is_not_a_false_hard_failure(tmp_path):
@@ -152,3 +158,37 @@ def test_pypi_none_and_empty_and_lowercase_unknown_are_all_treated_as_absent(tmp
         assert warns[0]["inherited"]["status"] == "none", (lic, warns)
         assert warns[0]["forbidden"] is False, (lic, warns)
         assert matches(regex, "shady==1.0rc1"), (lic, regex)
+
+
+def test_a_later_forbidden_classifier_is_not_shadowed_by_an_earlier_permissive_one(tmp_path):
+    """CodeRabbit's finding at _released_licence: the lookup used to keep only
+    the FIRST "License :: " classifier. A permissive first classifier with a
+    GPL second classifier must still classify as forbidden."""
+    regex, warns = drive(tmp_path, SHADY_PKG, SHADY_DIST, shady_pypi_info(
+        classifiers=[
+            "License :: OSI Approved :: MIT License",
+            "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        ]))
+    assert warns[0]["forbidden"] is True, warns
+    assert not matches(regex, "shady==1.0rc1"), f"STILL EXCLUDED: {regex!r}"
+
+
+def test_exclude_licenses_applies_to_the_inherited_licence(tmp_path):
+    """CodeRabbit's finding: the inherited-licence forbidden check ignored the
+    caller's exclude_licenses input. A caller who excludes MPL-2.0 must have
+    the package excluded and warned, even though its inherited licence
+    classifies as WeakCopyleft (a fail category by default)."""
+    regex, warns = drive(tmp_path, SHADY_PKG, SHADY_DIST,
+                         shady_pypi("MPL-2.0"), exclude=r"^MPL-2\.0$")
+    assert warns[0]["forbidden"] is False, warns
+    assert matches(regex, "shady==1.0rc1"), f"NOT excluded: {regex!r}"
+
+
+def test_exclude_licenses_does_not_swallow_a_classifier_form_mpl_by_default(tmp_path):
+    """The companion control: without a caller exclude for MPL, the
+    classifier-form spelling of MPL is still forbidden under the default
+    policy."""
+    regex, warns = drive(tmp_path, SHADY_PKG, SHADY_DIST, shady_pypi_info(
+        classifiers=["License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"]))
+    assert warns[0]["forbidden"] is True, warns
+    assert not matches(regex, "shady==1.0rc1"), f"STILL EXCLUDED: {regex!r}"

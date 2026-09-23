@@ -334,6 +334,7 @@ jobs:
         # not, is left untouched and still fails as before.
         env:
           FAIL_LICENSES: ${{ inputs.fail_licenses }}
+          EXCLUDE_LICENSES: ${{ inputs.exclude_licenses }}
           DENY_NO_METADATA_INPUT: ${{ inputs.deny_no_metadata }}
         run: |
           python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
@@ -392,13 +393,15 @@ jobs:
                   if lic.upper() == "UNKNOWN":
                       lic = ""
                   lic_expression = (info.get("license_expression") or "").strip()
-                  lic_classifier = next(
-                      (c for c in info.get("classifiers", []) if c.startswith("License ::")), "")
-                  if lic or lic_expression or lic_classifier:
+                  lic_classifiers = [
+                      c for c in info.get("classifiers", []) if c.startswith("License ::")]
+                  values = [v for v in (lic, lic_expression, *lic_classifiers) if v]
+                  if values:
                       return {
                           "status": "found",
                           "version": version_str,
-                          "license": lic or lic_expression or lic_classifier,
+                          "license": values[0],
+                          "values": values,
                       }
 
               return {"status": "unavailable" if lookup_failed else "none"}
@@ -463,6 +466,8 @@ jobs:
           if "Copyleft" in fail_categories:
               fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
 
+          exclude_licenses = os.environ.get("EXCLUDE_LICENSES", "").strip()
+
           expression_by_name = {}
           classifier_by_name = {}
           for dist in distributions():
@@ -492,9 +497,11 @@ jobs:
                   continue  # explicit deny: left to fail via the checker as "Error"
 
               inherited = _released_licence(name)
-              inherited_forbidden = (
-                  inherited.get("status") == "found"
-                  and classify(inherited["license"]) in fail_categories
+              inherited_offending = [
+                  v for v in inherited.get("values", []) if classify(v) in fail_categories
+              ] if inherited.get("status") == "found" else []
+              inherited_forbidden = bool(inherited_offending) and not (
+                  exclude_licenses and all(re.search(exclude_licenses, v) for v in inherited_offending)
               )
 
               if not inherited_forbidden:
