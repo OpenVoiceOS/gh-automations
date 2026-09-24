@@ -65,6 +65,15 @@ on:
         type: string
         default: "test/end2end/test_tts_intelligibility.py"
         description: "Path passed to pytest — the intelligibility test file"
+      timeout_minutes:
+        type: number
+        default: 45
+        description: >
+          Ceiling for the whole job. A healthy run synthesises and transcribes a
+          handful of sentences in a few minutes; this leaves room for a cold
+          model cache and still reports within the hour. The test step runs
+          under its own timeout five minutes below this, so the log can say the
+          run was cut instead of the runner killing the job silently.
       max_wer:
         type: string
         default: "0.5"
@@ -103,7 +112,7 @@ env:
 jobs:
   tts-intelligibility:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       pull-requests: write
       contents: read
@@ -179,11 +188,29 @@ jobs:
           # separate step is a separate shell process, so an export or a
           # venv activation in it is lost before pytest starts.
           ${{ inputs.pre_test_command }}
-          python -m pytest \
-            ${{ inputs.test_path }} \
-            --json-report \
-            --json-report-file=/tmp/tts-intel-results.json \
-            -v -s 2>&1 | tee /tmp/tts-intel-stdout.txt
+          # five minutes below the job ceiling, so this reports before the
+          # runner kills the job and takes the reason with it
+          step_timeout=$(( ${{ inputs.timeout_minutes }} > 5 ? ${{ inputs.timeout_minutes }} - 5 : 1 ))
+          timeout --signal=TERM --kill-after=60 "${step_timeout}m" \
+            python -m pytest \
+              ${{ inputs.test_path }} \
+              --json-report \
+              --json-report-file=/tmp/tts-intel-results.json \
+              -v -s 2>&1 | tee /tmp/tts-intel-stdout.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            {
+              echo "CUT: this run was stopped at ${step_timeout} minutes. It did not fail a test;"
+              echo "it never finished, so it reported nothing about the change."
+              echo "A synthesis or transcription step is hanging, most often a model download"
+              echo "that never returns or an engine waiting on a device that is not there."
+              echo "Read the tail of /tmp/tts-intel-stdout.txt for the last sentence it reached."
+              echo "Raise timeout_minutes only if a healthy run genuinely needs longer; a hang"
+              echo "does not become a pass with more time."
+            } >&2
+            exit 124
+          fi
+          exit "$rc"
 
       - name: Format TTS intelligibility section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
