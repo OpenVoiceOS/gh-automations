@@ -141,6 +141,8 @@ jobs:
             ARGS+=(--spec-version "$SPEC_VERSION")
           fi
           ovos-spec-lint "${ARGS[@]}" | tee /tmp/spec-lint.out
+          rc=${PIPESTATUS[0]}
+          exit "$rc"
 
       - name: Format spec-lint section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' && env.SKIPPED != 'true' }}
