@@ -57,6 +57,17 @@ on:
         description: >
           If set, run pytest against this path after installing the package.
           Leave empty to skip test execution (build/install verification only).
+      test_path_strict:
+        type: boolean
+        default: false
+        description: >
+          Fail the test_path coverage check instead of warning. A test_path
+          that names files one by one stops covering the suite the moment a
+          test file is added, and nobody re-reads the list: ovos-date-parser
+          hid 82 of 138 test files that way and a defect reached a user.
+          The check warns by default, because a sibling workflow may run the
+          rest (ovos-audio and ovos-workshop both do). Set this in a
+          repository where build-tests.yml is the only thing that runs pytest.
       pytest_args:
         type: string
         default: ""
@@ -106,6 +117,44 @@ env:
   UV_PRERELEASE: ${{ inputs.uv_prerelease }}
 
 jobs:
+  # Does test_path still name every test file the repository holds? A caller
+  # that names a directory always passes. A caller that lists files one by one
+  # passes only until the next test file is added, and then the new file runs
+  # nowhere. This job reports that, and fails only when test_path_strict is
+  # set, because a sibling workflow may run the rest.
+  #
+  # One job, not a matrix entry: the answer does not depend on the Python
+  # version, and five copies of one annotation is noise.
+  test_path_coverage:
+    if: ${{ inputs.test_path != '' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Checkout gh-automations scripts
+        uses: actions/checkout@v7
+        with:
+          repository: OpenVoiceOS/gh-automations
+          ref: ${{ inputs.gh_automations_ref }}
+          path: _gh_automations/
+
+      - name: Check test_path coverage
+        env:
+          # through the environment, never interpolated into the command line:
+          # test_path is caller text and would otherwise be shell syntax.
+          TEST_PATH: ${{ inputs.test_path }}
+          STRICT: ${{ inputs.test_path_strict }}
+        run: |
+          args=(--test-path "$TEST_PATH" --root . --summary "$GITHUB_STEP_SUMMARY")
+          if [ "$STRICT" = "true" ]; then args+=(--strict); fi
+          python _gh_automations/scripts/check_test_path_coverage.py "${args[@]}"
+
   build_tests:
     strategy:
       fail-fast: false
