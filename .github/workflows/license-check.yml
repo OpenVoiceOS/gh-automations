@@ -267,6 +267,31 @@ jobs:
           fail_categories = set(fail_raw)
           if "Copyleft" in fail_categories:
               fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+          # A value classify() does not recognise answers "Other", and "Other" is in
+          # the default fail list, so one unparsed value used to condemn a row whose
+          # other values are plainly permissive. An Apache-2.0 package that also
+          # carried an unrecognised string stayed failing, and no exclude could clear
+          # it, because an exclude is written against real licence names (T-3963).
+          #
+          # So: fail on a NAMED forbidden category, and keep "Other" as a judgement on
+          # the row as a whole. A row whose values are ALL unrecognised is still
+          # unknown terms and unknown risk, and still fails when the caller asked for
+          # "Other". A row with one recognised permissive value beside an unrecognised
+          # one is not a licence finding; the checker's own report still shows it.
+          named_fail = fail_categories - {"Other", "Error"}
+
+          def row_offending(values):
+              """The values that make this row fail: named categories, else all-Other."""
+              values = [v for v in values if v]
+              if not values:
+                  return []
+              named = [v for v in values if classify(v) in named_fail]
+              if named:
+                  return named
+              if "Other" in fail_categories and all(classify(v) == "Other" for v in values):
+                  return list(values)
+              return []
+
 
           exclude_licenses = os.environ.get("EXCLUDE_LICENSES", "").strip()
 
@@ -278,7 +303,7 @@ jobs:
               components = [c.strip() for c in re.split(r",|\bAND\b|\bOR\b", license_field, flags=re.IGNORECASE) if c.strip()]
               if len(components) < 2:
                   continue
-              offending = [c for c in components if classify(c) in fail_categories]
+              offending = row_offending(components)
               if not offending:
                   continue
               if exclude_licenses and all(re.search(exclude_licenses, c) for c in offending):
@@ -402,6 +427,12 @@ jobs:
                   if lic.upper() == "UNKNOWN":
                       lic = ""
                   lic_expression = (info.get("license_expression") or "").strip()
+                  # "UNKNOWN" is a placeholder, not a licence, and it is
+                  # already dropped from the License field two lines above.
+                  # Left here it makes `values` non-empty, so the lookup
+                  # answers "found" with a licence of UNKNOWN (T-3963).
+                  if lic_expression.upper() == "UNKNOWN":
+                      lic_expression = ""
                   lic_classifiers = [
                       c for c in info.get("classifiers", []) if c.startswith("License ::")]
                   values = [v for v in (lic, lic_expression, *lic_classifiers) if v]
@@ -514,6 +545,31 @@ jobs:
           fail_categories = set(fail_raw)
           if "Copyleft" in fail_categories:
               fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+          # A value classify() does not recognise answers "Other", and "Other" is in
+          # the default fail list, so one unparsed value used to condemn a row whose
+          # other values are plainly permissive. An Apache-2.0 package that also
+          # carried an unrecognised string stayed failing, and no exclude could clear
+          # it, because an exclude is written against real licence names (T-3963).
+          #
+          # So: fail on a NAMED forbidden category, and keep "Other" as a judgement on
+          # the row as a whole. A row whose values are ALL unrecognised is still
+          # unknown terms and unknown risk, and still fails when the caller asked for
+          # "Other". A row with one recognised permissive value beside an unrecognised
+          # one is not a licence finding; the checker's own report still shows it.
+          named_fail = fail_categories - {"Other", "Error"}
+
+          def row_offending(values):
+              """The values that make this row fail: named categories, else all-Other."""
+              values = [v for v in values if v]
+              if not values:
+                  return []
+              named = [v for v in values if classify(v) in named_fail]
+              if named:
+                  return named
+              if "Other" in fail_categories and all(classify(v) == "Other" for v in values):
+                  return list(values)
+              return []
+
 
           exclude_licenses = os.environ.get("EXCLUDE_LICENSES", "").strip()
 
@@ -524,7 +580,11 @@ jobs:
               if not name:
                   continue
               canonical = re.sub(r'[-_.]+', '-', name).lower()
-              expression_by_name[canonical] = (dist.metadata.get("License-Expression") or "").strip()
+              expression = (dist.metadata.get("License-Expression") or "").strip()
+              # Same placeholder, same rule as has_license_field below: an
+              # UNKNOWN expression is no licence metadata, and counting it as
+              # some would skip the no-metadata scan for that package (T-3963).
+              expression_by_name[canonical] = "" if expression.upper() == "UNKNOWN" else expression
               classifiers = dist.metadata.get_all("Classifier") or []
               classifier_by_name[canonical] = any(c.startswith("License ::") for c in classifiers)
 
@@ -553,9 +613,10 @@ jobs:
                   return re.sub(r"\s*\([^)]*\)\s*$", "", stripped).strip()
 
               inherited = _released_licence(name)
-              inherited_offending = [
-                  v for v in inherited.get("values", []) if classify(v) in fail_categories
-              ] if inherited.get("status") == "found" else []
+              inherited_offending = (
+                  row_offending(inherited.get("values", []))
+                  if inherited.get("status") == "found" else []
+              )
               inherited_forbidden = bool(inherited_offending) and not (
                   exclude_licenses and all(
                       re.search(exclude_licenses, v) or re.search(exclude_licenses, _classifier_stripped(v))
@@ -806,6 +867,31 @@ jobs:
           fail_categories = set(fail_raw)
           if "Copyleft" in fail_categories:
               fail_categories |= {"StrongCopyleft", "NetworkCopyleft", "WeakCopyleft"}
+          # A value classify() does not recognise answers "Other", and "Other" is in
+          # the default fail list, so one unparsed value used to condemn a row whose
+          # other values are plainly permissive. An Apache-2.0 package that also
+          # carried an unrecognised string stayed failing, and no exclude could clear
+          # it, because an exclude is written against real licence names (T-3963).
+          #
+          # So: fail on a NAMED forbidden category, and keep "Other" as a judgement on
+          # the row as a whole. A row whose values are ALL unrecognised is still
+          # unknown terms and unknown risk, and still fails when the caller asked for
+          # "Other". A row with one recognised permissive value beside an unrecognised
+          # one is not a licence finding; the checker's own report still shows it.
+          named_fail = fail_categories - {"Other", "Error"}
+
+          def row_offending(values):
+              """The values that make this row fail: named categories, else all-Other."""
+              values = [v for v in values if v]
+              if not values:
+                  return []
+              named = [v for v in values if classify(v) in named_fail]
+              if named:
+                  return named
+              if "Other" in fail_categories and all(classify(v) == "Other" for v in values):
+                  return list(values)
+              return []
+
 
           outcome = os.environ.get("OUTCOME", "success")
           raw_report = (os.environ.get("REPORT") or "").strip()
@@ -937,7 +1023,7 @@ jobs:
               # forbidden `License-Expression` (the ordinary shape of a
               # PEP 639 migration) still fails, regardless of which value a
               # tool happened to write first.
-              offending = [v for v in values if classify(v) in fail_categories]
+              offending = row_offending(values)
               if offending:
                   any_error_forbidden = True
                   notes.append(f"`{name}=={version}` — licence lookup failed in the "
