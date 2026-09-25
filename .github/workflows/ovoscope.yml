@@ -57,8 +57,12 @@ on:
           Padatious compile: a measured two-skill boot with 37 intents took
           486 s on a cold cache and 21 s warm. The old default of 180 s cut
           that boot and reported a hang that was not one, so the default is
-          600 s, above the measured cold cost and inside the step ceiling of
-          timeout_minutes minus five. With the intent cache restored the
+          600 s, above the measured cold cost. The step ceiling is
+          timeout_minutes minus five, so this default only fits when
+          timeout_minutes is 16 or more; below that the step is cut before
+          any per-test timeout can fire, and the job reports a cut rather
+          than naming a test. A caller that lowers timeout_minutes lowers
+          test_timeout with it. With the intent cache restored the
           same test returns in seconds; a real hang still names the test
           instead of taking the job with it.
       timeout_minutes:
@@ -511,15 +515,19 @@ jobs:
               for suffix in ("*.intent", "*.entity"):
                   for f in root.rglob(suffix):
                       try:
-                          seen[str(f.relative_to(root))] = f.read_bytes()
+                          # Key by root as well: a checked-out skill and its
+                          # installed copy share a relative path, and one
+                          # would silently shadow the other.
+                          seen[(str(root), str(f.relative_to(root)))] = \
+                              f.read_bytes()
                       except OSError:
                           continue
 
           h = hashlib.sha256()
-          for name in sorted(seen):
-              h.update(name.encode())
+          for key in sorted(seen):
+              h.update("\0".join(key).encode())
               h.update(b"\0")
-              h.update(hashlib.sha256(seen[name]).digest())
+              h.update(hashlib.sha256(seen[key]).digest())
           digest = h.hexdigest()[:16]
 
           try:
@@ -556,10 +564,17 @@ jobs:
           key: >-
             padatious-${{ inputs.runner }}-py${{ inputs.python_version }}-${{ inputs.intent_cache_lang }}-${{ steps.intent_cache.outputs.padatious }}-${{ steps.intent_cache.outputs.digest }}
           # A partial hit is still useful: Padatious keeps a .hash beside
-          # every .net and retrains only the intents whose text moved.
+          # every .net and retrains only the intents whose text moved. The
+          # prefix stops at the engine version, and there is deliberately no
+          # version-less restore-key: that one matches every ovos-padatious
+          # build, so an engine upgrade would restore nets the previous engine
+          # trained. Padatious cannot catch that on its own — it salts its
+          # per-intent hash with ovos_padatious.__version__, which is a frozen
+          # literal that disagrees with the installed version — so it would
+          # load the old net instead of retraining. An engine upgrade pays one
+          # full cold compile here, which is the right price.
           restore-keys: |
             padatious-${{ inputs.runner }}-py${{ inputs.python_version }}-${{ inputs.intent_cache_lang }}-${{ steps.intent_cache.outputs.padatious }}-
-            padatious-${{ inputs.runner }}-py${{ inputs.python_version }}-${{ inputs.intent_cache_lang }}-
 
       - name: Run ovoscope tests
         id: run_tests

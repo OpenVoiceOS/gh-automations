@@ -499,7 +499,7 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
 | `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
 | `pr_comment` | boolean | `true` | Post a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
-| `test_timeout` | number | `600` | Seconds a single test may take before pytest-timeout fails it. Above the measured cold Padatious compile (486 s for 37 intents), so a slow first boot is not read as a hang. |
+| `test_timeout` | number | `600` | Seconds a single test may take before pytest-timeout fails it. Above the measured cold Padatious compile (486 s for 37 intents), so a slow first boot is not read as a hang. Needs `timeout_minutes` of 16 or more: the step ceiling is `timeout_minutes` minus five, and a lower ceiling cuts the step before any per-test timeout fires. |
 | `intent_cache` | boolean | `true` | Restore and save the Padatious intent cache between runs. A measured two-skill boot took 486 s cold and 21 s warm. |
 | `intent_cache_lang` | string | `en-US` | The locale the cache key names. A repository that tests another locale names it here and does not share a key with the en-US runs. |
 
@@ -590,7 +590,13 @@ directory with `actions/cache`. The key names the runner, the Python version,
 `intent_cache_lang`, the installed `ovos-padatious` version and a hash of
 every `.intent` and `.entity` file in the checkout and in `site-packages`.
 Padatious keeps a `.hash` beside every `.net`, so a restore from an older key
-retrains only the intents whose text moved and reuses the rest.
+retrains only the intents whose text moved and reuses the rest. That holds for
+the same engine, which is why the restore-key prefix stops at the
+`ovos-padatious` version and there is no version-less one. Padatious salts
+that hash with `ovos_padatious.__version__`, a frozen literal that disagrees
+with the installed version, so it cannot tell an old engine's net from a new
+one's. An engine upgrade therefore misses the cache and pays one full cold
+compile, rather than loading nets the previous engine trained.
 
 Set `intent_cache: false` to switch it off. The cache step is also skipped
 when `ovos-padatious` is absent or the tree holds no `.intent` file, because
