@@ -35,6 +35,7 @@ specific justification.
 | `marisa-trie` | `MIT AND (BSD-2-Clause OR LGPL-2.1-or-later)` | WeakCopyleft | Dual-licensed. The checker flags the whole expression because of the LGPL-2.1-or-later option, but the license grants an explicit `BSD-2-Clause OR LGPL` choice: we elect the permissive BSD-2-Clause. We use `marisa-trie` as an unmodified, imported static-trie library (pulled transitively via `langcodes`/`language_data`, and thus by many OVOS repos that resolve language data): no source is modified or redistributed, so the BSD-2-Clause terms govern and it is compatible with Apache 2.0 distribution. |
 | `paho-mqtt` | `EPL-2.0 OR BSD-3-Clause` | WeakCopyleft | Dual-licensed. The license grants an explicit `EPL-2.0 OR BSD-3-Clause` choice: we elect the permissive BSD-3-Clause. The checker flags the whole expression because of the EPL-2.0 option. We use `paho-mqtt` as an unmodified, imported MQTT client library (a direct dependency of the `*2mqtt` bridges and other OVOS/TigreGotico MQTT integrations): no source is modified or redistributed, so the BSD-3-Clause terms govern and it is compatible with Apache 2.0 distribution. |
 | `setuptools` | MIT (bundled `LICENSE` file only in 79.x) | Error | Permissive. The 79.x wheels declare no `License` field, no `License-Expression` and no license classifier, so the checker cannot find a license and reports `Error`. The bundled `LICENSE` file is the MIT text. 80.0 and later declare `License-Expression: MIT`, which the PEP 639 rule below reads. It is a build tool that almost every package pulls in. |
+| `torchao` | BSD-3-Clause (bundled `LICENSE` only) | Other | Permissive. 0.18.0 declares no `License` field, no `License-Expression` and no license classifier, only `License-File: LICENSE`, so the checker cannot find a licence and reports `Other`. The `LICENSE` in the source repository `pytorch/ao` is the BSD-3-Clause text, © 2023 Meta, including the "neither the name of the copyright holder" clause that separates BSD-3-Clause from BSD-2-Clause; the project README carries a BSD-3-Clause badge. Same shape as `setuptools` 79.x above. Pulled transitively by the ML stack, and seen on `ovos-stt-plugin-nemo#39`. Added by Miro's ruling on decision `torchao-no-metadata-read-licence`. |
 
 ## Packages with a permissive PEP 639 expression
 
@@ -56,8 +57,16 @@ PCRE, anchored per package so it matches the exact distribution name (and is
 case-insensitive, since the checker may normalise names):
 
 ```
-(?i:^tqdm$)|(?i:^marisa[-_]trie$)|(?i:^paho[-_]mqtt$)
+(?i:^bidict([=<>!~ @;].*)?$)|(?i:^tqdm([=<>!~ @;].*)?$)
+|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)
+|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)
+|(?i:^orjson([=<>!~ @;].*)?$)|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)
+|(?i:^setuptools([=<>!~ @;].*)?$)|(?i:^torchao([=<>!~ @;].*)?$)
 ```
+
+Shown across lines to fit; the workflow builds it as one pattern with no line
+breaks. The `([=<>!~ @;].*)?` suffix is load-bearing: the checker matches the
+resolved `name==version` requirement, so a bare `^name$` never fires.
 
 Adding a package means adding a `^name$` alternation here and in the workflow's
 inline list, plus a row above with its justification.
