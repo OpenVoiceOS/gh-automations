@@ -50,12 +50,21 @@ on:
           and relies on prerelease floor-pins resolving the way pip did.
       test_timeout:
         type: number
-        default: 180
+        default: 600
         description: >
           Seconds a single test may take before pytest-timeout fails it and
-          dumps its stack. A healthy ovoscope test boots a MiniCroft and runs
-          in seconds; a hang here names the test instead of taking the job
-          with it.
+          dumps its stack. The first test that boots a MiniCroft pays the
+          Padatious compile: a measured two-skill boot with 37 intents took
+          486 s on a cold cache and 21 s warm. The old default of 180 s cut
+          that boot and reported a hang that was not one, so the default is
+          600 s, above the measured cold cost. The step ceiling is
+          timeout_minutes minus five, so this default only fits when
+          timeout_minutes is 16 or more; below that the step is cut before
+          any per-test timeout can fire, and the job reports a cut rather
+          than naming a test. A caller that lowers timeout_minutes lowers
+          test_timeout with it. With the intent cache restored the
+          same test returns in seconds; a real hang still names the test
+          instead of taking the job with it.
       timeout_minutes:
         type: number
         default: 30
@@ -177,6 +186,24 @@ on:
           Post a '🔌 Skill Tests (ovoscope)' section in the OVOS PR Checks comment.
           Only runs on pull_request events.
 
+      intent_cache:
+        type: boolean
+        default: true
+        description: >
+          Restore and save the Padatious intent cache between runs. Padatious
+          compiles every intent with FANN on a cold cache: a measured
+          two-skill MiniCroft with 37 intents took 486 s cold and 21 s warm
+          from the cache the first run wrote (388 files, 2.3 MB). The cache
+          holds a .hash and a .net per intent, so an entry whose intent text
+          changed is retrained and the rest is reused.
+      intent_cache_lang:
+        type: string
+        default: "en-US"
+        description: >
+          The locale the cache key names. Padatious keeps one directory per
+          language, so a repository that tests another locale names it here
+          and does not share a key with the en-US runs.
+
       # NOTE: intent-case accuracy gating + lang sharding live in the
       # sibling `intent-case-tests.yml` reusable workflow. Use both
       # workflows in tandem (or only one) depending on what the skill ships.
@@ -185,6 +212,10 @@ on:
 env:
   UV_SYSTEM_PYTHON: "1"
   UV_PRERELEASE: ${{ inputs.uv_prerelease }}
+  # Padatious writes its intent cache under $XDG_DATA_HOME. The runner
+  # default is $HOME/.local/share; naming the directory here puts it in the
+  # workspace, where the cache step can address it and the log can show it.
+  XDG_DATA_HOME: ${{ github.workspace }}/.ovos-xdg-data
 
 jobs:
   ovoscope:
@@ -458,6 +489,92 @@ jobs:
 
           print(f"Pipeline check passed. Installed: {sorted(installed)}")
           PYEOF
+
+      - name: Resolve the intent cache key
+        id: intent_cache
+        if: ${{ inputs.intent_cache }}
+        run: |
+          python3 - <<'PYEOF'
+          import hashlib
+          import os
+          import sysconfig
+          from pathlib import Path
+
+          # The key must change when the intents change and not before. Read
+          # the .intent and .entity files Padatious compiles: the ones this
+          # checkout ships and the ones the installed skills ship.
+          roots = [Path(os.environ["GITHUB_WORKSPACE"])]
+          purelib = sysconfig.get_paths().get("purelib")
+          if purelib:
+              roots.append(Path(purelib))
+
+          seen = {}
+          for root in roots:
+              if not root.is_dir():
+                  continue
+              for suffix in ("*.intent", "*.entity"):
+                  for f in root.rglob(suffix):
+                      try:
+                          # Key by root as well: a checked-out skill and its
+                          # installed copy share a relative path, and one
+                          # would silently shadow the other.
+                          seen[(str(root), str(f.relative_to(root)))] = \
+                              f.read_bytes()
+                      except OSError:
+                          continue
+
+          h = hashlib.sha256()
+          for key in sorted(seen):
+              h.update("\0".join(key).encode())
+              h.update(b"\0")
+              h.update(hashlib.sha256(seen[key]).digest())
+          digest = h.hexdigest()[:16]
+
+          try:
+              from importlib.metadata import version
+              padatious = version("ovos-padatious")
+          except Exception:
+              padatious = "absent"
+
+          print(f"intent files hashed: {len(seen)}")
+          print(f"ovos-padatious: {padatious}")
+          print(f"digest: {digest}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"count={len(seen)}\n")
+              out.write(f"padatious={padatious}\n")
+              out.write(f"digest={digest}\n")
+
+          if padatious == "absent" or not seen:
+              # Nothing compiles a .intent here: no cache is worth a key.
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write("wanted=false\n")
+          else:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                  out.write("wanted=true\n")
+          PYEOF
+
+      - name: Padatious intent cache
+        if: ${{ inputs.intent_cache && steps.intent_cache.outputs.wanted == 'true' }}
+        uses: actions/cache@v4
+        with:
+          # Padatious appends _domain, _stemmer or _normalized to the
+          # directory name for those engine options, so match the whole set.
+          path: ${{ env.XDG_DATA_HOME }}/mycroft/intent_cache*
+          key: >-
+            padatious-${{ inputs.runner }}-py${{ inputs.python_version }}-${{ inputs.intent_cache_lang }}-${{ steps.intent_cache.outputs.padatious }}-${{ steps.intent_cache.outputs.digest }}
+          # A partial hit is still useful: Padatious keeps a .hash beside
+          # every .net and retrains only the intents whose text moved. The
+          # prefix stops at the engine version, and there is deliberately no
+          # version-less restore-key: that one matches every ovos-padatious
+          # build, so an engine upgrade would restore nets the previous engine
+          # trained. Padatious cannot catch that on its own — it salts its
+          # per-intent hash with ovos_padatious.__version__, which is a frozen
+          # literal that disagrees with the installed version — so it would
+          # load the old net instead of retraining. An engine upgrade pays one
+          # full cold compile here, which is the right price.
+          restore-keys: |
+            padatious-${{ inputs.runner }}-py${{ inputs.python_version }}-${{ inputs.intent_cache_lang }}-${{ steps.intent_cache.outputs.padatious }}-
 
       - name: Run ovoscope tests
         id: run_tests
