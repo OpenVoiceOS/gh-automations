@@ -499,6 +499,9 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
 | `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
 | `pr_comment` | boolean | `true` | Post a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `test_timeout` | number | `600` | Seconds a single test may take before pytest-timeout fails it. Above the measured cold Padatious compile (486 s for 37 intents), so a slow first boot is not read as a hang. |
+| `intent_cache` | boolean | `true` | Restore and save the Padatious intent cache between runs. A measured two-skill boot took 486 s cold and 21 s warm. |
+| `intent_cache_lang` | string | `en-US` | The locale the cache key names. A repository that tests another locale names it here and does not share a key with the en-US runs. |
 
 ### Jobs
 
@@ -573,6 +576,25 @@ To require Padatious (C extension: add `swig` to system_deps):
 - Set `require_adapt: true` in skill repos that test Adapt intents so CI fails explicitly if the Adapt plugin is missing from `[test]` deps rather than silently skipping those tests.
 
 End-to-end tests pay a skill-training startup cost controlled by `OVOSCOPE_TRAINED_TIMEOUT` (default 180 seconds). Individual tests should set a `@pytest.mark.timeout()` marker with a value at least 120 seconds greater than the timeout ceiling to avoid premature expiration during training. The same floor applies to a repository-wide pytest timeout set in `pytest.ini`, `pyproject.toml`, or `setup.cfg` via the `timeout` key from pytest-timeout. A global timeout below the ceiling plus 120 seconds will cause every unmarked end-to-end test to expire under coverage instrumentation. With the default 180-second training wait, a global pytest timeout must be at least 300 seconds.
+
+
+### The Padatious intent cache
+
+Padatious compiles every intent with FANN the first time it sees it. A
+measured two-skill MiniCroft with 37 intents took 486 seconds on a cold cache
+and 21 seconds warm, from 388 files and 2.3 MB under
+`$XDG_DATA_HOME/mycroft/intent_cache/en-US`.
+
+The workflow pins `XDG_DATA_HOME` into the workspace and caches that
+directory with `actions/cache`. The key names the runner, the Python version,
+`intent_cache_lang`, the installed `ovos-padatious` version and a hash of
+every `.intent` and `.entity` file in the checkout and in `site-packages`.
+Padatious keeps a `.hash` beside every `.net`, so a restore from an older key
+retrains only the intents whose text moved and reuses the rest.
+
+Set `intent_cache: false` to switch it off. The cache step is also skipped
+when `ovos-padatious` is absent or the tree holds no `.intent` file, because
+then nothing writes the directory.
 
 ---
 
