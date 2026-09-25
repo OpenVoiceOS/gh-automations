@@ -1,0 +1,51 @@
+name: Self Check License Check
+# The license-check workflow, run against this repository, to prove that the
+# package breakdown counts the packages that are installed.
+#
+# The breakdown used to pass the combined exclude to pip-licenses as
+# `--filter-strings <regex>`. That option takes no argument, so the regex
+# arrived as an unexpected positional, pip-licenses exited 2, and the silent
+# fallback wrote an empty list. Every job summary and PR comment said
+# "0 packages" whatever was installed.
+#
+# Read the `Generate full license breakdown` step log of each job, not the job
+# conclusion alone. The step prints its own counts:
+#
+#   - `counts_every_installed_package`: no caller exclude. The line must read
+#     "pip-licenses read N package(s); 0 excluded; N in the breakdown" with N
+#     above zero, and the job summary must name the same N.
+#   - `excludes_only_what_the_caller_names`: excludes requests and six, two
+#     packages the first job keeps. The count must be exactly two lower than the
+#     first job's and must stay above zero, and the excluded list the step
+#     prints must name those two: the count moves by what the caller named, and
+#     by nothing else.
+#
+# A step that cannot run pip-licenses now fails loudly instead of reporting an
+# empty breakdown, so a red here is a real failure and never a silent zero.
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/license-check.yml'
+      - '.github/workflows/self-check-license-check.yml'
+      - 'test/canary/license-breakdown.txt'
+  workflow_dispatch:
+
+jobs:
+  # The breakdown must count what is installed.
+  counts_every_installed_package:
+    uses: ./.github/workflows/license-check.yml
+    with:
+      gh_automations_ref: ${{ github.head_ref || github.ref_name }}
+      install_extras: "-r test/canary/license-breakdown.txt"
+      pr_comment: false
+
+  # The caller's exclude must remove exactly the two packages it names.
+  excludes_only_what_the_caller_names:
+    uses: ./.github/workflows/license-check.yml
+    with:
+      gh_automations_ref: ${{ github.head_ref || github.ref_name }}
+      install_extras: "-r test/canary/license-breakdown.txt"
+      exclude_packages: "(?i:^requests([=<>!~ @;].*)?$)|(?i:^six([=<>!~ @;].*)?$)"
+      pr_comment: false
