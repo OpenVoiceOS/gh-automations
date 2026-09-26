@@ -75,6 +75,20 @@ on:
           each other, and utterances returned ovos.intent.unmatched or a worker
           crashed. A repository can set a higher value or "auto". "0" runs
           serially (disable xdist).
+      pytest_dist:
+        type: string
+        default: ""
+        description: >
+          xdist distribution mode, passed as --dist. Empty keeps xdist's own
+          default, "load", which distributes by TEST: a test class that boots
+          its MiniCroft in setUpClass then splits over the workers and boots
+          one MiniCroft per worker. Measured on ovos-skill-color-picker at
+          ba06282: with --dist load, TestByNameRouting and TestSiblingNegatives
+          each ran tests on both workers; with "loadscope", no class ran on
+          more than one worker. Set "loadscope" (per class) or "loadfile" (per
+          file) to remove those duplicate boots. It costs balance: one large
+          parametrised function is pinned to one worker, so a suite shaped that
+          way can take longer.
       runner:
         type: string
         default: "ubuntu-latest"
@@ -477,6 +491,9 @@ jobs:
           XDIST_ARGS=""
           if [ -n "${{ inputs.pytest_workers }}" ] && [ "${{ inputs.pytest_workers }}" != "0" ]; then
             XDIST_ARGS="-n ${{ inputs.pytest_workers }}"
+            if [ -n "${{ inputs.pytest_dist }}" ]; then
+              XDIST_ARGS="$XDIST_ARGS --dist ${{ inputs.pytest_dist }}"
+            fi
           fi
           # five minutes below the job ceiling, so this reports before the
           # runner kills the job and takes the reason with it

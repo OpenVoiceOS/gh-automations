@@ -499,6 +499,8 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
 | `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
 | `pr_comment` | boolean | `true` | Post a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `pytest_workers` | string | `2` | pytest-xdist worker count. Each worker boots its own in-process MiniCroft and trains its own intent engines. `auto` (4 workers) starved the parallel trainers. `0` runs serially. |
+| `pytest_dist` | string | `""` | xdist `--dist` mode. Empty keeps xdist's default `load`, which distributes by test: a class that boots its MiniCroft in `setUpClass` splits over the workers and boots one MiniCroft per worker. `loadscope` (per class) or `loadfile` (per file) removes those duplicate boots, at the cost of balance. |
 
 ### Jobs
 
