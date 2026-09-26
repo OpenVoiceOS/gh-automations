@@ -952,34 +952,64 @@ jobs:
 
       - name: Generate full license breakdown
         id: license_breakdown
+        env:
+          COMBINED_REGEX: ${{ steps.exclude.outputs.regex }}
         run: |
-          # Run pip-licenses to get the full per-package breakdown as JSON.
-          # Use the same combined exclude (self + caller-supplied) as the pilosus check.
-          COMBINED="${{ steps.exclude.outputs.regex }}"
-          if [ -n "$COMBINED" ]; then
-            # pip-licenses uses --ignore-packages with space-separated names; the combined
-            # pattern is a PCRE regex intended for pilosus.  Pass it via --filter-strings
-            # which also supports regex-style matching in pip-licenses.
-            EXCLUDE_ARGS="--filter-strings $COMBINED"
+          set -uo pipefail
+          # pip-licenses has no regex exclude. --filter-strings takes NO argument
+          # (it is the code-page filter, paired with --filter-code-page), so
+          # "--filter-strings <regex>" made the regex an unexpected positional
+          # argument, pip-licenses exited 2, and the fallback wrote an empty list.
+          # Every breakdown therefore said 0 packages.
+          #
+          # So the whole breakdown is taken here, and the combined exclude is
+          # applied below in python against "name==version" — the same string the
+          # pilosus check matches, which keeps the two in step.
+          if ! pip-licenses \
+                 --format=json \
+                 --with-urls \
+                 --order=license \
+                 > /tmp/pip-licenses-all.json 2> /tmp/pip-licenses.err; then
+            echo "::error title=License breakdown::pip-licenses failed, so no package breakdown could be produced."
+            cat /tmp/pip-licenses.err >&2
+            exit 1
           fi
-          pip-licenses \
-            --format=json \
-            --with-urls \
-            --order=license \
-            $EXCLUDE_ARGS \
-            > /tmp/pip-licenses.json 2>/dev/null || echo "[]" > /tmp/pip-licenses.json
-          # Summarize license distribution for the step output
-          DIST=$(python3 -c "
-          import json, collections
-          try:
-              data = json.load(open('/tmp/pip-licenses.json'))
-              counts = collections.Counter(p['License'] for p in data)
-              total = len(data)
-              print(total)
-          except Exception:
-              print(0)
-          ")
-          echo "total_packages=$DIST" >> $GITHUB_OUTPUT
+          python3 - <<'PYEOF'
+          import json, os, re, sys
+
+          with open("/tmp/pip-licenses-all.json") as f:
+              packages = json.load(f)
+
+          combined = (os.environ.get("COMBINED_REGEX") or "").strip()
+          kept = packages
+          excluded = []
+          if combined:
+              try:
+                  pattern = re.compile(combined)
+              except re.error as exc:
+                  print(f"::error title=License breakdown::the combined exclude is not a"
+                        f" valid regex, so nothing could be excluded: {exc}", file=sys.stderr)
+                  raise SystemExit(1)
+              matched = [bool(pattern.search(f"{p.get('Name', '')}=={p.get('Version', '')}"))
+                         for p in packages]
+              kept = [p for p, hit in zip(packages, matched) if not hit]
+              excluded = [p.get("Name", "?") for p, hit in zip(packages, matched) if hit]
+
+          with open("/tmp/pip-licenses.json", "w") as f:
+              json.dump(kept, f)
+
+          print(f"pip-licenses read {len(packages)} package(s);"
+                f" {len(excluded)} excluded; {len(kept)} in the breakdown")
+          if excluded:
+              print(f"excluded: {', '.join(sorted(excluded))}")
+
+          if not kept:
+              print("::warning title=License breakdown::the breakdown is empty."
+                    " Either nothing is installed or the exclude matched everything.")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"total_packages={len(kept)}\n")
+          PYEOF
 
       - name: Print report
         if: always()

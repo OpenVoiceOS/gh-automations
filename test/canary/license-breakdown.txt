@@ -1,0 +1,11 @@
+# Canary requirements for self-check-license-check.yml.
+#
+# requests pulls four dependencies, and six is a single-licence MIT package.
+# None of the six is build tooling and none is in a central whitelist row, so
+# the breakdown counts them. The workflow excludes build tooling (build, wheel,
+# uv, pip, pip-licenses, prettytable, packaging, pyproject-hooks) and any
+# package whose combined licence string it reads as safe by component, whatever
+# the caller passes, so a canary package must sit outside both sets to prove
+# anything about a caller's own exclude.
+requests==2.32.3
+six==1.17.0
