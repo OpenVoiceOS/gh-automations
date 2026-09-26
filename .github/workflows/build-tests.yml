@@ -68,6 +68,19 @@ on:
           The check warns by default, because a sibling workflow may run the
           rest (ovos-audio and ovos-workshop both do). Set this in a
           repository where build-tests.yml is the only thing that runs pytest.
+      require_test_path:
+        type: boolean
+        default: false
+        description: >
+          Fail instead of warning when test_path is empty. With test_path unset
+          the Run Tests step is skipped, the result is "success", and "ran no
+          tests" reads exactly like "all tests passed". The default warns,
+          because failing would turn every caller in that state red at once.
+          This is per repository and not a fleet default on purpose: of the 27
+          callers measured on T-5499, 14 have no test file at all, so the fleet
+          never fully drains and the escalation has to be a repository saying
+          "I have tests, hold me to running them". Set it once test_path is
+          wired, and a later deletion of the input cannot pass unnoticed.
       pytest_args:
         type: string
         default: ""
@@ -234,6 +247,61 @@ jobs:
             uv pip install dist/*.tar.gz 2>/dev/null || { echo "No dist files found"; exit 1; }
           fi
 
+      # The other half of the silence. With test_path set and install_extras
+      # empty, the suite runs against the bare wheel, so a package that
+      # declares its test dependencies under an extra runs without them and
+      # fails collection on an import. That reads as a defect in the code and
+      # is a gap in the caller: two HiveMind repositories failed exactly that
+      # way the moment test_path was set (T-5499 census, second half).
+      #
+      # Read `Provides-Extra` from the wheel this job just built, not
+      # pyproject.toml: it is the standard metadata field, it is what uv would
+      # resolve against, and it needs no TOML parser, which matters because
+      # tomllib does not exist on 3.10. coverage.yml warns for the same reason
+      # from the other direction, by reading uv's "does not have an extra
+      # named" line (T-2191). Warning only, like its sibling above (T-5587).
+      - name: Check test extras
+        if: ${{ inputs.test_path != '' && inputs.install_extras == '' }}
+        run: |
+          python3 - <<'PY'
+          import glob, os, zipfile
+          TESTISH = ("test", "tests", "testing", "dev", "devel")
+          wheels = sorted(glob.glob("dist/*.whl"))
+          if not wheels:
+              raise SystemExit(0)
+          extras = []
+          with zipfile.ZipFile(wheels[0]) as zf:
+              meta = [n for n in zf.namelist()
+                      if n.endswith(".dist-info/METADATA")]
+              if not meta:
+                  raise SystemExit(0)
+              for line in zf.read(meta[0]).decode("utf-8", "replace").splitlines():
+                  if line.startswith("Provides-Extra:"):
+                      extras.append(line.split(":", 1)[1].strip())
+          hits = [e for e in extras if e.lower() in TESTISH]
+          print(f"the wheel declares {len(extras)} extra(s): "
+                f"{', '.join(extras) or '(none)'}")
+          print(f"{len(hits)} of them look like a test extra: "
+                f"{', '.join(hits) or '(none)'}")
+          if not hits:
+              raise SystemExit(0)
+          names = ", ".join(f"[{e}]" for e in hits)
+          # Name the one to set in TESTISH preference order, not in the order
+          # the wheel happens to list them: a package declaring both [dev] and
+          # [test] should be told to set test.
+          best = min(hits, key=lambda e: TESTISH.index(e.lower()))
+          msg = (f"test_path is set but install_extras is empty, and the package "
+                 f"declares {names}. The suite runs against the bare wheel, "
+                 f"without the test dependencies the package itself declares, so "
+                 f"a collection error here is a missing extra and not a defect. "
+                 f"Set install_extras to {best}.")
+          print(f"::warning title=No test extra installed::{msg}")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(f"> ⚠️ **No test extra installed.** {msg}\n\n")
+          PY
+
       - name: Configure test environment
         if: ${{ inputs.test_path != '' && inputs.test_env != '' }}
         run: |
@@ -292,6 +360,25 @@ jobs:
           # shellcheck disable=SC2086
           pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
           test "${PIPESTATUS[0]}" -eq 0
+
+      # The job says nothing when test_path is empty: Run Tests is skipped, the
+      # result is "success", and the log shows no trace. The PR comment does say
+      # "The caller set no test path, thus no test ran", but that comment is
+      # posted only on a pull_request and only when pr_comment is true, so a
+      # push to dev, or a caller that turns the comment off, gets no signal at
+      # all. This is the same trap lint.yml already guards for ruff, where a
+      # ruff_args that matched no file used to read as "no issues" (T-2338).
+      # An annotation shows on the checks page whatever the event (T-5499:
+      # 17 callers ran no test this way, one of them with 47 test files).
+      - name: Say so when no test ran
+        if: ${{ always() && inputs.test_path == '' }}
+        run: |
+          MSG="test_path is empty, so the Run Tests step was skipped. This job built and installed the wheel and ran no test; it is not a passing suite. Set test_path to the test directory."
+          if [ "${{ inputs.require_test_path }}" = "true" ]; then
+            echo "::error title=no test ran::$MSG"
+            exit 1
+          fi
+          echo "::warning title=no test ran::$MSG"
 
       - name: Save result
         if: always()
@@ -400,7 +487,13 @@ jobs:
           all_ok = all(s == "success" for s in results.values())
           if all_ok:
               if not has_tests:
-                  lines.append("✅ All versions build and install. The caller set no test path, thus no test ran.")
+                  # Not a tick. The sentence was already right and the icon
+                  # contradicted it: a reader scanning the comment sees the
+                  # icon first, and a green tick on "no test ran" is the whole
+                  # defect. The sibling case below, a suite that ran and was
+                  # fully skipped, already uses the warning sign for exactly
+                  # this reason, so the two now agree (T-5587).
+                  lines.append("⚠\ufe0f All versions build and install, but the caller set no test path, thus no test ran. This is not a passing suite.")
               else:
                   none_ran = [v for v in versions if ran[v] is False]
                   unknown = [v for v in versions if ran[v] is None]

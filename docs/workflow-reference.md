@@ -179,7 +179,8 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | `python_versions` | string | `'["3.10", "3.11", "3.12", "3.13", "3.14"]'` | JSON array of Python versions to test against |
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated). Base packages `python3-dev libssl-dev` are always installed. |
 | `install_extras` | string | `""` | pip extras appended when installing the built wheel, e.g. `test` or `dev,test` |
-| `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). |
+| `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). Leaving it empty is [reported, not silent](#when-no-test-ran). |
+| `require_test_path` | boolean | `false` | Fail instead of warning when `test_path` is empty. See [when no test ran](#when-no-test-ran). |
 | `pytest_args` | string | `""` | Extra arguments appended to the pytest invocation, e.g. `--capture=tee-sys` to keep a crashing test's output visible. Same name and meaning as on `channel-compat.yml`. |
 | `test_env` | string | `""` | Extra environment variables for the test step, as newline-separated `KEY=value` pairs, e.g. `PYTHONFAULTHANDLER=1` and `RUST_BACKTRACE=full` to surface a native crash's traceback instead of a bare `Fatal Python error: Aborted`. Appended to `$GITHUB_ENV` before the test step runs. |
 | `pr_comment` | boolean | `true` | Post a `🔨 Build Tests` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
@@ -195,6 +196,49 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | Job | Description |
 |-----|-------------|
 | `post_build_report` | Runs after the matrix, only on PR events with `pr_comment: true`. Downloads all result artifacts, runs the channel compatibility check, formats and posts the `section:build` PR comment. |
+
+### When no test ran
+
+The Run Tests step is gated on `test_path != ''`. A caller that passes nothing
+builds the wheel, installs it, runs no test, and reports **success**, so "ran no
+tests" reads exactly like "all tests passed". T-5499 measured 27 callers in that
+state, one of them with 47 test files that had never run.
+
+Three things now say so:
+
+- A `::warning title=no test ran` annotation on the job, so it shows on the
+  checks page whatever the event. The PR comment is posted only on a
+  `pull_request` and only when `pr_comment` is true, so a push to `dev`, or a
+  caller with the comment switched off, used to get no signal at all. This is the
+  guard `lint.yml` already has for a `ruff_args` that matched no file.
+- The PR comment headline for this case carries ⚠️ and says "This is not a
+  passing suite". It used to carry ✅ beside the words "no test ran", and the
+  icon is what a reader sees first.
+- `require_test_path: true` makes it a failure instead of a warning.
+
+The default warns. Failing is per repository and not a fleet default on purpose:
+of those 27 callers, 14 have no test file at all and 3 more have only an
+end-to-end suite that must not run here, so 17 of 27 can never set a meaningful
+`test_path` and a global failure default would never become correct. Set
+`require_test_path: true` once `test_path` is wired, and a later deletion of it
+cannot pass unnoticed.
+
+### When the test extra is missing
+
+With `test_path` set and `install_extras` empty, the suite runs against the bare
+wheel. A package that declares its test dependencies under an extra then runs
+without them and fails collection on an import, which reads as a defect in the
+code and is a gap in the caller. Two HiveMind repositories failed exactly that
+way the moment `test_path` was set.
+
+The `Check test extras` step reads `Provides-Extra` from the wheel this job just
+built — the standard metadata field, and what `uv` resolves against, so it needs
+no TOML parser, which matters because `tomllib` does not exist on 3.10. When the
+package declares an extra named `test`, `tests`, `testing`, `dev` or `devel` and
+`install_extras` is empty, it warns and names the one to set. It prints how many
+extras it read and how many matched, so a silent run cannot be mistaken for a
+clean one. It is a warning, never a failure, and it runs before the suite so the
+annotation arrives ahead of the collection error it explains.
 
 ### Channel compatibility check
 
