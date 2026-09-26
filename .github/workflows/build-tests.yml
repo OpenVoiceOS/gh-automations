@@ -221,8 +221,27 @@ jobs:
           # venv activation in it is lost before pytest starts.
           ${{ inputs.pre_test_command }}
           uv pip install pytest
+          # `pytest`, never `python -m pytest`: the -m form puts the working
+          # directory first on sys.path, and the working directory is the
+          # repository root. A flat-layout package at the root then shadows the
+          # wheel this job just built and installed, so the suite tested the
+          # source tree and a packaging defect (a module left out of the wheel,
+          # a missing dependency, missing package data) passed. The console
+          # script adds no such entry, so the import resolves to site-packages.
+          # The console script is necessary and not sufficient. pytest's default
+          # prepend import mode puts the rootdir back on sys.path whenever the
+          # collected tests are a package (a test/__init__.py) or a conftest.py
+          # sits at the repository root, and the shadowing returns. A caller in
+          # either shape needs the test package's __init__.py removed, or
+          # `pytest_args: --import-mode=importlib`, which inserts nothing.
+          # The console script also resolves through PATH, where the -m form
+          # bound the interpreter. Today UV_SYSTEM_PYTHON puts both in the same
+          # place; a pre_test_command that activates a venv would separate them,
+          # because `uv pip install pytest` above installs to the system one.
+          # The working directory stays the repository root, so a suite that
+          # reads a repo-relative fixture path is unaffected. T-5305.
           # shellcheck disable=SC2086
-          python -m pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
+          pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Save result
