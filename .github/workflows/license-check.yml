@@ -685,13 +685,23 @@ jobs:
           #          reports category "Error". 80.0 and later declare
           #          `License-Expression: MIT`, which the PEP 639 step above
           #          reads. Pulled by nearly every build.
+          #   torchao — BSD-3-Clause (bundled LICENSE in pytorch/ao, © 2023 Meta,
+          #          with the "neither the name of the copyright holder" clause
+          #          that separates BSD-3 from BSD-2; the project README carries
+          #          a BSD-3-Clause badge). 0.18.0 declares no `License`, no
+          #          `License-Expression` and no license classifier, only
+          #          `License-File: LICENSE`, so the checker reports category
+          #          "Other" (seen on ovos-stt-plugin-nemo#39). Same shape as
+          #          setuptools 79.x above. Pulled transitively by the ML stack.
+          #          Miro's ruling, decision torchao-no-metadata-read-licence.
           central = (r"(?i:^bidict([=<>!~ @;].*)?$)"
                      r"|(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
                      r"|(?i:^orjson([=<>!~ @;].*)?$)"
                      r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)"
-                     r"|(?i:^setuptools([=<>!~ @;].*)?$)")
+                     r"|(?i:^setuptools([=<>!~ @;].*)?$)"
+                     r"|(?i:^torchao([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
