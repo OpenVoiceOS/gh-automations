@@ -94,7 +94,7 @@ env:
   # a report people can read, not about a red. Hold the pre-0.16 default set;
   # Renovate moves this pin by pull request (renovate.json, customManagers),
   # which is where a rule-set change gets read and priced.
-  RUFF: "ruff==0.15.22"
+  RUFF: "ruff==0.16.9"
 
 jobs:
   lint:
