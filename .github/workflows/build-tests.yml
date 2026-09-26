@@ -244,6 +244,20 @@ jobs:
           pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
           test "${PIPESTATUS[0]}" -eq 0
 
+      # The job says nothing when test_path is empty: Run Tests is skipped, the
+      # result is "success", and the log shows no trace. The PR comment does say
+      # "The caller set no test path, thus no test ran", but that comment is
+      # posted only on a pull_request and only when pr_comment is true, so a
+      # push to dev, or a caller that turns the comment off, gets no signal at
+      # all. This is the same trap lint.yml already guards for ruff, where a
+      # ruff_args that matched no file used to read as "no issues" (T-2338).
+      # An annotation shows on the checks page whatever the event (T-5499:
+      # 17 callers ran no test this way, one of them with 47 test files).
+      - name: Say so when no test ran
+        if: ${{ always() && inputs.test_path == '' }}
+        run: |
+          echo "::warning title=no test ran::test_path is empty, so the Run Tests step was skipped. This job built and installed the wheel and ran no test; it is not a passing suite. Set test_path to the test directory."
+
       - name: Save result
         if: always()
         run: |
