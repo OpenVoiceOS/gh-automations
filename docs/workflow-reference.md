@@ -440,7 +440,14 @@ The scoreboard and the predictions are an artifact and a job summary.
 
 `0` every row matched. `1` a miss (the summary names each). `2` no rows
 matched the glob. `3` the loaded skill is not this checkout (an installed
-copy shadows it). `4` every row is `needs_manual`.
+copy shadows it). `4` every row is `needs_manual`. `5` the run could not
+boot, which covers the preset check before the run and the MiniCroft boot
+itself, with or without a preset; the job stays red, and the summary carries
+the `PRESET UNAVAILABLE:` line ovoscope printed. A boot failure is never
+exit 1, because exit 1 is a corpus miss and a failed boot measured nothing.
+Exit 5 needs the ovoscope release that ships it (`ovoscope>=1.11.0a1`,
+ovoscope#214); the `ovoscope_floor` default is 1.10.0a1, which reports a
+boot failure as exit 1, so a caller that wants exit 5 raises the floor.
 
 ### Typical usage
 
