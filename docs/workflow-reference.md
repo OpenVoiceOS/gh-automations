@@ -335,7 +335,7 @@ Runs OPM (OVOS Plugin Manager) plugin detection and validation on a **single Pyt
 | `opm_require_found` | boolean | `true` | Fail the job if OPM cannot discover the plugin |
 | `opm_validate_interface` | boolean | `true` | Check that the plugin class inherits from the correct abstract base class |
 | `opm_test_import` | boolean | `true` | Test that the plugin class is importable and measure import time in ms |
-| `opm_perf_threshold_ms` | number | `500` | Import time above this value (ms) is reported as an error |
+| `opm_perf_threshold_ms` | number | `500` | The entry point's own import time above this value (ms) is reported as an error. The OPM templates every plugin subclasses are loaded first and their cost is reported separately as `opm_baseline_ms`, so this threshold measures the plugin's code and not OPM's |
 | `pr_comment` | boolean | `true` | Post a `🔌 Plugin Detection` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
 
 ### Jobs
@@ -1493,6 +1493,8 @@ Detects and validates OVOS plugins via OPM. Supports multi-plugin-type repos. Ou
 **Key functions:**
 - `auto_detect_plugin_types()`: `scripts/check_opm.py:308`: scans `[project.entry-points."opm.*"]` in `pyproject.toml` or `setup.py`
 - `validate_plugin_import(module_path, class_name)`: `scripts/check_opm.py:132`: imports the class, measures time in ms, detects missing dependencies
+- `warm_opm_baseline(short_types)`: `scripts/check_opm.py`: imports the OPM templates the plugin types subclass, before any entry point is timed, and returns what they cost
+- `opm_baseline_modules(short_types)`: `scripts/check_opm.py`: names those template modules, one per plugin type
 - `check_plugin_interface(plugin_cls, short_type)`: `scripts/check_opm.py:152`: verifies `issubclass()` against the correct abstract base (10 types including `g2p`)
 - `extract_metadata()`: `scripts/check_opm.py:54`: reads name, version, authors, description, homepage, requires_python
 - `extract_system_deps()`: `scripts/check_opm.py:108`: reads `[tool.ovos.build] system-dependencies`

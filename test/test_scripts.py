@@ -38,6 +38,8 @@ from check_opm import (  # noqa: E402
     extract_metadata,
     extract_system_deps,
     validate_plugin_import,
+    opm_baseline_modules,
+    warm_opm_baseline,
     check_plugin_interface,
     validate_config_docs,
     collect_issues,
@@ -807,6 +809,8 @@ class TestCheckOpm:
             validation = result["validation"]
             assert "import_ok" in validation
             assert "import_time_ms" in validation
+            assert "opm_baseline_ms" in validation
+            assert "opm_baseline_modules" in validation
             assert "interface_ok" in validation
             assert "abstract_base" in validation
             assert "has_config_docs" in validation
@@ -1134,6 +1138,119 @@ class TestCheckOpmNewFeatures:
             os.chdir(original_dir)
         assert result["validation"]["requires_python_ok"] is None
         assert result["validation"]["requires_python_declared"] is None
+
+
+# ---------------------------------------------------------------------------
+# check_opm.py — the OPM baseline that import time is measured above (T-6354)
+# ---------------------------------------------------------------------------
+
+class TestOpmBaseline:
+    def test_baseline_module_is_the_abstract_base_module(self) -> None:
+        """A type with an abstract base on record warms that base's module."""
+        assert opm_baseline_modules(["tts"]) == ["ovos_plugin_manager.templates.tts"]
+
+    def test_baseline_module_falls_back_to_the_finder(self) -> None:
+        """lang.detect has no abstract base on record, so the finder's module is used."""
+        assert opm_baseline_modules(["lang.detect"]) == ["ovos_plugin_manager.language"]
+
+    def test_baseline_modules_are_unique_and_ordered(self) -> None:
+        """Two types in one module produce one entry, in the order first seen."""
+        mods = opm_baseline_modules(["lang.detect", "lang.translate", "tts"])
+        assert mods == ["ovos_plugin_manager.language",
+                        "ovos_plugin_manager.templates.tts"]
+
+    def test_unknown_type_has_no_baseline(self) -> None:
+        assert opm_baseline_modules(["not.a.plugin.type"]) == []
+
+    def test_warm_reports_zero_modules_when_opm_is_absent(self) -> None:
+        """An unimportable baseline is not reported as warmed, and does not raise."""
+        baseline_ms, imported = warm_opm_baseline(["not.a.plugin.type"])
+        assert imported == []
+        assert baseline_ms >= 0
+
+    def test_warm_returns_milliseconds_and_the_modules_it_loaded(self) -> None:
+        """A module that is importable here: the stdlib stands in for the template."""
+        import check_opm
+
+        original = check_opm.PLUGIN_TYPE_FINDERS.copy()
+        check_opm.PLUGIN_TYPE_FINDERS["test.baseline"] = "json.decoder:JSONDecoder"
+        try:
+            baseline_ms, imported = check_opm.warm_opm_baseline(["test.baseline"])
+        finally:
+            check_opm.PLUGIN_TYPE_FINDERS.clear()
+            check_opm.PLUGIN_TYPE_FINDERS.update(original)
+        assert imported == ["json.decoder"]
+        assert isinstance(baseline_ms, int)
+
+    def test_the_threshold_is_the_plugin_s_own_time(self, tmp_path: Path) -> None:
+        """A module that costs nothing of its own raises no import_perf issue.
+
+        The baseline is reported separately, so a template that costs more than the
+        threshold cannot fail a plugin that adds nothing to it.
+        """
+        result = {
+            "opm_found": {"opm.lang.detect": True},
+            "validation": {
+                "import_ok": {"thin": True},
+                "import_time_ms": {"thin": 0},
+                "opm_baseline_ms": 830,
+                "opm_baseline_modules": ["ovos_plugin_manager.language"],
+                "interface_ok": {},
+                "abstract_base": {},
+                "has_config_docs": True,
+                "config_keys": [],
+            },
+            "issues": [],
+            "status": "pass",
+        }
+        issues = collect_issues(result)
+        assert [i for i in issues if i["check"] == "import_perf"] == []
+
+    def test_a_plugin_over_the_threshold_on_its_own_still_fails(self) -> None:
+        result = {
+            "opm_found": {"opm.lang.detect": True},
+            "validation": {
+                "import_ok": {"heavy": True},
+                "import_time_ms": {"heavy": 800},
+                "opm_baseline_ms": 132,
+                "opm_baseline_modules": ["ovos_plugin_manager.language"],
+                "interface_ok": {},
+                "abstract_base": {},
+                "has_config_docs": True,
+                "config_keys": [],
+            },
+            "issues": [],
+            "status": "pass",
+        }
+        issues = collect_issues(result)
+        perf = [i for i in issues if i["check"] == "import_perf"]
+        assert len(perf) == 1
+        assert perf[0]["severity"] == "error"
+        assert "800ms" in perf[0]["message"]
+
+    def test_check_opm_warms_the_baseline_for_a_detected_type(self, tmp_path: Path) -> None:
+        """The run records which baseline it loaded, so the number can be read back."""
+        import os
+        import json
+
+        original_dir = os.getcwd()
+        json_file = tmp_path / "result.json"
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"my-tts-plugin\"\n"
+                "\n"
+                "[project.entry-points.\"opm.tts\"]\n"
+                "my-tts-plugin = \"my_tts_plugin:MyTTS\"\n"
+            )
+            check_opm("auto", output_json=str(json_file))
+            validation = json.loads(json_file.read_text())["validation"]
+        finally:
+            os.chdir(original_dir)
+        assert validation["opm_baseline_modules"] == ["ovos_plugin_manager.templates.tts"]
+        assert isinstance(validation["opm_baseline_ms"], int)
+
 
 
 # ---------------------------------------------------------------------------

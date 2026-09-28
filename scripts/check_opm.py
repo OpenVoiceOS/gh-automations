@@ -275,6 +275,49 @@ def validate_plugin_import(module_path: str, class_name: str) -> Tuple[Optional[
         return (False, None, f"{type(e).__name__}: {str(e)}")
 
 
+def opm_baseline_modules(short_types: List[str]) -> List[str]:
+    """
+    Name the OPM modules every plugin of these types imports before its own code.
+
+    A plugin's entry point subclasses a class in ovos_plugin_manager.templates.*,
+    so importing the entry point imports the template too. The template module is
+    the baseline: for a type with an abstract base on record that is the module the
+    base lives in, and otherwise the module of the type's finder, which reaches the
+    template through its own imports.
+    """
+    modules: List[str] = []
+    for short_type in short_types:
+        module = None
+        if short_type in ABSTRACT_BASES:
+            module = ABSTRACT_BASES[short_type][0]
+        elif short_type in PLUGIN_TYPE_FINDERS:
+            module = PLUGIN_TYPE_FINDERS[short_type].split(":", 1)[0]
+        if module and module not in modules:
+            modules.append(module)
+    return modules
+
+
+def warm_opm_baseline(short_types: List[str]) -> Tuple[int, List[str]]:
+    """
+    Import the OPM baseline modules and measure what they cost.
+
+    Returns (baseline_ms, imported_modules). Every import after this one finds the
+    baseline in sys.modules, so an entry point's measured time is its own cost and
+    not OPM's. An import that fails is left out: the entry point's own import test
+    reports that failure with its error.
+    """
+    imported: List[str] = []
+    start = time.perf_counter()
+    for module_path in opm_baseline_modules(short_types):
+        try:
+            importlib.import_module(module_path)
+            imported.append(module_path)
+        except Exception:
+            pass
+    elapsed = int((time.perf_counter() - start) * 1000)
+    return (elapsed, imported)
+
+
 def check_plugin_interface(plugin_cls: Any, short_type: str) -> Tuple[Optional[bool], Optional[str], Optional[str]]:
     """
     Check if plugin class inherits from the correct abstract base.
@@ -389,13 +432,14 @@ def collect_issues(result: Dict[str, Any], perf_threshold_ms: int = 500) -> List
             if time_val and time_val > perf_threshold_ms:
                 issues.append({
                     "severity": "error",
-                    "message": f"Import time for {ep_name} exceeds {perf_threshold_ms}ms ({time_val}ms)",
+                    "message": f"Own import time for {ep_name} exceeds {perf_threshold_ms}ms "
+                               f"({time_val}ms, above the OPM baseline)",
                     "check": "import_perf"
                 })
             elif time_val and time_val > warn_threshold_ms:
                 issues.append({
                     "severity": "warning",
-                    "message": f"Import time for {ep_name} is slow ({time_val}ms)",
+                    "message": f"Own import time for {ep_name} is slow ({time_val}ms, above the OPM baseline)",
                     "check": "import_perf"
                 })
 
@@ -545,7 +589,11 @@ def check_opm(
             # This correctly handles packages that register multiple entry points per type
             # (e.g. a TTS plugin with multiple voices as separate entry points).
             "import_ok": {},
+            # Time to import the entry point with the OPM baseline already loaded,
+            # so the number is the plugin's own cost. See warm_opm_baseline.
             "import_time_ms": {},
+            "opm_baseline_ms": None,
+            "opm_baseline_modules": [],
             "interface_ok": {},
             "abstract_base": {},
             "ep_type": {},          # maps ep_name -> short_type for table rendering
@@ -592,6 +640,17 @@ def check_opm(
     # Step 3: Validate declared entry points (import test + interface check)
     # Run before OPM check so results are populated even when OPM is absent.
     if test_import or validate_interface:
+        # Load the OPM templates first. Without this the first entry point pays the
+        # whole template import and reads as slow code of its own: templates.language
+        # alone measures 190-830ms, at or above the threshold before the plugin runs.
+        if test_import:
+            baseline_ms, baseline_modules = warm_opm_baseline(plugin_types_to_check)
+            result["validation"]["opm_baseline_ms"] = baseline_ms
+            result["validation"]["opm_baseline_modules"] = baseline_modules
+            if baseline_modules:
+                print(f"OPM baseline loaded in {baseline_ms}ms: "
+                      f"{', '.join(baseline_modules)}", file=sys.stderr)
+
         pyproject = Path("pyproject.toml")
         if pyproject.exists():
             try:
