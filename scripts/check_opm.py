@@ -134,6 +134,43 @@ def canonical_opm_group(group: str) -> Optional[str]:
     return _LEGACY_ENTRYPOINT_ALIASES.get(group)
 
 
+def check_plugin_config(obj) -> Tuple[Optional[bool], Optional[str]]:
+    """Verify that an ``opm.*.config`` entry point resolves to configuration data.
+
+    OPM accepts a mapping, or a callable (a function or a class) that returns
+    one. Anything else is a real defect and is reported as one. Returns
+    (ok, message); ok is None only when the shape cannot be decided.
+    """
+    if isinstance(obj, dict):
+        return True, None
+    if callable(obj):
+        try:
+            produced = obj()
+        except Exception as e:
+            return None, f"config callable raised {type(e).__name__}: {e}"
+        if isinstance(produced, dict):
+            return True, None
+        return False, f"config callable returned {type(produced).__name__}, expected a dict"
+    return False, f"config entry point is {type(obj).__name__}, expected a dict or a callable returning one"
+
+
+def is_opm_config_group(group: Optional[str]) -> bool:
+    """True for an ``opm.*.config`` entry-point group.
+
+    A config group names a plain dict (or a callable returning one), not a
+    plugin class. ovos_plugin_manager reaches it as
+    ``load_plugin(plug_name + ".config", plug_type)``, so the ``.config``
+    suffix is required by OPM and is not a packaging mistake. Such a group has
+    no class, no abstract base and no interface, so verifying it as a plugin
+    reports a failure that is not there. T-6331.
+
+    The suffix alone decides it, not an ``opm.`` prefix: ``PluginConfigTypes``
+    still carries legacy values such as ``mycroft.plugin.audioservice.config``,
+    and those name data for the same reason.
+    """
+    return bool(group) and group.endswith(".config")
+
+
 # Mapping of plugin types to their abstract base classes
 ABSTRACT_BASES = {
     "skill": ("ovos_workshop.skills.ovos", "OVOSSkill"),
@@ -464,7 +501,7 @@ def auto_detect_plugin_types() -> List[str]:
             entry_points = config.get("project", {}).get("entry-points", {})
             for group in entry_points.keys():
                 canonical = canonical_opm_group(group)
-                if canonical:
+                if canonical and not is_opm_config_group(canonical):
                     detected.append(canonical)
         except Exception as e:
             print(f"Warning: Could not parse pyproject.toml: {e}", file=sys.stderr)
@@ -490,7 +527,7 @@ def auto_detect_plugin_types() -> List[str]:
                                         for k in keyword.value.keys:
                                             if isinstance(k, ast.Constant):
                                                 canonical = canonical_opm_group(str(k.value))
-                                                if canonical:
+                                                if canonical and not is_opm_config_group(canonical):
                                                     detected.append(canonical)
             except Exception as e:
                 print(f"Warning: Could not parse setup.py: {e}", file=sys.stderr)
@@ -627,7 +664,19 @@ def check_opm(
                                     print(f"⚠️  Import failed for {ep_name}: {error}", file=sys.stderr)
 
                                 # Validate interface if import was successful
-                                if ok and validate_interface:
+                                if ok and validate_interface and is_opm_config_group(canonical):
+                                    # A config entry point names data. Check that it
+                                    # IS data rather than looking for an abstract base
+                                    # it cannot have.
+                                    try:
+                                        obj = getattr(importlib.import_module(module_path), class_name)
+                                        cfg_ok, cfg_error = check_plugin_config(obj)
+                                        result["validation"]["interface_ok"][ep_name] = cfg_ok
+                                        if cfg_error:
+                                            print(f"⚠️  Config check result for {ep_name}: {cfg_error}", file=sys.stderr)
+                                    except Exception as e:
+                                        print(f"⚠️  Could not validate config for {ep_name}: {e}", file=sys.stderr)
+                                elif ok and validate_interface:
                                     try:
                                         plugin_cls = getattr(importlib.import_module(module_path), class_name)
                                         iface_ok, abc_name, iface_error = check_plugin_interface(plugin_cls, short_type)
@@ -668,6 +717,14 @@ def check_opm(
         except Exception:
             result["validation"]["requires_python_ok"] = None  # packaging not available
 
+    # A config group is not a plugin type, so it is kept out of detected_types
+    # and out of the summary line. It is still verified here: the wheel either
+    # exposes it or it does not, and that fact is what the report should carry.
+    for _group in result.get("entry_points", {}):
+        _canonical = canonical_opm_group(_group)
+        if is_opm_config_group(_canonical) and _canonical not in plugin_types_to_check:
+            plugin_types_to_check.append(_canonical)
+
     found_any = False
     for ptype in plugin_types_to_check:
         full_type = f"opm.{ptype}" if not ptype.startswith("opm.") else ptype
@@ -677,6 +734,15 @@ def check_opm(
             # Dynamically import the finder function
             # case-insensitive lookup: PluginTypes mixes case (e.g. opm.VAD vs the
             # lowercase finder key "vad"), so fall back to the lowercased short type.
+            if is_opm_config_group(full_type):
+                # PluginConfigTypes values ARE these group strings, so OPM's own
+                # find_plugins resolves the group directly. No finder is needed
+                # and none exists.
+                from ovos_plugin_manager.utils import find_plugins as _find_plugins
+                cfg_plugins = list(_find_plugins(full_type) or [])
+                result["opm_found"][full_type] = bool(cfg_plugins)
+                found_any = bool(cfg_plugins) or found_any
+                continue
             finder_spec = PLUGIN_TYPE_FINDERS.get(short_type) or PLUGIN_TYPE_FINDERS.get(short_type.lower())
             if not finder_spec or ":" not in finder_spec:
                 print(

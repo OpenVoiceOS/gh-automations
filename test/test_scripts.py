@@ -1727,3 +1727,96 @@ class TestCheckShippedVersion:
         f.write_text(self.BLOCK + "VERSION_MAJOR = 99  # red herring after block\n")
         from _version_utils import check_shipped_version
         check_shipped_version(str(f))
+
+
+class TestCheckOpmConfigGroups:
+    """An ``opm.*.config`` group names data, not a plugin class (T-6331).
+
+    check_opm.py enumerated every ``opm.*`` group and verified each one as a
+    plugin. A config group has no class, no abstract base and no finder, so
+    every plugin that declares one reported a row it could never satisfy:
+    the group absent from OPM and the interface unverifiable. The wheel was
+    fine; the check was wrong, and each affected merge needed a waiver.
+
+    ovos_plugin_manager reaches these entry points as
+    ``load_plugin(plug_name + ".config", plug_type)``, and the values of
+    ``PluginConfigTypes`` are exactly these group strings, so the suffix is
+    required by OPM rather than a packaging mistake.
+    """
+
+    def test_a_config_group_is_recognised(self) -> None:
+        from check_opm import is_opm_config_group
+        assert is_opm_config_group("opm.tts.config")
+        assert is_opm_config_group("opm.stt.config")
+        assert is_opm_config_group("opm.embeddings.image.config")
+
+    def test_a_plugin_group_is_not_a_config_group(self) -> None:
+        from check_opm import is_opm_config_group
+        assert not is_opm_config_group("opm.tts")
+        assert not is_opm_config_group("opm.wake_word.verifier")
+        assert not is_opm_config_group("console_scripts")
+        assert not is_opm_config_group(None)
+
+    def test_config_group_values_match_opm_s_own_enum(self) -> None:
+        """The suffix this check keys on is OPM's, not a guess."""
+        PluginConfigTypes = pytest.importorskip(
+            "ovos_plugin_manager.utils"
+        ).PluginConfigTypes
+        values = [m.value for m in PluginConfigTypes]
+        assert values, "PluginConfigTypes is empty"
+        from check_opm import is_opm_config_group
+        for value in values:
+            assert is_opm_config_group(value), value
+
+    def test_auto_detect_leaves_a_config_group_out_of_the_plugin_types(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The summary line names plugin types, and a config group is not one."""
+        from check_opm import auto_detect_plugin_types
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\n'
+            'name = "ovos-tts-plugin-example"\n'
+            '[project.entry-points."opm.tts"]\n'
+            '"ovos-tts-plugin-example" = "pkg:Example"\n'
+            '[project.entry-points."opm.tts.config"]\n'
+            '"ovos-tts-plugin-example.config" = "pkg:ExampleConfig"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        assert auto_detect_plugin_types() == ["opm.tts"]
+
+    def test_a_dict_is_accepted_as_config(self) -> None:
+        from check_opm import check_plugin_config
+        ok, message = check_plugin_config({"en": [{"voice": "r2d2"}]})
+        assert ok is True
+        assert message is None
+
+    def test_a_callable_returning_a_dict_is_accepted(self) -> None:
+        from check_opm import check_plugin_config
+        ok, message = check_plugin_config(lambda: {"en": []})
+        assert ok is True
+        assert message is None
+
+    def test_a_callable_returning_something_else_is_a_real_finding(self) -> None:
+        # The check still fails on a config entry point that is genuinely
+        # wrong. Excluding config groups from the plugin path must not mean
+        # waving them through.
+        from check_opm import check_plugin_config
+        ok, message = check_plugin_config(lambda: ["not", "a", "dict"])
+        assert ok is False
+        assert "list" in message
+
+    def test_a_plain_value_is_a_real_finding(self) -> None:
+        from check_opm import check_plugin_config
+        ok, message = check_plugin_config("some string")
+        assert ok is False
+        assert "str" in message
+
+    def test_a_raising_callable_is_undecided_rather_than_failed(self) -> None:
+        from check_opm import check_plugin_config
+
+        def boom():
+            raise RuntimeError("no network")
+
+        ok, message = check_plugin_config(boom)
+        assert ok is None
+        assert "RuntimeError" in message
