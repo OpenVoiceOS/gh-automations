@@ -31,9 +31,12 @@ def step(name):
     return next(s for s in next(iter(wf["jobs"].values()))["steps"] if s.get("name") == name)
 
 
-def run(tmp_path, name, files, outcome="success", ruff_args="."):
+def run(tmp_path, name, files, outcome="success", ruff_args=".",
+        findings="", dirty=""):
     script = step(name)["run"]
     known = {"inputs.ruff_args": ruff_args, "inputs.ruff": "true", "steps.ruff.outcome": outcome,
+             "steps.ruff.outputs.findings": findings,
+             "steps.ruff.outputs.dirty_files": dirty,
              "steps.ruff_files.outputs.count": str(len(files.split()))}
 
     def value(m):
@@ -70,11 +73,17 @@ def test_count_step_reports_the_files_and_warns_on_zero(tmp_path):
     assert "::warning title=ruff checked nothing::ruff_args 'nosuch' matched no file" in out
 
 
-@pytest.mark.parametrize("files, outcome, expected", [
-    ("a.py b.py", "success", "✅ **ruff**: no issues in 2 file(s)"),
-    ("a.py b.py", "failure", "❌ **ruff**: issues found in 2 file(s) — see job log"),
-    ("", "success", "⚠️ **ruff**: checked no file (ruff_args matched nothing) — not a clean result"),
+@pytest.mark.parametrize("files, outcome, findings, dirty, expected", [
+    ("a.py b.py", "success", "", "", "✅ **ruff**: no issues in 2 file(s)"),
+    # the failure sentence counts the files WITH findings (1), not the files
+    # ruff read (2), which is what it used to report (T-6482)
+    ("a.py b.py", "failure", "3", "1",
+     "❌ **ruff**: issues found in 1 file(s) — see job log"),
+    ("", "success", "", "",
+     "⚠️ **ruff**: checked no file (ruff_args matched nothing) — not a clean result"),
 ])
-def test_comment_names_the_count_and_never_calls_nothing_clean(tmp_path, files, outcome, expected):
-    _, _, section = run(tmp_path, "Format lint section for PR comment", files, outcome)
+def test_comment_names_the_count_and_never_calls_nothing_clean(
+        tmp_path, files, outcome, findings, dirty, expected):
+    _, _, section = run(tmp_path, "Format lint section for PR comment", files, outcome,
+                        findings=findings, dirty=dirty)
     assert section.strip() == expected

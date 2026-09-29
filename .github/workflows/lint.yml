@@ -130,8 +130,24 @@ jobs:
       - name: Run ruff
         if: ${{ inputs.ruff }}
         id: ruff
-        run: ruff check ${{ inputs.ruff_args }} --output-format=github
         continue-on-error: true
+        run: |
+          # --output-format=github is what annotates the diff, and it carries
+          # file= on every finding, so this one pass counts both the findings
+          # and the files that hold them. The comment used to report the
+          # files-CHECKED count as the files-with-issues count, which reads
+          # every clean file in the tree as broken (T-6482).
+          set +e
+          ruff check ${{ inputs.ruff_args }} --output-format=github | tee /tmp/ruff-output.txt
+          RC=${PIPESTATUS[0]}
+          set -e
+          FINDINGS=$(grep -c '^::error ' /tmp/ruff-output.txt || true)
+          DIRTY=$(sed -n 's/^::error [^,]*,file=\([^,]*\),.*/\1/p' /tmp/ruff-output.txt \
+                  | sort -u | grep -c . || true)
+          echo "findings=$FINDINGS" >> "$GITHUB_OUTPUT"
+          echo "dirty_files=$DIRTY" >> "$GITHUB_OUTPUT"
+          echo "ruff: $FINDINGS finding(s) in $DIRTY file(s), exit $RC"
+          exit $RC
 
       - name: Count the files ruff checked
         # ruff exits 0 for a clean tree and for a ruff_args that matched no
@@ -192,7 +208,26 @@ jobs:
               elif [ "${{ steps.ruff.outcome }}" == "success" ]; then
                 echo "✅ **ruff**: no issues in $N file(s)"
               elif [ "${{ steps.ruff.outcome }}" == "failure" ]; then
-                echo "❌ **ruff**: issues found in $N file(s) — see job log"
+                RD="${{ steps.ruff.outputs.dirty_files }}"
+                if [ -n "$RD" ] && [ "$RD" != "0" ]; then
+                  # $RD is the files WITH findings. $N, the files ruff READ,
+                  # belongs to the clean line above and used to stand here too,
+                  # which reported every clean file in the tree as broken
+                  # (T-6482).
+                  #
+                  # The SHAPE of this sentence is a contract: bin/gate matches
+                  # it in REPO_WIDE_FINDING_RES to class the finding as
+                  # repository-wide and measure it against the merge base. A
+                  # sentence that does not match stalls every pull request
+                  # carrying a ruff finding at NEXT: ci, which is the stall
+                  # T-6174 removed. Change the wording only with the gate.
+                  echo "❌ **ruff**: issues found in $RD file(s) — see job log"
+                else
+                  # ruff failed and named no finding: bad ruff_args, or it died.
+                  # A file count here would be invented, and this one is meant
+                  # NOT to match the gate pattern: a person should read it.
+                  echo "❌ **ruff**: failed over $N checked file(s), no finding parsed — see job log"
+                fi
               fi
             fi
             if [ "${{ inputs.pre_commit }}" == "true" ]; then

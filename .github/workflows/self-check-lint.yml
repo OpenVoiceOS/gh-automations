@@ -1,0 +1,49 @@
+name: Self Check Lint
+# The lint workflow, run against a fixture in this repository, to prove that
+# the ruff line counts the files that HOLD findings and not the files ruff
+# READ.
+#
+# The comment used to read "issues found in $N file(s)" where $N is the
+# files-checked count. On OpenVoiceOS/ovos-gui#133 it said 21 while the 19
+# findings sat in 9 files, so 12 clean files were reported as broken, and
+# `bin/gate ci` copies the sentence into the ci row, so the wrong number
+# travelled. Three lanes misread it before it was fixed (T-6482).
+#
+# test/canary/lint-count holds three files: a.py with 2 findings, b.py with 2,
+# and clean.py with none. The three counts are therefore all different, which
+# is what makes the fixture worth having: a fixture where every checked file
+# is dirty cannot tell the old sentence from the new one.
+#
+# Read the `Run ruff` step log, not the job conclusion alone. ruff keeps
+# continue-on-error, so the job is green whatever ruff finds. The step must
+# print:
+#
+#   ruff: 4 finding(s) in 2 file(s), exit 1
+#
+# 4 findings, 2 files holding them, and 3 files checked, which the
+# `Count the files ruff checked` step prints separately as
+# "ruff matched 3 file(s)". A step that prints 3 as the file count with
+# findings is the defect returning.
+#
+# gh_automations_ref names the branch under test, so the workflow that runs is
+# the one this branch changes and not the one already on dev.
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/lint.yml'
+      - '.github/workflows/self-check-lint.yml'
+      - 'test/canary/lint-count/**'
+  workflow_dispatch:
+
+jobs:
+  # 3 files checked, 2 with findings, 4 findings. The job stays green.
+  counts_the_files_that_hold_the_findings:
+    uses: ./.github/workflows/lint.yml
+    with:
+      gh_automations_ref: ${{ github.head_ref || github.ref_name }}
+      ruff: true
+      ruff_args: 'test/canary/lint-count --select F401,E731'
+      pre_commit: false
+      pr_comment: false
