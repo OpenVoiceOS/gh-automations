@@ -1,3 +1,23 @@
+# Reusable workflow for measuring test coverage of the SOURCE TREE.
+#
+# This job is a tree job and it never certifies packaging. It installs the
+# package editable (`uv pip install -e .`) and runs `python -m pytest`, and both
+# halves of that are deliberate: the coverage numbers have to map to the files
+# in the repository for the PR comment and the diff to mean anything, and the
+# `-m` form puts the working directory on sys.path. So the working tree IS the
+# package here, in every configuration, and no packaging defect is visible to
+# this workflow -- not a module left out of the wheel, not missing package data,
+# not a missing dependency. A green coverage run says nothing about whether the
+# built wheel works.
+#
+# That question belongs to build-tests.yml, which installs the built wheel
+# non-editable, runs the `pytest` console script, and carries the packaging
+# control that proves the suite read the wheel and not the tree. Do not "fix"
+# this workflow by switching it to a non-editable install: coverage of the
+# installed package would have to be remapped back to the tree for every
+# caller's report, and it would duplicate a job that already exists. Read the
+# two together -- this one for how much of the tree the suite exercises,
+# build-tests.yml for whether the artifact we publish is sound. T-6960, T-6677.
 name: Coverage Report
 on:
   workflow_call:
@@ -304,6 +324,11 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "_Full XML report uploaded as artifact \`${{ inputs.artifact_name }}\`._" >> $GITHUB_STEP_SUMMARY
           fi
+          # Say what the number is coverage OF, so nobody reads this job as a
+          # packaging check: the install is editable and the runner is
+          # `python -m pytest`, so the tree is the package here. T-6960.
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Coverage of the source tree. This job installs the package editable and runs \`python -m pytest\`, so it never certifies that the built wheel works; \`build-tests.yml\` does that._" >> $GITHUB_STEP_SUMMARY
 
       - name: Format coverage section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}

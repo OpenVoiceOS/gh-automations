@@ -180,6 +180,7 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated). Base packages `python3-dev libssl-dev` are always installed. |
 | `install_extras` | string | `""` | pip extras appended when installing the built wheel, e.g. `test` or `dev,test` |
 | `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). |
+| `packaging_strict` | boolean | `false` | Fail the [packaging control](#packaging-control) instead of warning. Warns by default, because a repository that has not migrated off a root `conftest.py` reads red while its wheel is fine. |
 | `pytest_args` | string | `""` | Extra arguments appended to the pytest invocation, e.g. `--capture=tee-sys` to keep a crashing test's output visible. Same name and meaning as on `channel-compat.yml`. |
 | `test_env` | string | `""` | Extra environment variables for the test step, as newline-separated `KEY=value` pairs, e.g. `PYTHONFAULTHANDLER=1` and `RUST_BACKTRACE=full` to surface a native crash's traceback instead of a bare `Fatal Python error: Aborted`. Appended to `$GITHUB_ENV` before the test step runs. |
 | `pr_comment` | boolean | `true` | Post a `🔨 Build Tests` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
@@ -195,6 +196,53 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | Job | Description |
 |-----|-------------|
 | `post_build_report` | Runs after the matrix, only on PR events with `pr_comment: true`. Downloads all result artifacts, runs the channel compatibility check, formats and posts the `section:build` PR comment. |
+
+### Packaging control
+
+This job installs the built wheel non-editable and runs the `pytest` console
+script, so the repository root is not `sys.path[0]`. That is necessary and not
+sufficient. pytest's prepend import mode puts the rootdir back whenever the
+collected tests are a package or a root `conftest.py` exists, and an installed
+dependency that imports the package at plugin load fills `sys.modules` from
+site-packages before any test module is imported. Either way the suite reads the
+source tree, and a stale or incomplete wheel passes.
+
+Measured on `hivemind-websocket-client` at 7c1c5f6, wheel installed
+non-editable in both arms:
+
+| Extras | Resolved copy | Collected |
+|---|---|---|
+| `test,e2e` | site-packages | 1103 |
+| `test` | the source tree | 1083 |
+
+The only difference is `hivescope`, which the `e2e` extra installs and which
+imports the package at module level. The first arm is green by luck, and the
+luck ends when that dependency is dropped.
+
+So the `Packaging control` step runs `scripts/packaging_control.py` after a
+green suite, and reports two arms:
+
+- **Resolution.** No top-level name the wheel ships may resolve to the
+  source-tree copy. This is the arm that catches the reading above. A rename
+  control cannot: hiding the tree lets the import fall back to a complete wheel,
+  so collection succeeds either way and the tree read passes unseen.
+- **Completeness.** With the tree copy hidden, the suite must still collect.
+  This catches a module left out of the wheel, a missing dependency, or missing
+  package data — the defect that a tree read conceals.
+
+A suite that does not collect with the tree present is reported as
+**inconclusive**, never as a pass. Hiding is a rename restored in a `finally`,
+so a failure leaves no renamed tree behind.
+
+The step warns by default. Set `packaging_strict: true` once it passes. To fix a
+resolution failure, remove the test package's `__init__.py` or pass
+`pytest_args: --import-mode=importlib`, which inserts nothing.
+
+`coverage.yml` cannot answer this question at all: it installs editable and runs
+`python -m pytest`, so the tree is the package there in every configuration.
+That is deliberate, because coverage has to map to the files in the repository.
+Read the two together — `coverage.yml` for how much of the tree the suite
+exercises, `build-tests.yml` for whether the artifact we publish is sound.
 
 ### Channel compatibility check
 
@@ -581,6 +629,18 @@ End-to-end tests pay a skill-training startup cost controlled by `OVOSCOPE_TRAIN
 Runs `pytest --cov`, generates a coverage report, posts it to the job summary, uploads the XML as an artifact, and (on pull requests) posts a `📊 Coverage` section in the shared OVOS PR Checks comment.
 
 For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](#coverage-pagesyml).
+
+> **This is a tree job and it never certifies packaging.** It installs the
+> package editable and runs `python -m pytest`, so the working tree is the
+> package in every configuration and no packaging defect is visible here — not a
+> module left out of the wheel, not missing package data, not a missing
+> dependency. Both halves are deliberate: the coverage numbers have to map to
+> the files in the repository for the report and the diff to mean anything. A
+> green coverage run says nothing about whether the built wheel works, which is
+> what [`build-tests.yml`](#packaging-control) answers. Do not switch this
+> workflow to a non-editable install: coverage of the installed package would
+> have to be remapped back to the tree for every caller, and it would duplicate
+> a job that already exists.
 
 **Source:** `.github/workflows/coverage.yml`
 

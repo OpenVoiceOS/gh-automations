@@ -68,6 +68,22 @@ on:
           The check warns by default, because a sibling workflow may run the
           rest (ovos-audio and ovos-workshop both do). Set this in a
           repository where build-tests.yml is the only thing that runs pytest.
+      packaging_strict:
+        type: boolean
+        default: false
+        description: >
+          Fail the packaging control instead of warning. This job installs the
+          built wheel non-editable and runs the pytest console script, but that
+          only keeps the tree off sys.path[0]: pytest's prepend import mode puts
+          the rootdir back whenever the collected tests are a package or a root
+          conftest.py exists, and an installed dependency that imports the
+          package at plugin load fills sys.modules from site-packages first.
+          Either way the suite reads the source tree and a stale or incomplete
+          wheel passes. hivemind-websocket-client at 7c1c5f6 read the tree in
+          its test-extra arm and build-tests was green. The control warns by
+          default, because a repository that has not migrated off a root
+          conftest.py reads red while its wheel is fine. Set this once the
+          control passes.
       pytest_args:
         type: string
         default: ""
@@ -292,6 +308,22 @@ jobs:
           # shellcheck disable=SC2086
           pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
           test "${PIPESTATUS[0]}" -eq 0
+
+      # The step above is necessary and not sufficient, and said so long before
+      # anything checked. This is the check. It runs only after the suite is
+      # green, because a red suite makes the question moot, and it reports two
+      # arms: the suite must have imported the installed wheel (resolution), and
+      # it must still collect with the tree hidden (completeness). A tree read
+      # conceals an incomplete wheel, which is why one arm is not enough.
+      # Warning by default; `packaging_strict: true` makes it fail. T-6960.
+      - name: Packaging control
+        if: ${{ inputs.test_path != '' }}
+        run: |
+          python3 _gh_automations/scripts/packaging_control.py \
+            --test-path "${{ inputs.test_path }}" \
+            --pytest-args="${{ inputs.pytest_args }}" \
+            --root . \
+            ${{ inputs.packaging_strict && '--strict' || '' }}
 
       - name: Save result
         if: always()
