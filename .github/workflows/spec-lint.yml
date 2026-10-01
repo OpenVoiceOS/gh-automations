@@ -97,22 +97,76 @@ jobs:
 
       - name: Resolve locale path
         id: resolve
+        # `locale_path` defaults to the literal "locale", and no skill caller
+        # overrides it. Twelve skills keep their locale tree under the package
+        # directory instead (<pkg>/locale), so the path was absent, the skip
+        # below fired, and the job passed green without linting anything:
+        # three of the twelve carried errors nobody saw. A default that names
+        # a path nothing checks measures nothing (T-4696).
+        #
+        # So an absent path is searched for before it is given up on. A
+        # directory named "locale" at depth two is the package layout. The
+        # search reports what it found and how, because a green must say what
+        # it read. Two matches are ambiguous and fail rather than guess: the
+        # caller sets locale_path. No match is still a skip, which is the
+        # case `skip_if_no_locale` exists for.
         env:
           LOCALE_PATH: ${{ inputs.locale_path }}
         run: |
           if [ -d "$LOCALE_PATH" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            printf 'locale path %q given by the caller\n' "$LOCALE_PATH"
+            {
+              echo "exists=true"
+              echo "path=$LOCALE_PATH"
+              echo "source=input"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          printf 'locale path %q is absent; searching for */locale\n' "$LOCALE_PATH"
+
+          # Depth two only: <pkg>/locale. Dot directories and the usual
+          # non-package trees are excluded, so test fixtures and a vendored
+          # copy are never mistaken for the skill's own resources.
+          mapfile -t found < <(
+            find . -mindepth 2 -maxdepth 2 -type d -name locale \
+              -not -path './.*' \
+              -not -path './test/*' -not -path './tests/*' \
+              -not -path './docs/*' -not -path './scripts/*' \
+              -printf '%P\n' | sort
+          )
+
+          if [ "${#found[@]}" -eq 0 ]; then
+            echo "no */locale directory either"
+            {
+              echo "exists=false"
+              echo "path=$LOCALE_PATH"
+              echo "source=none"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${#found[@]}" -gt 1 ]; then
+            echo "::error::more than one locale directory found; set locale_path to the one to lint"
+            printf '  %s\n' "${found[@]}"
+            exit 1
+          fi
+
+          printf '::notice::locale path %q was absent; linting the discovered %q instead\n' \
+            "$LOCALE_PATH" "${found[0]}"
+          {
+            echo "exists=true"
+            echo "path=${found[0]}"
+            echo "source=discovered"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Skip if locale folder is missing
         if: ${{ inputs.skip_if_no_locale && steps.resolve.outputs.exists == 'false' }}
         env:
-          LOCALE_PATH: ${{ inputs.locale_path }}
+          LOCALE_PATH: ${{ steps.resolve.outputs.path }}
         run: |
-          printf 'ℹ️ locale folder %q not found — spec-lint skipped.\n' "$LOCALE_PATH" \
-            > /tmp/spec-lint-section.md
+          printf 'ℹ️ no locale folder: %q is absent and no */locale was found — spec-lint skipped.\n' \
+            "$LOCALE_PATH" > /tmp/spec-lint-section.md
           echo "SKIPPED=true" >> "$GITHUB_ENV"
 
       - name: Install ovos-spec-tools
@@ -129,7 +183,7 @@ jobs:
         # The job still fails at the end via the outcome check below.
         continue-on-error: true
         env:
-          LOCALE_PATH: ${{ inputs.locale_path }}
+          LOCALE_PATH: ${{ steps.resolve.outputs.path }}
           STRICT: ${{ inputs.strict }}
           SPEC_VERSION: ${{ inputs.spec_version }}
         run: |
