@@ -42,6 +42,9 @@ from check_opm import (  # noqa: E402
     validate_config_docs,
     collect_issues,
     compute_status,
+    is_opm_config_group,
+    auto_detect_config_groups,
+    validate_config_entry_point,
 )
 from aggregate_python_results import main as aggregate_main  # noqa: E402
 from check_release_channels import parse_constraints, check_version_against_constraint # noqa: E402
@@ -497,6 +500,74 @@ class TestCheckOpm:
             assert "opm.tts" in result
         finally:
             os.chdir(original_dir)
+
+    def test_config_group_is_not_a_plugin_type(self) -> None:
+        """opm.<family>.config names data, so it is never a plugin group."""
+        assert is_opm_config_group("opm.tts.config") is True
+        assert is_opm_config_group("opm.stt.config") is True
+        assert is_opm_config_group("opm.tts") is False
+        assert is_opm_config_group("console_scripts") is False
+
+    def test_auto_detect_skips_config_group(self, tmp_path: Path) -> None:
+        """A config group must not be enumerated beside the plugin group."""
+        import os
+        original_dir = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            (tmp_path / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = \"ovos-tts-plugin-beepspeak\"\n"
+                "\n"
+                "[project.entry-points.\"opm.tts\"]\n"
+                "\"ovos-tts-plugin-beepspeak\" = \"ovos_tts_plugin_beepspeak:BeepSpeak\"\n"
+                "\n"
+                "[project.entry-points.\"opm.tts.config\"]\n"
+                "\"ovos-tts-plugin-beepspeak.config\" = \"ovos_tts_plugin_beepspeak:BeepSpeakTTSPluginConfig\"\n"
+            )
+            assert auto_detect_plugin_types() == ["opm.tts"]
+            assert auto_detect_config_groups() == ["opm.tts.config"]
+        finally:
+            os.chdir(original_dir)
+
+    def test_validate_config_entry_point_dict(self, tmp_path: Path) -> None:
+        """A config entry point that names a dict passes."""
+        ok, error = validate_config_entry_point("config_fixture_ok", "CONFIG")
+        assert ok is True
+        assert error is None
+
+    def test_validate_config_entry_point_callable(self, tmp_path: Path) -> None:
+        """A callable that returns a dict passes too."""
+        ok, error = validate_config_entry_point("config_fixture_ok", "make_config")
+        assert ok is True
+        assert error is None
+
+    def test_validate_config_entry_point_not_a_dict(self) -> None:
+        """A config entry point that names something else fails."""
+        ok, error = validate_config_entry_point("config_fixture_ok", "NOT_A_DICT")
+        assert ok is False
+        assert "expected a dict" in error
+
+    def test_validate_config_entry_point_missing(self) -> None:
+        """An unreachable config entry point reports None, not False."""
+        ok, error = validate_config_entry_point("config_fixture_ok", "ABSENT")
+        assert ok is None
+        assert "AttributeError" in error
+
+    def test_config_entry_point_issues(self) -> None:
+        """collect_issues raises an error for a config entry point that is not a dict."""
+        result = {
+            "opm_found": {},
+            "validation": {
+                "config_ok": {"good.config": True, "bad.config": False, "gone.config": None},
+                "has_config_docs": True,
+            },
+        }
+        checks = [i["check"] for i in collect_issues(result)]
+        messages = [i["message"] for i in collect_issues(result)]
+        assert checks.count("config_entry_point") == 2
+        assert any("bad.config" in m for m in messages)
+        assert any("gone.config" in m for m in messages)
+        assert not any("good.config" in m for m in messages)
 
     def test_auto_detect_multiple_plugins(self, tmp_path: Path) -> None:
         """Auto-detect should find multiple plugin types."""

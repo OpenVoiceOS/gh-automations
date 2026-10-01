@@ -134,6 +134,49 @@ def canonical_opm_group(group: str) -> Optional[str]:
     return _LEGACY_ENTRYPOINT_ALIASES.get(group)
 
 
+def is_opm_config_group(group: str) -> bool:
+    """Return True for an ``opm.<family>.config`` entry-point group.
+
+    A config entry point names a plain dict (or a callable that returns one), not a
+    plugin class. OPM reads it through
+    ``ovos_plugin_manager.utils.config.load_plugin_configs``, which looks the plugin
+    up as ``load_plugin(plug_name + ".config", plug_type)``, so the ``.config``
+    suffix is required and is not a packaging mistake. Such a group has no plugin
+    class, no abstract base in ABSTRACT_BASES and no registry finder, so it must be
+    verified as data and never as a plugin type.
+    """
+    canonical = canonical_opm_group(group)
+    if not canonical:
+        return False
+    return canonical.endswith(".config") and canonical != "opm.config"
+
+
+def validate_config_entry_point(module_path: str, attr_name: str) -> Tuple[Optional[bool], Optional[str]]:
+    """Verify that a config entry point resolves to a dict, or to a callable returning one.
+
+    Returns (ok, error). ``ok`` is True when the object is a mapping or a callable
+    whose call returns one, False when it resolves to something else, and None when
+    the object could not be reached at all.
+    """
+    try:
+        module = importlib.import_module(module_path)
+        obj = getattr(module, attr_name)
+    except Exception as e:
+        return (None, f"{type(e).__name__}: {str(e)}")
+
+    if isinstance(obj, dict):
+        return (True, None)
+    if callable(obj):
+        try:
+            produced = obj()
+        except Exception as e:
+            return (False, f"callable raised {type(e).__name__}: {str(e)}")
+        if isinstance(produced, dict):
+            return (True, None)
+        return (False, f"callable returned {type(produced).__name__}, expected a dict")
+    return (False, f"resolves to {type(obj).__name__}, expected a dict or a callable returning one")
+
+
 # Mapping of plugin types to their abstract base classes
 ABSTRACT_BASES = {
     "skill": ("ovos_workshop.skills.ovos", "OVOSSkill"),
@@ -411,6 +454,21 @@ def collect_issues(result: Dict[str, Any], perf_threshold_ms: int = 500) -> List
                 "check": "interface_compliance"
             })
 
+    # Check config entry points (data, keyed by ep_name)
+    for ep_name, ok in validation.get("config_ok", {}).items():
+        if ok is False:
+            issues.append({
+                "severity": "error",
+                "message": f"Config entry point {ep_name} does not resolve to a dict",
+                "check": "config_entry_point"
+            })
+        elif ok is None:
+            issues.append({
+                "severity": "error",
+                "message": f"Could not import config entry point {ep_name}",
+                "check": "config_entry_point"
+            })
+
     # Check config docs
     if not validation.get("has_config_docs"):
         issues.append({
@@ -452,6 +510,9 @@ def auto_detect_plugin_types() -> List[str]:
     Auto-detect plugin types by scanning pyproject.toml or setup.py entry points.
 
     Returns list of detected OVOS plugin types (e.g., ['opm.skill', 'opm.tts']).
+    ``opm.<family>.config`` groups are left out: they name a dict, not a plugin
+    class, so they are verified as data by ``validate_config_entry_point``. See
+    ``is_opm_config_group``.
     """
     detected = []
 
@@ -464,7 +525,7 @@ def auto_detect_plugin_types() -> List[str]:
             entry_points = config.get("project", {}).get("entry-points", {})
             for group in entry_points.keys():
                 canonical = canonical_opm_group(group)
-                if canonical:
+                if canonical and not is_opm_config_group(group):
                     detected.append(canonical)
         except Exception as e:
             print(f"Warning: Could not parse pyproject.toml: {e}", file=sys.stderr)
@@ -489,13 +550,35 @@ def auto_detect_plugin_types() -> List[str]:
                                     if isinstance(keyword.value, ast.Dict):
                                         for k in keyword.value.keys:
                                             if isinstance(k, ast.Constant):
-                                                canonical = canonical_opm_group(str(k.value))
-                                                if canonical:
+                                                group_name = str(k.value)
+                                                canonical = canonical_opm_group(group_name)
+                                                if canonical and not is_opm_config_group(group_name):
                                                     detected.append(canonical)
             except Exception as e:
                 print(f"Warning: Could not parse setup.py: {e}", file=sys.stderr)
 
     return detected
+
+
+def auto_detect_config_groups() -> List[str]:
+    """Return the ``opm.<family>.config`` groups declared in pyproject.toml.
+
+    These are the companions of the plugin groups: data, not plugin classes.
+    """
+    found: List[str] = []
+    pyproject = Path("pyproject.toml")
+    if not pyproject.exists():
+        return found
+    try:
+        with open(pyproject, "rb") as f:
+            config = tomllib.load(f)
+        entry_points = config.get("project", {}).get("entry-points", {})
+        for group in entry_points.keys():
+            if is_opm_config_group(group):
+                found.append(canonical_opm_group(group))
+    except Exception as e:
+        print(f"Warning: Could not parse pyproject.toml: {e}", file=sys.stderr)
+    return found
 
 
 def find_plugin_class(plugin_type: str, entry_point_name: str) -> Optional[str]:
@@ -533,6 +616,7 @@ def check_opm(
     metadata = extract_metadata()
     result = {
         "detected_types": [],
+        "config_types": [],
         "entry_points": {},
         "opm_found": {},
         "plugin_classes": {},
@@ -549,6 +633,7 @@ def check_opm(
             "interface_ok": {},
             "abstract_base": {},
             "ep_type": {},          # maps ep_name -> short_type for table rendering
+            "config_ok": {},        # maps config ep_name -> True/False/None (data check)
             "has_config_docs": False,
             "config_keys": [],
             "requires_python_ok": None,   # True/False/None
@@ -562,7 +647,8 @@ def check_opm(
     # Step 1: Auto-detect plugin types if requested
     if plugin_type == "auto":
         result["detected_types"] = auto_detect_plugin_types()
-        if not result["detected_types"]:
+        result["config_types"] = auto_detect_config_groups()
+        if not result["detected_types"] and not result["config_types"]:
             result["summary"] = "Not an OVOS plugin — no opm.* entry points found"
             result["is_ovos_plugin"] = False
 
@@ -605,6 +691,7 @@ def check_opm(
                         continue
 
                     short_type = canonical[len("opm."):]
+                    is_config = is_opm_config_group(ep_group)
                     if isinstance(entries, dict):
                         for ep_name, ep_value in entries.items():
                             if ":" not in ep_value:
@@ -612,6 +699,20 @@ def check_opm(
                             module_path, class_name = ep_value.split(":", 1)
                             module_path = module_path.strip()
                             class_name = class_name.split(",")[0].strip()
+
+                            # A config entry point names data, not a plugin class. It has
+                            # no abstract base to inherit and no registry finder, so it is
+                            # verified as a dict and never against ABSTRACT_BASES.
+                            if is_config:
+                                result["validation"]["ep_type"][ep_name] = short_type
+                                cfg_ok, cfg_error = validate_config_entry_point(module_path, class_name)
+                                result["validation"]["config_ok"][ep_name] = cfg_ok
+                                if cfg_error:
+                                    print(
+                                        f"⚠️  Config entry point {ep_name}: {cfg_error}",
+                                        file=sys.stderr,
+                                    )
+                                continue
 
                             # Key by ep_name (not short_type) so multiple entry points
                             # in the same group (e.g. multiple TTS voices) are all tracked.
@@ -771,6 +872,13 @@ def check_opm(
         result["is_ovos_plugin"] = True
         found_types = [t for t, found in result["opm_found"].items() if found]
         result["summary"] = f"✅ OVOS plugin(s) found by OPM: {', '.join(found_types)}"
+        exit_code = 0
+    elif result["config_types"]:
+        # Config groups only: OPM reads these, so the package is an OVOS package, but
+        # it registers no plugin class for a finder to return.
+        result["is_ovos_plugin"] = True
+        cfg_summary = ", ".join(result["config_types"])
+        result["summary"] = f"✅ OVOS config entry points only: {cfg_summary}"
         exit_code = 0
     else:
         result["is_ovos_plugin"] = False

@@ -444,14 +444,20 @@ jobs:
               import_ok_map = validation.get("import_ok", {})
               import_time_map = validation.get("import_time_ms", {})
               interface_ok_map = validation.get("interface_ok", {})
+              # A config entry point names a dict, not a plugin class. It has no
+              # abstract base and no registry finder, so it gets its own table and
+              # never an Interface column.
+              config_ok_map = validation.get("config_ok", {})
               has_config = validation.get("has_config_docs", False)
 
-              if ep_type_map:
+              plugin_eps = [e for e in sorted(ep_type_map.keys()) if e not in config_ok_map]
+
+              if plugin_eps:
                   lines.append("**Entry Point Validation:**")
                   lines.append("")
                   lines.append("| Entry Point | Type | Import | Interface |")
                   lines.append("|-------------|------|--------|-----------|")
-                  for ep_name in sorted(ep_type_map.keys()):
+                  for ep_name in plugin_eps:
                       short_type = ep_type_map[ep_name]
                       import_ok = import_ok_map.get(ep_name)
                       import_time = import_time_map.get(ep_name)
@@ -462,6 +468,20 @@ jobs:
                       iface_str = "✅" if iface_ok else ("❌" if iface_ok is False else "⊘")
                       lines.append(f"| `{ep_name}` | {short_type} | {import_str} | {iface_str} |")
                   lines.append("")
+
+              if config_ok_map:
+                  lines.append("**Config Entry Points** (data, not a plugin class):")
+                  lines.append("")
+                  lines.append("| Entry Point | Group | Resolves to a dict |")
+                  lines.append("|-------------|-------|--------------------|")
+                  for ep_name in sorted(config_ok_map.keys()):
+                      cfg_ok = config_ok_map[ep_name]
+                      group = f"opm.{ep_type_map.get(ep_name, '')}"
+                      cfg_str = "✅" if cfg_ok else ("❌" if cfg_ok is False else "⊘")
+                      lines.append(f"| `{ep_name}` | {group} | {cfg_str} |")
+                  lines.append("")
+
+              if ep_type_map:
                   config_str = "✅ `settingsmeta.json` found" if has_config else "⊘ No `settingsmeta.json`"
                   lines.append(config_str)
 
