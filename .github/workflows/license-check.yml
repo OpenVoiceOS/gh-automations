@@ -135,17 +135,25 @@ jobs:
           uv pip install --prerelease=disallow pip-licenses
 
       - name: Install System Dependencies
+        # The value reaches the shell through env, never as text substituted
+        # into the script: a caller package list with a quote or a parenthesis
+        # in it would otherwise be a bash syntax error. Unquoted expansion
+        # keeps the word splitting the apt-get argument list needs.
+        env:
+          SYSTEM_DEPS: ${{ inputs.system_deps }}
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
+          sudo apt-get install -yq python3-dev libssl-dev $SYSTEM_DEPS
 
       - name: Install package
+        env:
+          INSTALL_EXTRAS: ${{ inputs.install_extras }}
         run: |
           # install_extras accepts several caller spellings ("dev", "[dev]",
           # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
           # tell which single form a given reusable workflow expects, and a
           # wrong guess used to abort the job before any check ever ran.
-          RAW="${{ inputs.install_extras }}"
+          RAW="$INSTALL_EXTRAS"
           if [ -z "$RAW" ]; then
             NORMALIZED="."
           elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
@@ -952,10 +960,12 @@ jobs:
 
       - name: Generate full license breakdown
         id: license_breakdown
+        env:
+          EXCLUDE_REGEX: ${{ steps.exclude.outputs.regex }}
         run: |
           # Run pip-licenses to get the full per-package breakdown as JSON.
           # Use the same combined exclude (self + caller-supplied) as the pilosus check.
-          COMBINED="${{ steps.exclude.outputs.regex }}"
+          COMBINED="$EXCLUDE_REGEX"
           if [ -n "$COMBINED" ]; then
             # pip-licenses uses --ignore-packages with space-separated names; the combined
             # pattern is a PCRE regex intended for pilosus.  Pass it via --filter-strings
