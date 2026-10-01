@@ -179,7 +179,7 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | `python_versions` | string | `'["3.10", "3.11", "3.12", "3.13", "3.14"]'` | JSON array of Python versions to test against |
 | `system_deps` | string | `""` | Extra apt packages to install before building (space-separated). Base packages `python3-dev libssl-dev` are always installed. |
 | `install_extras` | string | `""` | pip extras appended when installing the built wheel, e.g. `test` or `dev,test` |
-| `test_path` | string | `""` | Path passed to pytest after install. Leave empty to skip test execution (build/install verification only). |
+| `test_path` | string | `""` | Paths passed to pytest after install, space-separated. Leave empty to skip test execution (build/install verification only). **Paths only** — a flag goes in `pytest_args`, see [flags belong in pytest_args](#flags-belong-in-pytest_args). |
 | `pytest_args` | string | `""` | Extra arguments appended to the pytest invocation, e.g. `--capture=tee-sys` to keep a crashing test's output visible. Same name and meaning as on `channel-compat.yml`. |
 | `test_env` | string | `""` | Extra environment variables for the test step, as newline-separated `KEY=value` pairs, e.g. `PYTHONFAULTHANDLER=1` and `RUST_BACKTRACE=full` to surface a native crash's traceback instead of a bare `Fatal Python error: Aborted`. Appended to `$GITHUB_ENV` before the test step runs. |
 | `pr_comment` | boolean | `true` | Post a `🔨 Build Tests` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
@@ -195,6 +195,63 @@ Runs build, install, and optionally tests across a configurable matrix of Python
 | Job | Description |
 |-----|-------------|
 | `post_build_report` | Runs after the matrix, only on PR events with `pr_comment: true`. Downloads all result artifacts, runs the channel compatibility check, formats and posts the `section:build` PR comment. |
+
+### Flags belong in `pytest_args`
+
+`test_path` is a space-separated list of **paths**. A pytest flag —
+`--ignore=`, `-m`, `-k`, `--deselect` — goes in `pytest_args`.
+
+A flag in `test_path` does run: the caller value is substituted into the script
+text, so the shell parses it and pytest receives the flag. That is why 13
+callers across the fleet have one there. It is still wrong, for a reason that
+has nothing to do with whether pytest accepts it.
+
+`scripts/check_test_path_coverage.py` exists because `ovos-date-parser` hid 82
+of its 138 test files behind a hand-maintained `test_path` and a defect reached
+a user. The check compares **every** `test_path` token as a path. A flag
+therefore matches no file, the check cannot see the exclusion, and the tests the
+flag removes from the run are still counted as covered. Measured on four test
+files with two under `tests/e2e`:
+
+    test_path: "--ignore=tests/e2e tests"
+    -> test files found: 4 / covered by a token: 4 / covered by no token: 0
+       "every test file is named by a test_path token."
+
+So the check reports full coverage of two tests that never execute, which is the
+exact silence it was written to end. Teaching it otherwise means implementing
+pytest's selection grammar inside a coverage check.
+
+`pytest_args` is appended after the path, so moving the flag changes nothing
+about what runs:
+
+```yaml
+# before
+test_path: 'tests/ --ignore=tests/e2e'
+
+# after — same tests, and the coverage check is now correct
+test_path: 'tests/'
+pytest_args: '--ignore=tests/e2e'
+```
+
+A flag left in `test_path` is reported as a warning, not a failure, and the
+annotation names the token and `pytest_args`.
+
+Two notes for anyone changing how `test_path` is passed:
+
+- **Do not quote the interpolation.** `pytest "${{ inputs.test_path }}"` makes
+  the whole value one argument. For a path-first value such as
+  `tests --ignore=tests/e2e` pytest exits 4 with "no tests ran"; for a
+  flag-first value such as `--ignore=tests/e2e tests` it exits **0**, because
+  `--ignore=` receives a path that does not exist, ignores nothing, and
+  collects everything. All 13 callers today are path-first, so quoting would
+  break every one of them loudly; the flag-first order is the dangerous one and
+  no caller is in it.
+- **Reproduce an interpolation by substituting into the script text, not with a
+  shell variable.** `${{ }}` is textual, so quotes in the value are real shell
+  syntax: substituted, `test -m "not network"` deselects correctly, while
+  `TP='test -m "not network"'; pytest $TP` shatters the argv into `test`, `-m`,
+  `"not`, `network"` and exits 4. The two parse differently and only the first
+  is what runs.
 
 ### Channel compatibility check
 
@@ -257,7 +314,7 @@ Not to be confused with the [`build-tests.yml` channel compatibility check](#cha
 | `channel_url` | string | **required** | Raw URL of the channel constraints file. |
 | `channel_name` | string | `""` | Label used in job output and artifact names. Defaults to the filename with `constraints-` and `.txt` stripped. |
 | `runner` | string | `ubuntu-latest` | Runner label. |
-| `test_path` | string | `test/` | Path passed to pytest. |
+| `test_path` | string | `test/` | Paths passed to pytest, space-separated. **Paths only** — a flag goes in `pytest_args`, see [flags belong in pytest_args](#flags-belong-in-pytest_args). |
 | `python_version` | string | `3.11` | Python version. |
 | `system_deps` | string | `""` | Extra apt packages, if the tested tree needs any. |
 | `pre_install_pip` | string | `""` | Requirement specs installed before the repo under test, under the channel constraints. Same name and meaning as on `build-tests.yml`. |

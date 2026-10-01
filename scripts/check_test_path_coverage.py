@@ -98,6 +98,8 @@ def main() -> int:
         print("test_path is empty: no test selection to check.")
         return 0
 
+    flags = [t for t in tokens if t.startswith("-")]
+
     files = collect_test_files(args.root)
     missing = uncovered(test_path, files)
 
@@ -105,11 +107,44 @@ def main() -> int:
     print(f"test_path tokens: {len(tokens)}")
     for t in tokens:
         print(f"  {t}")
+    print(f"flag tokens:         {len(flags)}")
     print(f"test files found:    {len(files)}")
     print(f"covered by a token:  {len(files) - len(missing)}")
     print(f"covered by no token: {len(missing)}")
 
     lines = []
+
+    # A flag in test_path is invisible to this check, and that makes the check
+    # lie rather than merely miss something. Every token here is compared as a
+    # path, so `--ignore=tests/e2e` matches no file, and the files the flag
+    # removes from the run are still counted as covered. Measured on 4 test
+    # files with 2 under tests/e2e: test_path "--ignore=tests/e2e tests" read
+    # 4 found, 4 covered, 0 uncovered. This check exists because
+    # ovos-date-parser hid 82 of 138 test files, so a false "all named" is the
+    # exact failure it was written to end.
+    #
+    # Teaching it the exclusions means parsing pytest's selection flags
+    # (--ignore, -m, -k, --deselect), which is a pytest parser and not a check.
+    # So the contract is that test_path holds paths and a flag goes in
+    # pytest_args, which exists, is appended after the path, and is documented
+    # for this. The migration is behaviour-preserving: pytest does not care
+    # whether a selection flag precedes or follows the path. T-6356.
+    if flags:
+        shown = ", ".join(f"`{f}`" for f in flags)
+        plain = ", ".join(f for f in flags)
+        print(f"::warning title=test_path should hold only paths::"
+              f"{len(flags)} token(s) in test_path are flags ({plain}). This "
+              f"check compares every token as a path, so a flag matches no file "
+              f"and the tests it excludes are still counted as covered. Move "
+              f"them to pytest_args, which is appended after the path and runs "
+              f"the same tests.")
+        lines.append(f"### test_path holds {len(flags)} flag token(s)\n")
+        lines.append(f"{shown} — `test_path` is for paths. This coverage check "
+                     "compares every token as a path, so a flag matches nothing "
+                     "and any test it excludes is still reported as covered. "
+                     "Move the flag to `pytest_args`: it is appended after the "
+                     "path and runs the same tests.\n")
+
     if missing:
         title = "test_path names no token for these test files"
         print(f"::warning title={title}::{len(missing)} of {len(files)} "

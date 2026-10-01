@@ -205,3 +205,72 @@ def test_the_step_run_block_assembles_the_strict_flag(tree: Path, tmp_path: Path
     res = subprocess.run(["bash", "-euo", "pipefail", "-c", run],
                          cwd=tree, env=env, capture_output=True, text=True, check=False)
     assert res.returncode == want_rc, res.stdout + res.stderr
+
+
+# --- flags belong in pytest_args (T-6356) --------------------------------
+# A flag in test_path runs, because the caller value is substituted into the
+# script text and the shell parses it. It is still wrong here: this check
+# compares every token as a path, so a flag matches no file and the tests it
+# excludes are still counted as covered. The check then reports full coverage
+# of tests that never execute, which is the silence it exists to end.
+
+FLAG_WARN = "test_path should hold only paths"
+
+
+def test_a_flag_token_is_reported(tree: Path):
+    r = run_script(tree, "--ignore=test/end2end test")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert FLAG_WARN in r.stdout, r.stdout
+    assert "--ignore=test/end2end" in r.stdout, r.stdout
+    assert "pytest_args" in r.stdout, r.stdout
+
+
+def test_the_flag_count_is_printed_beside_the_token_count(tree: Path):
+    r = run_script(tree, "--ignore=test/end2end test")
+    assert "flag tokens:         1" in r.stdout, r.stdout
+    r = run_script(tree, "test")
+    assert "flag tokens:         0" in r.stdout, r.stdout
+
+
+def test_a_plain_test_path_is_not_warned_about(tree: Path):
+    r = run_script(tree, "test")
+    assert FLAG_WARN not in r.stdout, r.stdout
+
+
+def test_the_flag_warning_does_not_fail_the_job(tree: Path):
+    """13 callers across the fleet have a flag in test_path for a contract they
+    could not read, because the description said only "path passed to pytest".
+    Failing would redden all of them at once."""
+    r = run_script(tree, "--ignore=test/end2end test")
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_the_flag_warning_fires_even_under_strict(tree: Path):
+    """--strict is about uncovered files, not about flags. A caller whose paths
+    cover everything must still hear about the flag."""
+    r = run_script(tree, "--ignore=test/end2end test", "--strict")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert FLAG_WARN in r.stdout, r.stdout
+
+
+def test_this_is_the_reading_the_flag_hides(tree: Path):
+    """The measurement behind the ruling, pinned so it cannot be forgotten.
+
+    test/end2end/test_slow.py is excluded from the run by the flag, and the
+    check still counts it as covered, because `test` covers it as a path. The
+    numbers agree with the plain-path form, which is the problem: the two
+    test_path values run different suites and read identically here.
+    """
+    with_flag = run_script(tree, "--ignore=test/end2end test")
+    plain = run_script(tree, "test")
+    assert "covered by no token: 0" in with_flag.stdout, with_flag.stdout
+    assert "covered by no token: 0" in plain.stdout, plain.stdout
+    found = [l for l in with_flag.stdout.splitlines() if "test files found" in l]
+    assert found == [l for l in plain.stdout.splitlines() if "test files found" in l]
+
+
+def test_several_flags_are_all_named(tree: Path):
+    r = run_script(tree, "--ignore=test/end2end -m \"not slow\" test")
+    assert FLAG_WARN in r.stdout, r.stdout
+    assert "--ignore=test/end2end" in r.stdout, r.stdout
+    assert "-m" in r.stdout, r.stdout

@@ -74,7 +74,11 @@ on:
       test_path:
         type: string
         default: "test/"
-        description: "Path passed to pytest (file, directory, or glob)"
+        description: >
+          Paths passed to pytest (file, directory, or glob), space-separated.
+          Paths only: a flag belongs in pytest_args. The test_path coverage
+          check compares every token as a path, so a flag matches no file and
+          the tests it excludes are still counted as covered (T-6356).
       coverage_source:
         type: string
         default: "."

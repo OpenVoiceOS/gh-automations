@@ -57,6 +57,11 @@ on:
         description: >
           If set, run pytest against this path after installing the package.
           Leave empty to skip test execution (build/install verification only).
+          Paths only, space-separated. A flag belongs in pytest_args, not here:
+          the test_path coverage check compares every token as a path, so a
+          flag matches no file and the tests it excludes are still counted as
+          covered. pytest_args is appended after the path and runs the same
+          tests. A flag here is reported as a warning (T-6356).
       test_path_strict:
         type: boolean
         default: false
