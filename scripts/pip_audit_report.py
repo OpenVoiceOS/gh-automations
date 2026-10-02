@@ -14,8 +14,9 @@ Usage:
         --section /tmp/security-section.md [--summary "$GITHUB_STEP_SUMMARY"] \
         [--annotations] [--outcome success|failure] [--total-packages N]
 
-Exit code is always 0. A report that cannot be read is itself a finding:
-the section says so and one warning annotation is written.
+Exit code is always 0. A report that cannot be read is itself a finding, and
+so is a package that pip-audit left unaudited: the section says so and one
+warning annotation is written.
 """
 
 from __future__ import annotations
@@ -24,6 +25,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+from pip_audit_sarif import skipped_packages
 
 
 def load_dependencies(path: Path):
@@ -93,6 +96,32 @@ def render_table(findings, total_packages: int) -> str:
     return "\n".join(lines)
 
 
+def render_gaps(gaps) -> str:
+    """The packages pip-audit left out, named with the reason it gave.
+
+    A reader who sees no vulnerability must also see what was not audited.
+    pip-audit says nothing outside its report about a package it skipped."""
+    plural = len(gaps) != 1
+    lines = [
+        f"⚠️ **{len(gaps)} package{'s' if plural else ''} "
+        f"{'were' if plural else 'was'} not audited.** "
+        f"pip-audit could not resolve a version, so this report says nothing "
+        f"about {'them' if plural else 'it'}. The job uploads no SARIF for an "
+        "incomplete audit, and the Security tab keeps its last complete analysis.",
+        "",
+        "| Package | Not audited because |",
+        "|---------|---------------------|",
+    ]
+    for name, reason in gaps:
+        reason_cell = one_line(reason).replace("|", "\\|")
+        lines.append(f"| `{name}` | {reason_cell} |")
+    return "\n".join(lines)
+
+
+def gap_annotation(name, reason) -> str:
+    return f"::warning title=pip-audit skipped {name}::{one_line(reason, 200)}"
+
+
 def annotation(name, version, vuln) -> str:
     vid = vuln.get("id", "?")
     fixes = ", ".join(vuln.get("fix_versions") or []) or "no fix available"
@@ -119,14 +148,35 @@ def main(argv=None) -> int:
                 ". The job warns and does not fail; read the job log.")
         warnings = ["::warning title=pip-audit::the audit wrote no readable report; read the job log"]
     else:
-        findings = findings_of(deps)
-        total = args.total_packages or len(deps)
-        if findings:
-            body = render_table(findings, total)
-            warnings = [annotation(n, v, x) for n, v, x in findings]
+        gaps = skipped_packages(deps)
+        findings = findings_of([d for d in deps if not d.get("skip_reason")])
+        scanned = (args.total_packages or len(deps)) - len(gaps)
+        # The gap warning explains why the SARIF upload was withheld; it must
+        # come before the finding warnings, or a long finding list pushes it
+        # off GitHub's 10-annotation render limit (findings_of's own comment).
+        warnings = [gap_annotation(n, r) for n, r in gaps]
+        warnings += [annotation(n, v, x) for n, v, x in findings]
+        if not findings and args.outcome not in ("", "success"):
+            # A readable, clean report and a failed audit step contradict
+            # each other: the report does not describe the run that wrote
+            # it. pip_audit_sarif.py already refuses this input.
+            body = ("⚠️ the audit step failed and the report lists no vulnerability"
+                     f" (audit step outcome: {args.outcome})"
+                     ". The job warns and does not fail; read the job log.")
+            if not gaps:
+                warnings.append(
+                    "::warning title=pip-audit::the audit step failed and the "
+                    "report lists no vulnerability; read the job log"
+                )
+        elif findings:
+            body = render_table(findings, scanned)
+        elif not gaps:
+            body = f"✅ No known vulnerabilities found ({scanned} packages scanned)."
         else:
-            body = f"✅ No known vulnerabilities found ({total} packages scanned)."
-            warnings = []
+            body = (f"pip-audit audited {scanned} "
+                    f"package{'s' if scanned != 1 else ''} and found no vulnerability.")
+        if gaps:
+            body += "\n\n" + render_gaps(gaps)
 
     args.section.write_text(body)
     if args.summary is not None:
