@@ -30,13 +30,23 @@ on:
         description: "Run ruff check"
       ruff_args:
         type: string
-        default: ". --exclude _gh_automations"
+        default: >-
+          . --exclude _gh_automations
+          --select E101,E401,E402,E501,E701,E702,E703,E711,E712,E713,E714,E721,E722,E731,E741,E742,E743,E902,F401,F402,F403,F404,F405,F406,F407,F501,F502,F503,F504,F505,F506,F507,F508,F509,F521,F522,F523,F524,F525,F541,F601,F602,F621,F622,F631,F632,F633,F634,F701,F702,F704,F706,F707,F722,F811,F821,F822,F823,F841,F842,F901,I001,I002,UP001,UP003,UP004,UP005,UP006,UP007,UP008,UP009,UP010,UP011,UP012,UP013,UP014,UP015,UP017,UP018,UP019,UP020,UP021,UP022,UP023,UP024,UP025,UP026,UP028,UP029,UP030,UP031,UP032,UP033,UP034,UP035,UP036,UP037,UP039,UP040,UP041,UP042,UP043,UP044,UP045,UP046,UP047,UP049,UP050
         description: >
-          Arguments passed to ruff check (e.g. '. --select E,F').
-          Default excludes _gh_automations/, which is where other reusable
-          workflows in this repo check themselves out as a sibling for
-          PR comment scripts. Without this exclude, consumers see ruff
-          errors from this repo's own scripts in their skill PRs.
+          Arguments passed to ruff check (e.g. '. --select E,F' to override
+          the default list). Default excludes _gh_automations/, which is
+          where other reusable workflows in this repo check themselves out
+          as a sibling for PR comment scripts. Without this exclude,
+          consumers see ruff errors from this repo's own scripts in their
+          skill PRs. The --select list is explicit (OPE-721) rather than
+          left to ruff's own default: ruff's default rule set depends on
+          whether a caller's pyproject.toml happens to carry a [tool.ruff]
+          table, even an empty one, so two repositories with the same
+          Python source could otherwise get different lint results from the
+          same ruff release. The list is today's 108-rule baseline;
+          widening it is a reviewed change to this default, not a ruff
+          upgrade.
       pre_commit:
         type: boolean
         default: false
@@ -84,17 +94,14 @@ env:
   # pull request (renovate.json, customManagers); test.yml installs the same
   # release for the workflow's own tests, and a test keeps the two equal.
   ACTIONLINT_PY: "actionlint-py==1.7.12.24"
-  # The exact ruff release the fleet reports with, for the same reason. ruff
-  # selects its rules by default, so the release is the rule set, and 0.16.0
-  # widened that default: across 420 callers measured at one moment the
-  # findings went from 10409 to 75711 and 108 went from none to some, with no
-  # commit in any of them (T-5021). Seven LOST a finding, so an unpinned ruff
-  # drops coverage as silently as it adds noise. ruff does not fail this job
-  # (continue-on-error below; only actionlint fails it), so this pin is about
-  # a report people can read, not about a red. Hold the pre-0.16 default set;
-  # Renovate moves this pin by pull request (renovate.json, customManagers),
-  # which is where a rule-set change gets read and priced.
-  RUFF: "ruff==0.15.22"
+  # The exact ruff release the fleet reports with, for the same reason
+  # ACTIONLINT_PY is pinned above: an unpinned linter changes the verdict of
+  # every caller with no change in any repository. The rule set itself is no
+  # longer left to this pin: ruff_args carries an explicit --select (OPE-721),
+  # so moving this pin changes the ruff build, not the rule set it reports
+  # with. Renovate moves this pin by pull request (renovate.json,
+  # customManagers).
+  RUFF: "ruff==0.16.10"
 
 jobs:
   lint:
