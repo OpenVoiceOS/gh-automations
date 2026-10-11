@@ -128,7 +128,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Install uv
         run: pip install uv
       - name: Determine version bump
@@ -398,7 +398,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Install uv
         run: pip install uv
       - name: Build Distribution Packages
