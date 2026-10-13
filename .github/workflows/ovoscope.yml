@@ -559,7 +559,7 @@ jobs:
 
       - name: Padatious intent cache
         if: ${{ inputs.intent_cache && steps.intent_cache.outputs.wanted == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Padatious appends _domain, _stemmer or _normalized to the
           # directory name for those engine options, so match the whole set.
