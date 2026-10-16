@@ -7,6 +7,11 @@ name: Pip Audit
 # in the Security tab. A caller that wants a finding to block a merge reads
 # the Security tab or the annotations; this job's check stays green.
 #
+# A package that pip-audit could not audit is a finding of its own: it gets a
+# warning annotation and a row in the table, and the job uploads no SARIF,
+# because an incomplete analysis closes the alerts of the packages it leaves
+# out.
+#
 # The default ignore list:
 #   GHSA-r9hx-vwmv-q579 — setuptools path traversal (low severity, affects dev tooling only,
 #                          not runtime code; present in virtually all Python environments)
@@ -192,12 +197,14 @@ jobs:
         # SARIF from the JSON report the audit step already wrote. This also
         # drops a second full audit, and the ignore list is applied already.
         #
-        # The script exits 2 and writes no file if that report is absent or
-        # truncated. Code scanning keeps one analysis per (ref, category), so
-        # a report that says "no vulnerability" closes every alert the last
-        # good run raised. An audit that did not complete must upload nothing.
-        # The job stays green, and the upload below is gated on the outcome
-        # of this step, so the report is still never a false clean.
+        # The script exits 2 and writes no file if that report is absent,
+        # truncated, leaves a package unaudited, or lists no vulnerability
+        # although the audit step failed. Code scanning keeps one analysis
+        # per (ref, category), so a report that says "no vulnerability"
+        # closes every alert the last good run raised. An audit that did not
+        # cover the whole environment must upload nothing. The job stays
+        # green, and the upload below is gated on the outcome of this step,
+        # so the report is never a false clean.
         id: sarif_report
         if: ${{ inputs.upload_sarif }}
         continue-on-error: true
@@ -206,7 +213,8 @@ jobs:
           python3 _gh_automations/scripts/pip_audit_sarif.py \
             --input /tmp/pip-audit-results.json \
             --output /tmp/pip-audit.sarif \
-            --root "$GITHUB_WORKSPACE"
+            --root "$GITHUB_WORKSPACE" \
+            --audit-outcome "${{ steps.pip_audit_check.outcome }}"
 
       - name: Upload SARIF to GitHub Security tab
         if: ${{ inputs.upload_sarif && steps.sarif_report.outcome == 'success' }}

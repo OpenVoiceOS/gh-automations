@@ -2,8 +2,10 @@
 Tests for scripts/pip_audit_sarif.py — the pip-audit JSON to SARIF converter.
 
 Covers: load_dependencies (both report shapes, and the refusal to treat a
-corrupt or missing file as a clean audit), find_manifest, and build_sarif
-(rule dedup, one alert per vulnerability, location, and the empty case).
+corrupt or missing file as a clean audit), skipped_packages and the refusal
+to upload an analysis that leaves a package out, find_manifest, and
+build_sarif (rule dedup, one alert per vulnerability, location, and the
+empty case).
 
 Runs without any external dependencies beyond the Python standard library.
 """
@@ -24,7 +26,18 @@ from pip_audit_sarif import (  # noqa: E402
     find_manifest,
     load_dependencies,
     main,
+    skipped_packages,
 )
+
+# pip-audit 2.10.1 writes this entry for a package whose version string is
+# not PEP 440. The audit exits 0 and says nothing else about the package.
+SKIPPED_ENTRY = {
+    "name": "weirdpkg",
+    "skip_reason": (
+        "Package has invalid version and could not be audited: "
+        "weirdpkg (1.0.0.dev-weird)"
+    ),
+}
 
 VULN_REPORT = {
     "dependencies": [
@@ -125,7 +138,7 @@ def test_load_dependencies_clean_report_is_not_an_error(tmp_path):
 # --- main -------------------------------------------------------------------
 
 
-def run_main(monkeypatch, in_path, out_path, root):
+def run_main(monkeypatch, in_path, out_path, root, audit_outcome="success"):
     monkeypatch.setattr(
         sys,
         "argv",
@@ -137,6 +150,8 @@ def run_main(monkeypatch, in_path, out_path, root):
             str(out_path),
             "--root",
             str(root),
+            "--audit-outcome",
+            audit_outcome,
         ],
     )
     main()
@@ -175,6 +190,83 @@ def test_main_writes_the_report_for_a_good_audit(tmp_path, monkeypatch):
     out = tmp_path / "out.sarif"
     run_main(monkeypatch, good, out, tmp_path)
     assert len(json.loads(out.read_text())["runs"][0]["results"]) == 3
+
+
+# --- an audit that left a package out --------------------------------------
+
+
+def test_skipped_packages_reads_the_name_and_the_reason():
+    gaps = skipped_packages([{"name": "a", "version": "1", "vulns": []}, SKIPPED_ENTRY])
+    assert gaps == [("weirdpkg", SKIPPED_ENTRY["skip_reason"])]
+
+
+def test_skipped_packages_is_empty_for_a_complete_audit():
+    assert skipped_packages(VULN_REPORT["dependencies"]) == []
+
+
+def test_main_writes_no_file_when_a_package_was_not_audited(tmp_path, monkeypatch):
+    # The report parses and lists no vulnerability, so it reads as clean.
+    # Code scanning keeps one analysis per (ref, category): uploading this
+    # closes every alert the last complete audit raised.
+    report = write(
+        tmp_path,
+        "r.json",
+        {"dependencies": [{"name": "a", "version": "1", "vulns": []}, SKIPPED_ENTRY]},
+    )
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, report, out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_writes_no_file_when_a_finding_sits_beside_a_skip(tmp_path, monkeypatch):
+    # The findings are real, but the analysis does not cover weirdpkg, and an
+    # uploaded analysis replaces the whole previous one.
+    incomplete = dict(VULN_REPORT)
+    incomplete["dependencies"] = VULN_REPORT["dependencies"] + [SKIPPED_ENTRY]
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, write(tmp_path, "r.json", incomplete), out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_names_the_skipped_package_on_stderr(tmp_path, monkeypatch, capsys):
+    report = write(tmp_path, "r.json", {"dependencies": [SKIPPED_ENTRY]})
+    with pytest.raises(SystemExit):
+        run_main(monkeypatch, report, tmp_path / "out.sarif", tmp_path)
+    err = capsys.readouterr().err
+    assert "1 package(s) unaudited" in err
+    assert "weirdpkg (Package has invalid version" in err
+
+
+def test_main_writes_no_file_when_a_failed_audit_reports_nothing(tmp_path, monkeypatch):
+    # pip-audit exits non-zero only when it found something, and exits before
+    # it writes the report when it fails. A failed step with a clean report
+    # describes some other run.
+    clean = write(tmp_path, "r.json", {"dependencies": [{"name": "a", "version": "1", "vulns": []}]})
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, clean, out, tmp_path, audit_outcome="failure")
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_writes_the_report_when_a_failed_audit_found_something(tmp_path, monkeypatch):
+    # The normal vulnerable run: pip-audit exits 1 and the findings upload.
+    good = write(tmp_path, "r.json", VULN_REPORT)
+    out = tmp_path / "out.sarif"
+    run_main(monkeypatch, good, out, tmp_path, audit_outcome="failure")
+    assert len(json.loads(out.read_text())["runs"][0]["results"]) == 3
+
+
+def test_main_writes_the_report_when_the_outcome_is_unknown(tmp_path, monkeypatch):
+    # A caller that passes no outcome keeps the report it would have had.
+    clean = write(tmp_path, "r.json", {"dependencies": [{"name": "a", "version": "1", "vulns": []}]})
+    out = tmp_path / "out.sarif"
+    run_main(monkeypatch, clean, out, tmp_path, audit_outcome="")
+    assert json.loads(out.read_text())["runs"][0]["results"] == []
 
 
 # --- find_manifest ----------------------------------------------------------

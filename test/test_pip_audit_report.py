@@ -106,6 +106,77 @@ def test_duplicate_records_give_one_warning_per_id(tmp_path, capsys):
     assert section.count("GHSA-1") == 4  # two rows, each with the id in the link text and the url
 
 
+SKIPPED_ENTRY = {
+    "name": "weirdpkg",
+    "skip_reason": (
+        "Package has invalid version and could not be audited: "
+        "weirdpkg (1.0.0.dev-weird)"
+    ),
+}
+
+
+def test_a_skipped_package_is_a_warning_and_a_row(tmp_path, capsys):
+    """pip-audit exits 0 and says nothing outside the report about a package
+    it could not resolve. A clean table over such a report claims coverage
+    the audit does not have."""
+    rep = {"dependencies": [{"name": "a", "version": "1", "vulns": []}, SKIPPED_ENTRY]}
+    rc, out, section, summary = run(tmp_path, rep, capsys)
+    assert rc == 0
+    assert out.count("::warning") == 1
+    assert out.splitlines()[0] == (
+        "::warning title=pip-audit skipped weirdpkg::"
+        "Package has invalid version and could not be audited: weirdpkg (1.0.0.dev-weird)"
+    )
+    assert "✅" not in section
+    assert "pip-audit audited 1 package and found no vulnerability." in section
+    assert "**1 package was not audited.**" in section
+    assert "| `weirdpkg` | Package has invalid version" in section
+    assert section in summary
+
+
+def test_a_skipped_package_is_named_beside_the_findings(tmp_path, capsys):
+    rep = {"dependencies": VULN_REPORT["dependencies"] + [SKIPPED_ENTRY]}
+    rc, out, section, _ = run(tmp_path, rep, capsys)
+    assert rc == 0
+    assert out.count("::warning") == 4  # three findings, one unaudited package
+    assert "**3 known vulnerabilities** in 2 packages (3 packages scanned)" in section
+    assert "**1 package was not audited.**" in section
+
+
+def test_gap_warning_is_ordered_before_findings_so_it_survives_truncation(tmp_path, capsys):
+    """GitHub renders at most 10 annotations per step (findings_of's own
+    comment). The gap warning explains why the SARIF upload was withheld;
+    it must not be the one a long finding list pushes off the list."""
+    rep = {"dependencies": VULN_REPORT["dependencies"] + [SKIPPED_ENTRY]}
+    rc, out, _, _ = run(tmp_path, rep, capsys)
+    assert rc == 0
+    warnings = [l for l in out.splitlines() if l.startswith("::warning ")]
+    assert warnings[0].startswith("::warning title=pip-audit skipped weirdpkg::")
+
+
+def test_failed_audit_with_a_clean_report_is_not_claimed_clean(tmp_path, capsys):
+    """A readable report with no finding and an audit step that failed
+    contradict each other: the report does not describe the run that wrote
+    it. pip_audit_sarif.py already refuses this input and uploads nothing;
+    the job summary and PR comment must not print the green check for it."""
+    rep = {"dependencies": [{"name": "a", "version": "1", "vulns": []}]}
+    rc, out, section, summary = run(tmp_path, rep, capsys, outcome="failure")
+    assert rc == 0
+    assert "✅" not in section
+    assert "the audit step failed and the report lists no vulnerability" in section
+    assert out.count("::warning") == 1
+    assert section in summary
+
+
+def test_two_skipped_packages_read_plural(tmp_path, capsys):
+    other = {"name": "oddpkg", "skip_reason": "Dependency not found on PyPI and could not be audited"}
+    rep = {"dependencies": [SKIPPED_ENTRY, other]}
+    _, out, section, _ = run(tmp_path, rep, capsys)
+    assert out.count("::warning") == 2
+    assert "**2 packages were not audited.**" in section
+    assert "pip-audit audited 0 packages and found no vulnerability." in section
+
+
 def test_a_single_vulnerability_reads_singular(tmp_path, capsys):
     rep = {"dependencies": [{"name": "x", "version": "1", "vulns": [{"id": "V-1", "description": "d"}]}]}
     _, _, section, _ = run(tmp_path, rep, capsys)
@@ -137,6 +208,10 @@ class TestWorkflowNeverFails:
         step = next(s for s in self.steps(wf) if s.get("name") == "Report findings")
         assert "always()" in step["if"] and "pip_audit_check.outcome != 'skipped'" in step["if"]
         assert "--annotations" in step["run"] and '--summary "$GITHUB_STEP_SUMMARY"' in step["run"]
+
+    def test_sarif_step_is_told_the_audit_outcome(self, wf):
+        step = next(s for s in self.steps(wf) if s.get("id") == "sarif_report")
+        assert '--audit-outcome "${{ steps.pip_audit_check.outcome }}"' in step["run"]
 
     def test_scripts_checkout_is_unconditional(self, wf):
         step = next(s for s in self.steps(wf) if s.get("name") == "Checkout gh-automations scripts")
