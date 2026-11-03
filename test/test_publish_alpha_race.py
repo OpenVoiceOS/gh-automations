@@ -248,6 +248,40 @@ class TestChangelogLoop:
         assert r.outputs["sha"] == bump
 
 
+class TestFirstChangelog:
+    """The first release of a repository whose branch tracks no changelog.
+    The generator writes an untracked file, as root inside its container."""
+
+    @pytest.fixture
+    def pkg(self, tmp_path, remote):
+        (remote / "hooks" / "pre-receive").unlink()
+        seed = tmp_path / "seed"
+        git(seed, "rm", "-q", "CHANGELOG.md")
+        git(seed, "commit", "-q", "-m", "no changelog")
+        git(seed, "push", "-q", "origin", "dev")
+        pkg = package_checkout(tmp_path, remote)
+        (pkg / "CHANGELOG.md").write_text("# Changelog\n\n## 0.1.0a1\n- a fix\n")
+        return pkg
+
+    def push(self, pkg):
+        s = step("update_changelog", "Push Changelog")["run"]
+        bump = git(pkg, "rev-parse", "HEAD")
+        return run_bash(s, pkg, {"BRANCH": "dev", "CHANGELOG": "CHANGELOG.md", "BUMP_SHA": bump})
+
+    def test_untracked_changelog_is_committed(self, pkg, remote):
+        r = self.push(pkg)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "pushed at" in r.stdout, r.stdout
+        assert "- a fix" in git(pkg, "show", "origin/dev:CHANGELOG.md")
+
+    def test_changelog_the_runner_cannot_write_is_replaced(self, pkg, remote):
+        # read-only stands in for the root-owned file the container leaves
+        (pkg / "CHANGELOG.md").chmod(0o444)
+        r = self.push(pkg)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "- a fix" in git(pkg, "show", "origin/dev:CHANGELOG.md")
+
+
 class TestLaterJobsPinTheBumpCommit:
     """No later job checks out `inputs.branch`: that head belongs to whichever run pushed last."""
 
