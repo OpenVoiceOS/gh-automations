@@ -823,6 +823,8 @@ jobs:
 
 Scans installed dependencies for known CVEs with `pip-audit`. The job warns and never fails. A finding shows in four places. One `::warning` annotation per vulnerability. A table in the job summary. The same table in the shared PR comment. A SARIF alert in the Security tab. The job's check stays green in every case. A caller that wants a finding to block a merge reads the Security tab or the annotations.
 
+A package that `pip-audit` could not resolve is a finding of its own. `pip-audit` writes a `skip_reason` for that package, exits 0, and says nothing else about it. The job gives the package a warning annotation and a row in the summary table, and it uploads no SARIF. Code scanning keeps one analysis per `(ref, category)` and the last upload wins, so an analysis that leaves a package out closes the alerts of that package. The Security tab keeps its last complete analysis instead. A report that does not parse, and a report with no finding from an audit step that failed, upload nothing for the same reason.
+
 **Source:** `.github/workflows/pip-audit.yml`
 
 ### Inputs
