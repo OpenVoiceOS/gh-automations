@@ -77,6 +77,20 @@ on:
           pytest's default fd-level capture would otherwise swallow it (native
           crashes, SIGABRT). Same name and meaning as on channel-compat.yml.
           Empty by default: no change to the command line.
+      import_mode:
+        type: string
+        default: "importlib"
+        description: >
+          pytest's --import-mode. The default is "importlib", not pytest's own
+          "prepend", because prepend puts the repository root back on sys.path
+          whenever the collected tests are a package (a test/__init__.py) or a
+          conftest.py sits at the repository root. The source tree then shadows
+          the wheel this job built and installed, and a packaging defect passes.
+          importlib inserts nothing, so the suite tests the installed package.
+          Set "prepend" in a caller whose tests import a sibling module by a
+          bare name: importlib does not put the test directory on sys.path, so
+          such an import stops resolving. Rewriting the import is the fix;
+          "prepend" is the pin that buys time for it.
       test_env:
         type: string
         default: ""
@@ -281,8 +295,10 @@ jobs:
           # prepend import mode puts the rootdir back on sys.path whenever the
           # collected tests are a package (a test/__init__.py) or a conftest.py
           # sits at the repository root, and the shadowing returns. A caller in
-          # either shape needs the test package's __init__.py removed, or
-          # `pytest_args: --import-mode=importlib`, which inserts nothing.
+          # either shape needs the test package's __init__.py removed, or an
+          # import mode that inserts nothing. That is what the import_mode
+          # input does, and it defaults to importlib, so both shapes are
+          # covered without a caller change. T-5380.
           # The console script also resolves through PATH, where the -m form
           # bound the interpreter. Today UV_SYSTEM_PYTHON puts both in the same
           # place; a pre_test_command that activates a venv would separate them,
@@ -290,7 +306,7 @@ jobs:
           # The working directory stays the repository root, so a suite that
           # reads a repo-relative fixture path is unaffected. T-5305.
           # shellcheck disable=SC2086
-          pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log
+          pytest ${{ inputs.test_path }} -v --import-mode=${{ inputs.import_mode }} ${{ inputs.pytest_args }} | tee pytest.log
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Save result
