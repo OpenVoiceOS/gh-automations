@@ -16,7 +16,7 @@ on:
       branch:
         type: string
         default: "master"
-        description: "Stable branch where the release happens (e.g. master/main). If 'master' is requested but missing, detects default branch."
+        description: "Stable branch where the release happens (e.g. master/main). If the requested branch does not exist, the default branch is used."
       publish_release:
         type: boolean
         default: true
@@ -86,13 +86,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REQUESTED="${{ inputs.branch }}"
-          # If master is requested, verify it exists; if not, use the default branch
-          # We use gh repo view which doesn't require a full checkout of the package repo yet
-          DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef --jq .defaultBranchRef.name)
-          
-          if [ "$REQUESTED" == "master" ] && [ "$DEFAULT_BRANCH" != "master" ]; then
-             echo "Warning: 'master' branch requested but not found as default. Using '${DEFAULT_BRANCH}'."
-             REQUESTED="$DEFAULT_BRANCH"
+          # Ask whether the requested branch EXISTS, and fall back to the default
+          # branch only when it does not. The earlier condition compared the
+          # request to the default instead, so a caller asking for master on a
+          # repository whose default is dev was moved onto dev even with master
+          # present: the version bump, the tag, the PyPI upload and sync_dev then
+          # all spoke for the development branch. It also left a requested branch
+          # that is genuinely absent in place whenever its name was not "master",
+          # and the later checkout failed instead of falling back. T-6221.
+          if gh api "repos/${{ github.repository }}/branches/${REQUESTED}" --silent; then
+            echo "Requested branch '${REQUESTED}' exists."
+          else
+            DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef --jq .defaultBranchRef.name)
+            echo "Warning: branch '${REQUESTED}' not found. Using the default branch '${DEFAULT_BRANCH}'."
+            REQUESTED="$DEFAULT_BRANCH"
           fi
           echo "actual_branch=${REQUESTED}" >> $GITHUB_OUTPUT
 
