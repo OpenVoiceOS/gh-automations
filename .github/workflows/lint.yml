@@ -83,7 +83,7 @@ env:
   # any repository (gh-automations#139 review). Renovate moves this pin by
   # pull request (renovate.json, customManagers); test.yml installs the same
   # release for the workflow's own tests, and a test keeps the two equal.
-  ACTIONLINT_PY: "actionlint-py==1.7.12.24"
+  ACTIONLINT_PY: "actionlint-py==1.7.12.25"
   # The exact ruff release the fleet reports with, for the same reason. ruff
   # selects its rules by default, so the release is the rule set, and 0.16.0
   # widened that default: across 420 callers measured at one moment the
