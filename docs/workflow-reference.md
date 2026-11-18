@@ -633,6 +633,7 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `install_extras` | string | `""` | Extra uv install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>`: set to your package directory (e.g. `ovos_core`) to measure only your own code |
+| `timeout_minutes` | number | `45` | Job timeout in minutes. Raise it for a long test suite so the run is not cancelled before it finishes. |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
 | `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |
