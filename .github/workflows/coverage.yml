@@ -98,6 +98,13 @@ on:
         type: string
         default: "gh-pages"
         description: "Branch to push the HTML coverage report to (when deploy_pages: true)."
+      timeout_minutes:
+        type: number
+        default: 45
+        description: >
+          Job timeout in minutes. A repository with a long test suite raises it
+          so the run is not cancelled before it finishes. Same name and meaning
+          as on channel-compat.yml.
       min_coverage:
         type: number
         default: 0
@@ -128,7 +135,7 @@ env:
 jobs:
   coverage:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       pull-requests: write
       contents: write   # needed for deploy_pages git push; harmless when deploy_pages: false
