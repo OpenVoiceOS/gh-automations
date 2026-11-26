@@ -499,6 +499,9 @@ Tests that use a missing pipeline are **skipped** (via `is_pipeline_available()`
 | `require_padatious` | boolean | `false` | Fail CI if `ovos-padatious-pipeline-plugin` is not installed. When `false`, Padatious tests are skipped if absent (requires `swig`). |
 | `require_m2v` | boolean | `false` | Fail CI if `ovos-m2v-pipeline` is not installed. When `false`, M2V tests are skipped if absent. |
 | `pr_comment` | boolean | `true` | Post a `🔌 Skill Tests (ovoscope)` section to the OVOS PR Checks comment. Only fires on `pull_request` events. |
+| `test_timeout` | number | `600` | Seconds a single test may take before pytest-timeout fails it. Above the measured cold Padatious compile (486 s for 37 intents), so a slow first boot is not read as a hang. Needs `timeout_minutes` of 16 or more: the step ceiling is `timeout_minutes` minus five, and a lower ceiling cuts the step before any per-test timeout fires. |
+| `intent_cache` | boolean | `true` | Restore and save the Padatious intent cache between runs. A measured two-skill boot took 486 s cold and 21 s warm. |
+| `intent_cache_lang` | string | `en-US` | The locale the cache key names. A repository that tests another locale names it here and does not share a key with the en-US runs. |
 
 ### Jobs
 
@@ -574,6 +577,32 @@ To require Padatious (C extension: add `swig` to system_deps):
 
 End-to-end tests pay a skill-training startup cost controlled by `OVOSCOPE_TRAINED_TIMEOUT` (default 180 seconds). Individual tests should set a `@pytest.mark.timeout()` marker with a value at least 120 seconds greater than the timeout ceiling to avoid premature expiration during training. The same floor applies to a repository-wide pytest timeout set in `pytest.ini`, `pyproject.toml`, or `setup.cfg` via the `timeout` key from pytest-timeout. A global timeout below the ceiling plus 120 seconds will cause every unmarked end-to-end test to expire under coverage instrumentation. With the default 180-second training wait, a global pytest timeout must be at least 300 seconds.
 
+
+### The Padatious intent cache
+
+Padatious compiles every intent with FANN the first time it sees it. A
+measured two-skill MiniCroft with 37 intents took 486 seconds on a cold cache
+and 21 seconds warm, from 388 files and 2.3 MB under
+`$XDG_DATA_HOME/mycroft/intent_cache/en-US`.
+
+The workflow pins `XDG_DATA_HOME` into the workspace and caches that
+directory with `actions/cache`. The key names the runner, the Python version,
+`intent_cache_lang`, the installed `ovos-padatious` version and a hash of
+every `.intent` and `.entity` file in the checkout and in `site-packages`.
+Padatious keeps a `.hash` beside every `.net`, so a restore from an older key
+retrains only the intents whose text moved and reuses the rest. That holds for
+the same engine, which is why the restore-key prefix stops at the
+`ovos-padatious` version and there is no version-less one. Padatious salts
+that hash with `splitext(ovos_padatious.__version__)[0]`, which truncates the
+version to major.minor, so the salt does not move across a patch or an alpha
+and Padatious cannot tell those engines' nets apart. An engine upgrade
+therefore misses the cache and pays one full cold compile, rather than
+loading nets the previous engine trained.
+
+Set `intent_cache: false` to switch it off. The cache step is also skipped
+when `ovos-padatious` is absent or the tree holds no `.intent` file, because
+then nothing writes the directory.
+
 ---
 
 ## `coverage.yml`
@@ -604,6 +633,7 @@ For deploying HTML coverage reports to GitHub Pages, see [`coverage-pages.yml`](
 | `install_extras` | string | `""` | Extra uv install arguments run AFTER the package install (e.g. `-r requirements/test.txt`, a git URL override) |
 | `test_path` | string | `test/` | Path passed to pytest |
 | `coverage_source` | string | `.` | `--cov=<value>`: set to your package directory (e.g. `ovos_core`) to measure only your own code |
+| `timeout_minutes` | number | `45` | Job timeout in minutes. Raise it for a long test suite so the run is not cancelled before it finishes. |
 | `min_coverage` | number | `0` | Minimum total coverage %. Job fails if below threshold. `0` = disabled. |
 | `pr_comment` | boolean | `true` | Post a `📊 Coverage` section to the shared OVOS PR Checks comment. Only fires on `pull_request` events. |
 | `artifact_name` | string | `coverage-report` | Name of the uploaded coverage XML artifact |

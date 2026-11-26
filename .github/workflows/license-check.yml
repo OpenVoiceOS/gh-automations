@@ -135,17 +135,25 @@ jobs:
           uv pip install --prerelease=disallow pip-licenses
 
       - name: Install System Dependencies
+        # The value reaches the shell through env, never as text substituted
+        # into the script: a caller package list with a quote or a parenthesis
+        # in it would otherwise be a bash syntax error. Unquoted expansion
+        # keeps the word splitting the apt-get argument list needs.
+        env:
+          SYSTEM_DEPS: ${{ inputs.system_deps }}
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq python3-dev libssl-dev ${{ inputs.system_deps }}
+          sudo apt-get install -yq python3-dev libssl-dev $SYSTEM_DEPS
 
       - name: Install package
+        env:
+          INSTALL_EXTRAS: ${{ inputs.install_extras }}
         run: |
           # install_extras accepts several caller spellings ("dev", "[dev]",
           # ".[dev]", or raw pip args like "-r reqs.txt"). Callers cannot
           # tell which single form a given reusable workflow expects, and a
           # wrong guess used to abort the job before any check ever ran.
-          RAW="${{ inputs.install_extras }}"
+          RAW="$INSTALL_EXTRAS"
           if [ -z "$RAW" ]; then
             NORMALIZED="."
           elif [[ "$RAW" == -* || "$RAW" == */* || "$RAW" == .* ]]; then
@@ -685,13 +693,23 @@ jobs:
           #          reports category "Error". 80.0 and later declare
           #          `License-Expression: MIT`, which the PEP 639 step above
           #          reads. Pulled by nearly every build.
+          #   torchao — BSD-3-Clause (bundled LICENSE in pytorch/ao, © 2023 Meta,
+          #          with the "neither the name of the copyright holder" clause
+          #          that separates BSD-3 from BSD-2; the project README carries
+          #          a BSD-3-Clause badge). 0.18.0 declares no `License`, no
+          #          `License-Expression` and no license classifier, only
+          #          `License-File: LICENSE`, so the checker reports category
+          #          "Other" (seen on ovos-stt-plugin-nemo#39). Same shape as
+          #          setuptools 79.x above. Pulled transitively by the ML stack.
+          #          Miro's ruling, decision torchao-no-metadata-read-licence.
           central = (r"(?i:^bidict([=<>!~ @;].*)?$)"
                      r"|(?i:^tqdm([=<>!~ @;].*)?$)|(?i:^marisa[-_]trie([=<>!~ @;].*)?$)"
                      r"|(?i:^paho[-_]mqtt([=<>!~ @;].*)?$)"
                      r"|(?i:^fsspec([=<>!~ @;].*)?$)|(?i:^skops([=<>!~ @;].*)?$)"
                      r"|(?i:^orjson([=<>!~ @;].*)?$)"
                      r"|(?i:^timezonefinder[-_]data([=<>!~ @;].*)?$)"
-                     r"|(?i:^setuptools([=<>!~ @;].*)?$)")
+                     r"|(?i:^setuptools([=<>!~ @;].*)?$)"
+                     r"|(?i:^torchao([=<>!~ @;].*)?$)")
 
           # 3. Caller-supplied repo-specific excludes.
           caller = (os.environ.get("CALLER_EXCLUDE") or "").strip()
@@ -952,6 +970,8 @@ jobs:
 
       - name: Generate full license breakdown
         id: license_breakdown
+        # Report-only: a failed breakdown must not fail the licence check.
+        continue-on-error: true
         env:
           COMBINED_REGEX: ${{ steps.exclude.outputs.regex }}
         run: |

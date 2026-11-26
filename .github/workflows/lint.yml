@@ -84,6 +84,17 @@ env:
   # pull request (renovate.json, customManagers); test.yml installs the same
   # release for the workflow's own tests, and a test keeps the two equal.
   ACTIONLINT_PY: "actionlint-py==1.7.12.24"
+  # The exact ruff release the fleet reports with, for the same reason. ruff
+  # selects its rules by default, so the release is the rule set, and 0.16.0
+  # widened that default: across 420 callers measured at one moment the
+  # findings went from 10409 to 75711 and 108 went from none to some, with no
+  # commit in any of them (T-5021). Seven LOST a finding, so an unpinned ruff
+  # drops coverage as silently as it adds noise. ruff does not fail this job
+  # (continue-on-error below; only actionlint fails it), so this pin is about
+  # a report people can read, not about a red. Hold the pre-0.16 default set;
+  # Renovate moves this pin by pull request (renovate.json, customManagers),
+  # which is where a rule-set change gets read and priced.
+  RUFF: "ruff==0.15.22"
 
 jobs:
   lint:
@@ -114,7 +125,7 @@ jobs:
 
       - name: Install ruff
         if: ${{ inputs.ruff }}
-        run: uv pip install ruff
+        run: uv pip install "$RUFF"
 
       - name: Run ruff
         if: ${{ inputs.ruff }}

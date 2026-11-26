@@ -36,7 +36,7 @@ def step(name: str) -> dict:
 
 
 def run_step(tmp_path: Path, name: str, install_extras: str = "", freeze: str = "") -> tuple[str, str, str]:
-    script = step(name)["run"].replace("${{ inputs.install_extras }}", install_extras)
+    script = step(name)["run"]
     assert "${{" not in script, script
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
@@ -48,7 +48,8 @@ def run_step(tmp_path: Path, name: str, install_extras: str = "", freeze: str = 
     summary = tmp_path / "summary.md"
     summary.touch()
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", UV_LOG=str(log),
-               GITHUB_STEP_SUMMARY=str(summary), FREEZE_LINES=freeze)
+               GITHUB_STEP_SUMMARY=str(summary), FREEZE_LINES=freeze,
+               INSTALL_EXTRAS=install_extras)
     r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     return r.stdout, log.read_text(), summary.read_text()

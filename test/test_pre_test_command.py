@@ -27,7 +27,10 @@ WORKFLOWS = Path(__file__).parent.parent / ".github" / "workflows"
 # The shared workflows that install a package and then run its tests.
 TEST_RUNNING = {
     "coverage.yml": "coverage",
-    "build-tests.yml": "build",
+    # the job key, not a guess: `_steps` falls back to the first job in the
+    # file when the key is absent, and "build" was absent, so this case tested
+    # whichever job happened to come first (T-4388).
+    "build-tests.yml": "build_tests",
     "tts-intelligibility.yml": "tts_intelligibility",
 }
 

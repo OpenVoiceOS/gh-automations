@@ -15,6 +15,18 @@
       ],
       "depNameTemplate": "actionlint-py",
       "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "ruff exact pin in lint.yml (env RUFF)",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "ruff==(?<currentValue>[0-9][0-9.]*)"
+      ],
+      "depNameTemplate": "ruff",
+      "datasourceTemplate": "pypi"
     }
   ]
 }

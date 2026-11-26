@@ -104,6 +104,11 @@ def test_a_pip_licenses_failure_is_loud_and_fails_the_step():
     assert "exit 1" in run
 
 
+def test_the_breakdown_cannot_fail_the_licence_check():
+    """the breakdown is a report: a failed step stays visible but the job goes on"""
+    assert _breakdown_step().get("continue-on-error") is True
+
+
 def test_every_installed_package_is_counted(tmp_path):
     code, log, outputs = _run_body(tmp_path, PACKAGES, "")
     assert code == 0, log
