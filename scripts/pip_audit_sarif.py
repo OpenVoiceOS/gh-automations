@@ -11,9 +11,13 @@ Usage:
     pip_audit_sarif.py --input <pip-audit.json> --output <report.sarif>
 """
 import argparse
+import importlib.metadata
 import json
 import pathlib
+import re
 import sys
+import urllib.parse
+import urllib.request
 
 MANIFESTS = ("pyproject.toml", "requirements.txt", "setup.py", "setup.cfg")
 
@@ -69,7 +73,34 @@ def load_dependencies(path: pathlib.Path) -> list:
     )
 
 
-def skipped_packages(dependencies: list) -> list:
+NOT_ON_PYPI = "Dependency not found on PyPI"
+
+
+def canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def local_projects(root: pathlib.Path, path: list = sys.path) -> set:
+    """Canonical names of the installed distributions built from `root`.
+
+    pip records a local install in direct_url.json (PEP 610) as a file:// URL.
+    """
+    root = root.resolve()
+    names = set()
+    for dist in importlib.metadata.distributions(path=path):
+        text = dist.read_text("direct_url.json")
+        if not text:
+            continue
+        url = json.loads(text).get("url", "")
+        if not url.startswith("file://"):
+            continue
+        location = pathlib.Path(urllib.request.url2pathname(urllib.parse.urlparse(url).path))
+        if location.resolve() == root:
+            names.add(canonical(dist.metadata["Name"]))
+    return names
+
+
+def skipped_packages(dependencies: list, own: set = frozenset()) -> list:
     """[(name, reason)] for every package pip-audit did not audit.
 
     pip-audit writes `{"name": ..., "skip_reason": ...}` for a dependency it
@@ -77,11 +108,18 @@ def skipped_packages(dependencies: list) -> list:
     entry carries no version and no "vulns" key, the exit code stays 0, and
     nothing outside the report says that a package was left out. Such a
     report reads as a clean audit of the whole environment.
+
+    The project under audit is absent from PyPI whenever its local version is
+    unpublished. That skip leaves no dependency out, so a name in `own` with
+    that reason is not a gap.
     """
     gaps = []
     for dep in dependencies:
         reason = dep.get("skip_reason")
-        if reason:
+        if reason and not (
+            canonical(dep.get("name", "")) in own
+            and str(reason).startswith(NOT_ON_PYPI)
+        ):
             gaps.append((dep.get("name", "unknown"), " ".join(str(reason).split())))
     return gaps
 
@@ -165,11 +203,20 @@ def main() -> None:
         default="",
         help="Outcome of the audit step: success, failure, or empty when unknown",
     )
+    parser.add_argument(
+        "--project",
+        action="append",
+        help="Name of the project under audit; default: the distributions installed from --root",
+    )
     args = parser.parse_args()
 
     try:
         dependencies = load_dependencies(pathlib.Path(args.input))
-        gaps = skipped_packages(dependencies)
+        if args.project:
+            own = {canonical(name) for name in args.project}
+        else:
+            own = local_projects(pathlib.Path(args.root))
+        gaps = skipped_packages(dependencies, own)
         if gaps:
             raise ReportError(
                 "pip-audit left "

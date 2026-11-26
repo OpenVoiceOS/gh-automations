@@ -25,6 +25,7 @@ from pip_audit_sarif import (  # noqa: E402
     build_sarif,
     find_manifest,
     load_dependencies,
+    local_projects,
     main,
     skipped_packages,
 )
@@ -376,3 +377,69 @@ def test_build_sarif_keeps_the_same_id_in_two_packages():
     run = build_sarif(deps, "pyproject.toml")["runs"][0]
     prints = [r["partialFingerprints"]["pipAuditVuln"] for r in run["results"]]
     assert sorted(prints) == ["a:1:PYSEC-1", "b:2:PYSEC-1"]
+
+
+# pip-audit writes this entry for the project under audit when its local
+# version is not on PyPI, for example an unreleased alpha.
+OWN_NOT_ON_PYPI = {
+    "name": "ovos-hardware-helpers",
+    "skip_reason": (
+        "Dependency not found on PyPI and could not be audited: "
+        "ovos-hardware-helpers (1.0.2a2)"
+    ),
+}
+
+
+def test_the_projects_own_not_on_pypi_skip_is_not_a_gap():
+    deps = [{"name": "a", "version": "1", "vulns": []}, OWN_NOT_ON_PYPI]
+    assert skipped_packages(deps, {"ovos-hardware-helpers"}) == []
+
+
+def test_a_not_on_pypi_skip_of_another_package_is_a_gap():
+    deps = [OWN_NOT_ON_PYPI]
+    assert skipped_packages(deps, {"ovos-other"}) == [
+        ("ovos-hardware-helpers", OWN_NOT_ON_PYPI["skip_reason"])
+    ]
+
+
+def test_an_invalid_version_skip_of_the_project_is_still_a_gap():
+    entry = dict(SKIPPED_ENTRY)
+    assert skipped_packages([entry], {"weirdpkg"}) == [("weirdpkg", entry["skip_reason"])]
+
+
+def test_main_writes_the_sarif_when_only_the_project_itself_is_unpublished(
+    tmp_path, monkeypatch
+):
+    report = write(
+        tmp_path,
+        "r.json",
+        {"dependencies": [{"name": "a", "version": "1", "vulns": []}, OWN_NOT_ON_PYPI]},
+    )
+    out = tmp_path / "out.sarif"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pip_audit_sarif.py", "--input", str(report), "--output", str(out),
+            "--root", str(tmp_path), "--audit-outcome", "success",
+            "--project", "ovos_hardware.helpers",
+        ],
+    )
+    main()
+    assert json.loads(out.read_text())["runs"][0]["results"] == []
+
+
+def test_local_projects_finds_the_distribution_installed_from_root(tmp_path):
+    site = tmp_path / "site"
+    project = tmp_path / "project"
+    project.mkdir()
+    for name, url in (
+        ("Ovos_Hardware.Helpers", project.as_uri()),
+        ("elsewhere", (tmp_path / "other").as_uri()),
+        ("requests", "https://files.example/requests.whl"),
+    ):
+        info = site / f"{name}-1.0.dist-info"
+        info.mkdir(parents=True)
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n")
+        (info / "direct_url.json").write_text(json.dumps({"url": url}))
+    assert local_projects(project, path=[str(site)]) == {"ovos-hardware-helpers"}
