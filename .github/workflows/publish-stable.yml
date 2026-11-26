@@ -84,24 +84,23 @@ jobs:
         id: branch_detect
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED: ${{ inputs.branch }}
+          REPO: ${{ github.repository }}
         run: |
-          REQUESTED="${{ inputs.branch }}"
-          # Ask whether the requested branch EXISTS, and fall back to the default
-          # branch only when it does not. The earlier condition compared the
-          # request to the default instead, so a caller asking for master on a
-          # repository whose default is dev was moved onto dev even with master
-          # present: the version bump, the tag, the PyPI upload and sync_dev then
-          # all spoke for the development branch. It also left a requested branch
-          # that is genuinely absent in place whenever its name was not "master",
-          # and the later checkout failed instead of falling back. T-6221.
-          if gh api "repos/${{ github.repository }}/branches/${REQUESTED}" --silent; then
+          # Fall back to the default branch only when the branches API answers
+          # 404. Any other error stops the release, so an outage or a rate limit
+          # cannot move the release onto the development branch.
+          if ERR=$(gh api "repos/${REPO}/branches/${REQUESTED}" --silent 2>&1); then
             echo "Requested branch '${REQUESTED}' exists."
+            ACTUAL="$REQUESTED"
+          elif printf '%s' "$ERR" | grep -q "HTTP 404"; then
+            ACTUAL=$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)
+            echo "Warning: branch '${REQUESTED}' not found. Using the default branch '${ACTUAL}'."
           else
-            DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef --jq .defaultBranchRef.name)
-            echo "Warning: branch '${REQUESTED}' not found. Using the default branch '${DEFAULT_BRANCH}'."
-            REQUESTED="$DEFAULT_BRANCH"
+            echo "::error::Cannot check branch '${REQUESTED}': ${ERR}"
+            exit 1
           fi
-          echo "actual_branch=${REQUESTED}" >> $GITHUB_OUTPUT
+          echo "actual_branch=${ACTUAL}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Repository
         uses: actions/checkout@v7

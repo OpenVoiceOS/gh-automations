@@ -33,6 +33,7 @@ WORKFLOW = ROOT / ".github/workflows/publish-stable.yml"
 # a gh that answers from BRANCHES and DEFAULT_BRANCH, the two facts the step reads
 GH_STUB = """#!/usr/bin/env bash
 if [ "$1" == "api" ]; then
+  if [ -n "$GH_API_ERROR" ]; then echo "$GH_API_ERROR" >&2; exit 1; fi
   # repos/<owner>/<repo>/branches/<name>
   name="${2##*/branches/}"
   for b in $BRANCHES; do
@@ -57,13 +58,10 @@ def detect_step() -> str:
     return step["run"]
 
 
-def run_step(tmp_path: Path, requested: str, branches: str, default: str) -> str:
-    """execute the step's shell and return actual_branch"""
+def execute(tmp_path: Path, requested: str, branches: str, default: str,
+            api_error: str = "") -> tuple[subprocess.CompletedProcess, str]:
     script = detect_step()
-    # the only expressions the step interpolates
-    script = script.replace("${{ inputs.branch }}", requested)
-    script = script.replace("${{ github.repository }}", "OpenVoiceOS/a-repo")
-    assert "${{" not in script, f"an unsubstituted expression remains:\n{script}"
+    assert "${{" not in script, f"the run text interpolates an expression:\n{script}"
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -79,11 +77,19 @@ def run_step(tmp_path: Path, requested: str, branches: str, default: str) -> str
         GITHUB_OUTPUT=str(out),
         BRANCHES=branches,
         DEFAULT_BRANCH=default,
+        GH_API_ERROR=api_error,
+        REQUESTED=requested,
+        REPO="OpenVoiceOS/a-repo",
     )
     proc = subprocess.run(["bash", "-e", "-c", script], env=env, cwd=tmp_path,
                           capture_output=True, text=True)
+    return proc, out.read_text()
+
+
+def run_step(tmp_path: Path, requested: str, branches: str, default: str) -> str:
+    """execute the step's shell and return actual_branch"""
+    proc, written = execute(tmp_path, requested, branches, default)
     assert proc.returncode == 0, f"the step failed:\n{proc.stdout}\n{proc.stderr}"
-    written = out.read_text()
     m = re.search(r"^actual_branch=(.*)$", written, re.M)
     assert m, f"the step wrote no actual_branch: {written!r}"
     return m.group(1)
@@ -119,3 +125,15 @@ def test_the_step_never_compares_the_request_to_the_default(tmp_path):
     script = detect_step()
     assert '"$DEFAULT_BRANCH" != "master"' not in script
     assert "branches/" in script, "the step must ask whether the branch exists"
+
+
+@pytest.mark.parametrize("error", [
+    "gh: Server Error (HTTP 502)",
+    "gh: API rate limit exceeded (HTTP 403)",
+    "error connecting to api.github.com",
+])
+def test_an_api_error_stops_the_release(tmp_path, error):
+    """only a 404 means absent; any other failure must not fall back to dev"""
+    proc, written = execute(tmp_path, "master", "dev master", "dev", api_error=error)
+    assert proc.returncode == 1
+    assert "actual_branch" not in written
