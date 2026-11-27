@@ -133,11 +133,16 @@ jobs:
         run: pip install uv
       - name: Determine version bump
         id: version_bump
+        # the labels reach the shell through the environment, not pasted into
+        # the script: a label description with an apostrophe ("Something
+        # isn't working", the default bug label) ended the quoted string
+        env:
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels) }}
         run: |
           if [ -z "${{ github.event.pull_request.number }}" ]; then
             LABELS=""
           else
-            LABELS=$(echo '${{ toJson(github.event.pull_request.labels) }}' | jq -r 'map(.name) | join(" ")')
+            LABELS=$(printf '%s' "$PR_LABELS" | jq -r 'map(.name) | join(" ")')
           fi
 
           if [ -z "$LABELS" ]; then
