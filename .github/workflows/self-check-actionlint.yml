@@ -1,0 +1,33 @@
+name: Self-check actionlint
+# Lints this repo's own workflows, so a workflow that GitHub rejects
+# (for example `secrets` in a step or job `if:`) fails CI before merge.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install actionlint
+        run: pip install "actionlint-py>=1.7.12"
+      - name: Run actionlint
+        # -shellcheck= disables the shellcheck pass: dev has 59 findings
+        # (mostly SC2086 unquoted variables), out of scope for this gate.
+        run: actionlint -color -shellcheck= .github/workflows/*.yml
