@@ -1636,7 +1636,7 @@ Measures intent-routing accuracy with the ovoscope intent-case files (`cases/<la
 | `pre_release` | boolean | `false` | Install ovoscope and every required pipeline plugin from its GitHub `dev` branch instead of PyPI. |
 | `pr_comment` | boolean | `true` | Post a '🎯 Intent-Case Accuracy' section per shard in the OVOS PR Checks comment (only on pull_request). |
 | `langs` | string | `["all"]` | JSON array of language tags. One matrix job per lang. Each shard passes `-k '<slug>'` to pytest (slug = lang.replace('-', '_')) so only tests whose nodeid contains that slug run there. Pass the skill's locale list verbatim, e.g. '["en-US", "de-DE", "pt-PT"]'. The default `["all"]` runs the entire suite in a single job. |
-| `accuracy_baseline` | string | `""` | Path, relative to the skill repo root, of a saved intent-accuracy report JSON. When set, the run fails on each case that passed in that report and fails now. |
+| `accuracy_baseline` | string | `""` | Path, relative to the skill repo root, of a saved intent-accuracy report JSON. When set, the run fails on each case that passed in that report and fails in this run. |
 | `accuracy_tolerant` | boolean | `false` | Downgrade individual case failures to xfail. Only the aggregate gate (accuracy_min / regression list) can block the session. |
 | `accuracy_min` | string | `""` | Minimum overall pass rate (0.0-1.0). Fails the shard when the observed rate is below this value. |
 
