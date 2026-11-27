@@ -1,5 +1,6 @@
-
 # OVOS Release Flow
+
+<!-- agent-hint: the alpha and stable release lifecycle and the version.py block that the publish workflows rewrite. verify: pytest test/ -->
 
 All OVOS packages follow a rolling release model with three channels: **alpha**, **testing**, and **stable**. This document describes the full lifecycle from code change to published package, and separately covers the versioning strategy for gh-automations itself.
 

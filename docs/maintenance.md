@@ -1,6 +1,31 @@
-# Maintenance Notes
+# Maintenance
 
-Tracker for open technical debt and opportunistic improvements in `gh-automations`. Closed items are dropped: `git log` is the history.
+<!-- agent-hint: how to change this repo safely, and the open technical debt. verify: pytest test/ -->
+
+This page tells a maintainer how to change `gh-automations` safely. It also lists the open technical debt and the opportunistic rollouts.
+
+## Change this repo
+
+Many repos call these workflows at `@dev`, so a defect on `dev` breaks their CI at once. See [repos.md](repos.md) and the caller counts in [index.md](index.md) before you change a workflow.
+
+1. Open each pull request against `dev`. `master` is the frozen stable baseline. Never force-push `master` or `dev`, because caller repos reference them.
+2. Run the test suite:
+
+   ```bash
+   uv pip install pytest pyyaml ovos-plugin-manager actionlint-py
+   pytest test/ -v
+   ```
+
+3. Add a test for each new script in `scripts/`.
+4. When an input, a default or an output changes, update [workflow-reference.md](workflow-reference.md).
+5. Keep Markdown files in `docs/`. `README.md` is the only Markdown file at the repo root.
+
+The safety rules for workflow files are in [index.md](index.md#for-agents).
+
+## Bot guards
+
+- `publish-alpha.yml`: the `bump_version` job runs only when the pull request is merged, or on `workflow_dispatch`. With `skip_bot_prs: true` (the default), it skips pull requests from `allcontributors[bot]` and `pre-commit-ci[bot]`. Renovate and Dependabot pull requests make an alpha.
+- `publish-stable.yml`: the `bump_version` job skips when `github.actor` is `github-actions[bot]`. This stops a loop when the version commit starts another push event.
 
 ## Open issues
 

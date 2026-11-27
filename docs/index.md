@@ -1,151 +1,109 @@
-
 # gh-automations
 
-`gh-automations` (hosted at [OpenVoiceOS/gh-automations](https://github.com/OpenVoiceOS/gh-automations)) is the shared GitHub Actions automation library for all OpenVoiceOS repositories. It provides reusable workflows and Python scripts that implement the OVOS rolling-release model: bump version on PR merge to `dev`, publish alpha to PyPI, open a release PR to `master`, then on merge declare stable and tag.
+<!-- agent-hint: catalog of reusable workflows and the rules for a change to them. Inputs and defaults: workflow-reference.md. verify: pytest test/ -->
 
-As of 2026-03-09 it is used by **209 OVOS repositories**. All calling repos should reference `@dev`:
+`gh-automations` gives each OpenVoiceOS repo the same CI checks and the same release automation through reusable GitHub Actions workflows.
+
+## Callers per workflow
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/callers-dark.svg">
+  <img alt="Callers per workflow: publish-stable.yml 124 repos, release-preview.yml 123, publish-alpha.yml 118, build-tests.yml 113; eight workflows have no caller found." src="img/callers.svg">
+</picture>
+
+`img/count_callers.py` writes `img/callers.csv` from a GitHub code search over the OpenVoiceOS organization. `img/plot_callers.py` makes this figure from `img/callers.csv`. Code search indexes the default branch of each repo only and returns at most 1000 files, so each count is a lower bound.
+
+## Quickstart
+
+A caller repo adds one small workflow file for each check. This file runs the build and test matrix on each pull request to `dev`:
 
 ```yaml
-uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
+name: Build Tests
+on:
+  pull_request:
+    branches: [dev]
+jobs:
+  build_tests:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/build-tests.yml@dev
+    secrets: inherit
 ```
 
-### Scripts checkout
+Most reusable workflows check out this repo at run time to get `scripts/`. The ref of that checkout comes from the `gh_automations_ref` input, with the default `dev`. Eight workflows have no such input:
 
-The reusable workflows check out this repo at runtime to access `scripts/`, pinned to `ref: dev`:
+- `publish-alpha.yml`, `publish-stable.yml` and `downstream-check.yml` always check out `dev`.
+- `coverage-pages.yml`, `golden-utterances.yml`, `markdown-check.yml`, `notify-matrix.yml` and `redistribution-guard.yml` do not check out the scripts.
 
-```yaml
-- uses: actions/checkout@v4
-  with:
-    repository: OpenVoiceOS/gh-automations
-    ref: dev
-    path: _gh_automations/
-```
+A caller that tests a branch of this repo sets both the `@<ref>` in `uses:` and `gh_automations_ref` to that branch.
 
----
+## Pages
 
-## Reusable Workflows
-
-All workflows are called with:
-```yaml
-uses: OpenVoiceOS/gh-automations/.github/workflows/<name>.yml@dev
-```
-
-| Workflow | Purpose | Used by |
-|---|---|---|
-| `publish-alpha.yml` | Bump version, publish alpha to PyPI, open release PR | All 209 repos: `release_workflow.yml` |
-| `publish-stable.yml` | Remove alpha suffix, tag stable release, sync dev | All 209 repos: `publish_stable.yml` |
-| `build-tests.yml` | Build/install/test matrix across Python versions; channel compatibility check | All repos: `build_tests.yml` |
-| `opm-check.yml` | OPM plugin detection, interface validation, import timing | Plugin repos: `opm_check.yml` |
-
-| Workflow | Purpose | Used by |
-|---|---|---|
-| `coverage.yml` | Run pytest with coverage; post diff report to PR comment | Selected repos: `coverage.yml` |
-| `coverage-pages.yml` | Run tests with coverage and deploy HTML report to GitHub Pages | Selected repos: `coverage_pages.yml` |
-| `license-check.yml` | Scan dependencies for copyleft/incompatible licenses | 126 repos: `license_tests.yml` |
-| `pip-audit.yml` | Scan installed dependencies for CVEs; optional SARIF upload | Selected repos: `pipaudit.yml` |
-
-| Workflow | Purpose | Used by |
-|---|---|---|
-| `release-preview.yml` | Predict next version from PR labels/title | All repos: `release_preview.yml` |
-| `repo-health.yml` | Check required files, version block, greet first-time contributors | All repos: `repo_health.yml` |
-| `skill-check.yml` | Locale coverage and skill.json validity | Skill repos: `skill_check.yml` |
-| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1/-2 via `ovos-spec-lint` | Skill repos: `spec_lint.yml` |
-
-| Workflow | Purpose | Used by |
-|---|---|---|
-| `downstream-check.yml` | Report which packages depend on a given package | 13 repos: `downstream.yml` |
-| `python-support.yml` | Install matrix (regular + editable) per Python version *(legacy: REMOVE AFTER 2027-01-01)* | Superseded by `build-tests.yml` for most repos |
-| `notify-matrix.yml` | Post release notifications to OVOS Matrix channel | Via `publish-alpha.yml`/`publish-stable.yml` `notify_matrix` input |
-
-| Workflow | Purpose | Used by |
-|---|---|---|
-| `type-check.yml` | Run mypy and post 🔎 Type Check section to PR comment | Repos with type hints |
-| `docs-check.yml` | Verify required docs files exist; optional markdownlint | All repos |
-
-Full input/output/job reference: [workflow-reference.md](workflow-reference.md)
-
----
-
-## Python Scripts
-
-Located in `scripts/`. Checked out by the reusable workflows at run time: not installed as a package.
-
-| Script | Key function | Purpose |
-|---|---|---|
-| `_version_utils.py` | `read_version(version_file)`: `scripts/_version_utils.py:17` | Parse `version.py` block; shared by all version scripts |
-| `_version_utils.py` | `format_version(major, minor, build, alpha)`: `scripts/_version_utils.py:54` | Format PEP 440 version string |
-| `_version_utils.py` | `write_version_block(version_file, ...)`: `scripts/_version_utils.py:72` | Rewrite block, preserve surrounding content |
-| `update_version.py` | `update_version(part, version_file)`: `scripts/update_version.py:22` | Bump `VERSION_MAJOR/MINOR/BUILD/ALPHA` in `version.py` |
-
-| Script | Key function | Purpose |
-|---|---|---|
-| `remove_alpha.py` | `update_alpha(version_file)`: `scripts/remove_alpha.py:17` | Set `VERSION_ALPHA = 0` (declare stable) |
-| `get_version.py` | `get_version(version_file)`: `scripts/get_version.py:15` | Read and print current version string |
-| `check_downstream.py` | `get_downstream(package_name)`: `scripts/check_downstream.py:61` | Report reverse dependencies using `pipdeptree` |
-| `update_pr_comment.py` | `find_ovos_comment(repo, pr)`: `scripts/update_pr_comment.py:56` | Find-or-create the shared OVOS PR Checks comment |
-
-| Script | Key function | Purpose |
-|---|---|---|
-| `update_pr_comment.py` | `insert_or_replace_section(body, ...)`: `scripts/update_pr_comment.py:81` | Replace a named section in the shared PR comment |
-| `check_skill.py` | `run_checks(repo_root, ...)`: `scripts/check_skill.py:220` | Full skill locale and skill.json analysis |
-| `check_release.py` | `run_checks(version_file, ...)`: `scripts/check_release.py:196` | Predict next version from PR labels/title |
-| `check_opm.py` | `check_opm(plugin_type, entry_point, ...)`: `scripts/check_opm.py:406` | OPM plugin detection, interface validation, import timing |
-
-All version scripts share the `version.py` block format:
-
-```python
-# START_VERSION_BLOCK
-VERSION_MAJOR = 1
-VERSION_MINOR = 2
-VERSION_BUILD = 3
-VERSION_ALPHA = 4   # 0 = stable
-# END_VERSION_BLOCK
-```
-
----
-
-## Documentation
-
-- [Release Flow](release-flow.md): Full lifecycle: alpha → stable → channel constraints; gh-automations own versioning policy
-- [Workflow Reference](workflow-reference.md): All inputs, outputs, jobs, and bot guards for each reusable workflow
-- [Repo Setup](repo-setup.md): Step-by-step guide for adding CI/CD to a new OVOS repo (uses `@dev`)
-- [Repos](repos.md): Complete inventory of all 209 repos using gh-automations, grouped by category
-
----
-
-## Quick Links
-
-| Resource | Path |
-|----------|------|
-| Maintenance notes | [`maintenance.md`](maintenance.md) |
-| Workflow reference | [`workflow-reference.md`](workflow-reference.md) |
-| Repo setup guide | [`repo-setup.md`](repo-setup.md) |
-| Release flow | [`release-flow.md`](release-flow.md) |
-
-| Resource | Path |
-|----------|------|
-| Caller repos | [`repos.md`](repos.md) |
-
----
-
-## Cross-References
-
-### Key repos that call these workflows
-
-| Repo | Workflows used |
+| Page | Read it to |
 |---|---|
-| [ovos-core](https://github.com/OpenVoiceOS/ovos-core) | `publish-alpha.yml`, `publish-stable.yml`, `license-check.yml`, `notify-matrix.yml`, `downstream-check.yml` |
-| [ovos-utils](https://github.com/OpenVoiceOS/ovos-utils) | All core workflows (downstream tracking: 13 repos depend on it) |
-| [ovos-bus-client](https://github.com/OpenVoiceOS/ovos-bus-client) | All core workflows |
+| [release-flow.md](release-flow.md) | Understand the alpha and stable release lifecycle and the `version.py` block |
+| [workflow-reference.md](workflow-reference.md) | Find the inputs, defaults, jobs and outputs of each workflow |
+| [license-whitelist.md](license-whitelist.md) | See which flagged packages the license check accepts, and why |
+| [repo-setup.md](repo-setup.md) | Add the workflow files to a new repo |
+| [repos.md](repos.md) | See which repos call these workflows |
+| [maintenance.md](maintenance.md) | Change this repo safely, and see open technical debt |
 
-| Repo | Workflows used |
-|---|---|
-| [ovos-workshop](https://github.com/OpenVoiceOS/ovos-workshop) | All core workflows |
-| [ovos-messagebus](../../ovos-messagebus/docs/index.md) | `publish-alpha.yml`, `publish-stable.yml`, `license-check.yml`, `notify-matrix.yml` |
-| [ovos-releases](https://github.com/OpenVoiceOS/ovos-releases) | Manages `constraints-alpha/testing/stable.txt`: updated after stable releases |
-| [raspOVOS](../../raspOVOS/docs/index.md) | Uses `constraints-alpha.txt` URL as `CONSTRAINTS` env var during image builds |
+## Workflow catalog
 
-### Related workspace documentation
+| Workflow | Use it to | Typical caller |
+|---|---|---|
+| `publish-alpha.yml` | Bump the version on a merge to `dev`, publish an alpha, open a release PR | Every package |
+| `publish-stable.yml` | Remove the alpha number on a merge to `master`, tag the release | Every package |
+| `release-preview.yml` | Predict the next version from the PR labels and title | Every package |
+| `build-tests.yml` | Build, install and test the package on each Python version | Every package |
+| `repo-health.yml` | Check the required files and the version block | Every package |
+| `license-check.yml` | Fail on a dependency with a copyleft or unknown license | Every package |
+| `pip-audit.yml` | Report dependencies with known vulnerabilities | Packages |
+| `lint.yml` | Run ruff, pre-commit and actionlint | Packages |
+| `type-check.yml` | Run mypy | Packages with type hints |
+| `coverage.yml` | Run pytest with coverage, optionally deploy the HTML report to Pages | Packages |
+| `channel-compat.yml` | Test against the constraints file of a release channel | Packages |
+| `downstream-check.yml` | List the packages that depend on this package | Core libraries |
+| `docs-check.yml` | Check that the required docs files exist, optionally run markdownlint | Any repo |
+| `markdown-check.yml` | Run markdownlint and a lychee link check as blocking gates | Markdown-only repos |
+| `opm-check.yml` | Find the plugin through OPM, check its interface and import time | Plugin repos |
+| `tts-intelligibility.yml` | Score a TTS plugin by an STT round trip and a WER gate | TTS plugin repos |
+| `redistribution-guard.yml` | Fail when a built artifact carries a library that the license whitelist accepts only when not redistributed | Image and wheel builds |
+| `skill-check.yml` | Check locale coverage and `skill.json` | Skill repos |
+| `spec-lint.yml` | Validate `locale/` against OVOS-INTENT-1 and OVOS-INTENT-2 | Skill repos |
+| `locale-lint.yml` | Run the spec lint and the project locale policy on changed locale files | Skill repos |
+| `locale-check.yml` | Check that the locale folder is in the built package | Skill repos |
+| `ovoscope.yml` | Run the ovoscope end-to-end skill tests | Skill repos |
+| `intent-case-tests.yml` | Measure intent-routing accuracy per language from case files | Skill repos |
+| `golden-utterances.yml` | Run the golden-utterance rows of a skill | Skill repos |
+| `notify-matrix.yml` | Send a message to the OVOS Matrix room | Release workflows |
+| `coverage-pages.yml` | Deprecated: use `coverage.yml` with `deploy_pages: true` | Legacy callers |
+| `python-support.yml` | Deprecated: use `build-tests.yml` | Legacy callers |
 
-- [OpenVoiceOS Workspace: AGENTS.md](../../AGENTS.md)
-- [Package Inventory](../../PACKAGE_INVENTORY.md)
+The workflows `test.yml` and `self-check-*.yml` run on this repo only. They are not reusable.
+
+## For agents
+
+Pick the workflow by the task:
+
+- A new package: copy the file set from [repo-setup.md](repo-setup.md). Do not write CI steps by hand.
+- A release problem: read `publish-alpha.yml` and `publish-stable.yml` in [release-flow.md](release-flow.md). Never edit `version.py` by hand; the workflows change it.
+- A skill: use `skill-check.yml`, `locale-lint.yml`, `ovoscope.yml` and `golden-utterances.yml`.
+- A plugin: use `opm-check.yml`. For a TTS plugin, add `tts-intelligibility.yml`.
+
+The inputs that matter most:
+
+- `gh_automations_ref` (default `dev`): the ref of the scripts checkout, in the workflows that have it. It must match the ref in `uses:`.
+- `uv_prerelease` (default `allow`): OVOS packages depend on alphas, so keep the default.
+- `install_extras`, `system_deps`, `pre_install_pip`: what the test environment installs.
+- `pr_comment` (default `true`): each check writes its own section of one shared PR comment.
+- `publish_pypi` (default `false` in both publish workflows): a caller must set it to `true` to upload to PyPI.
+- `warn_only`, `fail_on_errors`, `fail_on_missing`: they decide if a check blocks the PR. `pip-audit.yml` has `warn_only: true` by default; `license-check.yml` has `warn_only: false`.
+
+Safety rules for a change to a workflow in this repo:
+
+1. Never use a `secrets.*` value in an `if:` condition. GitHub rejects the workflow file. Copy the secret into a job `env:` value and test the env value.
+2. Never put an input or an event field directly in `run:` text. Pass it through `env:` and use the shell variable, so that a value cannot inject shell commands.
+3. `self-check-actionlint.yml` runs actionlint on each pull request and each push to `dev` that changes `.github/workflows/`. Run actionlint locally before you push.
+4. Run `pytest test/`. The test suite parses each workflow and checks the scripts.
+5. Update [workflow-reference.md](workflow-reference.md) when an input, a default or an output changes. Run `python docs/gen_inputs.py` to rewrite its generated inputs tables; `test/test_docs_inputs_tables.py` fails when one of them differs from its workflow.
+
+Agent-hint `verify` lines in these pages give a command that exits 0 when the page is still true.
