@@ -192,8 +192,11 @@ jobs:
         run: uv pip install pytest pytest-cov coverage[toml]
 
       - name: Refuse gh_token on pull_request_target
-        if: ${{ github.event_name == 'pull_request_target' && secrets.gh_token != '' }}
+        if: ${{ github.event_name == 'pull_request_target' }}
+        env:
+          GH_DEP_TOKEN: ${{ secrets.gh_token }}
         run: |
+          [ -z "${GH_DEP_TOKEN}" ] && exit 0
           echo "::error::gh_token must not be supplied on a pull_request_target run" \
             "-- it would expose the token to fork-controlled build code (pwn request)."
           exit 1
