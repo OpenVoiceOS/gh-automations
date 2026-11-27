@@ -1,9 +1,10 @@
-
 # Repos Using gh-automations
+
+<!-- agent-hint: list of caller repos by category; the caller counts per workflow are in img/callers.csv. verify: pytest test/ -->
 
 All repos in the OpenVoiceOS ecosystem that call one or more reusable workflows from `OpenVoiceOS/gh-automations`.
 
-Total: **209 repos** (as of 2026-03-07).
+The list has 209 repos. It is a hand-kept inventory: for the caller count of each workflow from a code search, see `img/callers.csv`.
 
 ---
 
@@ -317,3 +318,6 @@ Total: **209 repos** (as of 2026-03-07).
 | [skill-ovos-radio-spain](https://github.com/OpenVoiceOS/skill-ovos-radio-spain) | `skill-ovos-radio-spain` |
 | [skill-ovos-radio-tuga](https://github.com/OpenVoiceOS/skill-ovos-radio-tuga) | `skill-ovos-radio-tuga` |
 | [ovos_skill_installer](https://github.com/OpenVoiceOS/ovos_skill_installer) | `ovos-skill-installer` |
+
+---
+[← Repo Setup](repo-setup.md) · [Home](index.md) · [Maintenance →](maintenance.md)

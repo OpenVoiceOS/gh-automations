@@ -1,5 +1,6 @@
-
 # Reusable Workflow Reference
+
+<!-- agent-hint: inputs, defaults, jobs and outputs of each reusable workflow; the source of truth is the workflow_call block of each file in .github/workflows/. verify: pytest test/ -->
 
 All reusable workflows are in `.github/workflows/` and are called via:
 
@@ -1593,6 +1594,121 @@ usage: update_pr_comment.py \
     --content-file /tmp/section.md
 environment: GITHUB_TOKEN   (required)
 ```
+
+---
+
+## `docs-check.yml`
+
+Checks that the required docs files exist at the repo root, and optionally runs markdownlint-cli2. It writes a Docs section in the shared PR comment. It does not block a merge unless `fail_on_missing: true`.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
+| `runner` | string | `ubuntu-latest` |  |
+| `required_files` | string | `README.md` | Comma-separated list of files that must exist at the repo root. Checked with a simple exists() test — no content validation. |
+| `markdownlint` | boolean | `false` | Run markdownlint-cli2 on *.md files. Requires Node.js (available on ubuntu-latest runners). Results are reported in the PR comment but never block merges regardless of fail_on_missing. |
+| `markdownlint_config` | string | `""` | Path to a markdownlint config file (e.g. '.markdownlint.json'). If empty, markdownlint-cli2 uses its built-in defaults. |
+| `fail_on_missing` | boolean | `false` | When true, the job fails if any required file is absent. Default is false — docs check is informational. |
+| `pr_comment` | boolean | `true` | Post a 📚 Docs section in the shared OVOS PR Checks comment. Only runs when the workflow is triggered by a pull_request event. |
+
+## `intent-case-tests.yml`
+
+Measures intent-routing accuracy with the ovoscope intent-case files (`cases/<lang>/*.intent.test`). It runs one matrix job for each language in `langs`. Use `ovoscope.yml` for the general end-to-end suite.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
+| `uv_prerelease` | string | `allow` | uv prerelease resolution mode (allow \| if-necessary \| explicit \| disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas and relies on prerelease floor-pins resolving the way pip did. |
+| `runner` | string | `ubuntu-latest` |  |
+| `python_version` | string | `3.11` |  |
+| `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated) |
+| `install_extras` | string | `test` | Extra dependencies used when installing the package; must pull in ovoscope. Accepts a bare extras name ('test'), a bracketed list ('[dev,test]'), a full target ('.[test]'), or raw pip arguments ('-r requirements/test.txt'). |
+| `test_path` | string | `test/end2end/` | Path passed to pytest. Default `test/end2end/` collects the whole end2end suite; ovoscope's intent-case auto-discovery picks up the shim file (`ovoscope_intent_cases = {...}`) inside it. |
+| `require_adapt` | boolean | `false` |  |
+| `require_padatious` | boolean | `false` |  |
+| `require_m2v` | boolean | `false` |  |
+| `require_nebulento` | boolean | `false` |  |
+| `require_palavreado` | boolean | `false` |  |
+| `pre_release` | boolean | `false` | Install ovoscope and every required pipeline plugin from its GitHub `dev` branch instead of PyPI. |
+| `pr_comment` | boolean | `true` | Post a '🎯 Intent-Case Accuracy' section per shard in the OVOS PR Checks comment (only on pull_request). |
+| `langs` | string | `["all"]` | JSON array of language tags. One matrix job per lang. Each shard passes `-k '<slug>'` to pytest (slug = lang.replace('-', '_')) so only tests whose nodeid contains that slug run there. Pass the skill's locale list verbatim, e.g. '["en-US", "de-DE", "pt-PT"]'. The default `["all"]` runs the entire suite in a single job. |
+| `accuracy_baseline` | string | `""` | Path (relative to the skill repo root) of a previously-saved intent-accuracy report JSON. When supplied, the run fails on regressed (was-pass → now-fail) cases. |
+| `accuracy_tolerant` | boolean | `false` | Downgrade individual case failures to xfail. Only the aggregate gate (accuracy_min / regression list) can block the session. |
+| `accuracy_min` | string | `""` | Minimum overall pass rate (0.0-1.0). Fails the shard when the observed rate is below this value. |
+
+## `locale-lint.yml`
+
+Runs two jobs. The `spec` job runs ovos-spec-lint on the locale directories. The `policy` job runs `scripts/locale_gate.py` against the base branch and fails on findings that the pull request adds. The `policy` job runs on `pull_request` events only.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take scripts/locale_gate.py from. A caller testing a gh-automations branch passes that branch here. |
+| `runner` | string | `ubuntu-latest` |  |
+| `python_version` | string | `3.12` |  |
+| `locale_paths` | string | `""` | Space-separated locale directories to lint. Empty auto-detects every directory named locale/ or res/ that holds .intent, .dialog, .voc, .entity or .rx files. The policy job reads locale/ directories only; a res/ directory is linted by the spec job and not by the policy job. |
+| `spec_scope` | string | `changed` | "changed" fails the spec job only on findings in files this pull request adds or modifies; "all" fails on any finding in scope. |
+
+## `redistribution-guard.yml`
+
+Fails when a built artifact contains a library that the license whitelist accepts only on the condition that OVOS does not redistribute it. The failure text names the whitelist row. See [license-whitelist.md](license-whitelist.md).
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `runner` | string | `ubuntu-latest` |  |
+| `scan_paths` | string | `dist` | Space-separated paths to scan: a wheel directory, an unpacked image root, a container export. Every wheel found is unpacked and scanned too, because a bundled shared library is exactly the case this catches. |
+| `artifact_name` | string | `""` | Optional workflow artifact to download and scan, for a build whose output does not survive into this job. |
+| `guarded_libraries` | string | `libsoxr` | Space-separated library stems whose licence exception depends on our not redistributing them. Each has a row in docs/license-whitelist.md explaining the condition. |
+| `guarded_packages` | string | `soxr` | Space-separated Python distributions that link a guarded library statically. The soxr wheel builds libsoxr into soxr/soxr_ext*.so, so no libsoxr file appears. Each name matches its package directory, its dist-info and its <name>_ext* extension. |
+
+## `tts-intelligibility.yml`
+
+Synthesizes speech with the TTS plugin, transcribes it with a reference STT, and scores the round trip by WER and CER. The job fails when the mean WER is more than `max_wer`, unless `warn_only: true`.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
+| `uv_prerelease` | string | `allow` | uv prerelease resolution mode (allow \| if-necessary \| explicit \| disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas and relies on prerelease floor-pins resolving the way pip did. |
+| `runner` | string | `ubuntu-latest` | Runner label |
+| `python_version` | string | `3.11` | Python version to use |
+| `system_deps` | string | `""` | Extra apt packages to install before testing (space-separated), e.g. 'espeak-ng sox'. Engines backed by a system binary need this. |
+| `pre_test_command` | string | `""` | Command run after the package is installed and before pytest, in the repository root. For test dependencies that are not pip packages: a model download, a generated fixture, a service the tests talk to. |
+| `install_extras` | string | `test` | Extra dependencies used when installing the package; the extras should pull in ovoscope[tts]. Accepts a bare extras name ('test'), a bracketed list ('[dev,test]'), a full target ('.[test]'), or raw pip arguments ('-r requirements/test.txt'). |
+| `test_path` | string | `test/end2end/test_tts_intelligibility.py` | Path passed to pytest — the intelligibility test file |
+| `timeout_minutes` | number | `45` | Ceiling for the whole job. A healthy run synthesises and transcribes a handful of sentences in a few minutes; this leaves room for a cold model cache and still reports within the hour. The test step runs under its own timeout five minutes below this, so the log can say the run was cut instead of the runner killing the job silently. |
+| `max_wer` | string | `0.5` | Intelligibility gate (exported as TTS_MAX_WER): the test fails when the mean word-error-rate of the STT round-trip exceeds this. Default 0.5 — more than half the words wrong is treated as unintelligible. Raise it per-plugin for engines/voices/low-resource langs the reference STT transcribes weakly; lower it to tighten the bar. |
+| `pre_release` | boolean | `false` | Install ovoscope[tts] from its GitHub `dev` branch instead of PyPI. Use to validate against unreleased ovoscope changes. |
+| `pr_comment` | boolean | `true` | Post a '🗣️ TTS Intelligibility' section in the OVOS PR Checks comment. Only runs on pull_request events. |
+| `warn_only` | boolean | `false` | When false (default), the check GATES: an unintelligible round-trip (mean WER > max_wer) or a test-process error fails the PR. Set true to downgrade to report-only — the score is still posted to the PR comment but the check never fails — for engines/langs still being tuned. |
+
+## `type-check.yml`
+
+Runs mypy and writes a Type Check section in the shared PR comment. It does not block a merge unless `fail_on_errors: true`.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
+| `uv_prerelease` | string | `allow` | uv prerelease resolution mode (allow \| if-necessary \| explicit \| disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas and relies on prerelease floor-pins resolving the way pip did. |
+| `runner` | string | `ubuntu-latest` |  |
+| `python_version` | string | `3.11` |  |
+| `mypy_args` | string | `.` | Arguments passed to mypy (e.g. 'my_package' or '. --ignore-missing-imports'). Default checks the entire repository. |
+| `test_extras` | string | `dev` | Name of the pyproject.toml extras key that declares the package's test/typing dependencies. Tried first via 'pip install -e .[<key>]'. |
+| `test_extras_fallback` | string | `test` | Extras key tried if `test_extras` is not declared. Empty to skip. |
+| `install_extras` | string | `""` | Extra dependencies to install after the package install. Accepts a bare extras name ('dev'), a bracketed list ('[dev,rl]'), a full target ('.[dev]'), or raw pip arguments ('-r requirements/typing.txt'). |
+| `system_deps` | string | `""` | Extra apt packages to install before type-checking (space-separated) |
+| `fail_on_errors` | boolean | `false` | When true, the job fails if mypy reports any errors. Default is false — type check is informational. |
+| `pr_comment` | boolean | `true` | Post a 🔎 Type Check section in the shared OVOS PR Checks comment. Only runs when the workflow is triggered by a pull_request event. |
 
 ---
 [← Release Flow](release-flow.md) · [Home](index.md) · [License Whitelist →](license-whitelist.md)

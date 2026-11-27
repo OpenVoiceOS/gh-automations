@@ -1,5 +1,6 @@
-
 # Setting Up a New OVOS Repo
+
+<!-- agent-hint: the caller workflow files to copy into a new OVOS repo. verify: pytest test/ -->
 
 This guide covers the minimal CI/CD files for a new OVOS Python package. All workflow references use `@dev`: the active branch of gh-automations. If you are migrating an existing repo that currently uses `@master`, see [Migrating an Existing Repo](#migrating-an-existing-repo) below.
 

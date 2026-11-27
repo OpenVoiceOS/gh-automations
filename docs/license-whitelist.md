@@ -1,5 +1,7 @@
 # License whitelist
 
+<!-- agent-hint: packages that license-check.yml accepts although their license category is flagged, with the reason for each. verify: pytest test/ -->
+
 Central, audited list of packages that the license check (`license-check.yml`)
 flags by category but which are safe under the OVOS universal-donor policy
 (Apache 2.0). The reusable workflow applies this list by default, so individual
