@@ -110,7 +110,7 @@ on:
         description: >
           Path (relative to the skill repo root) of a previously-saved
           intent-accuracy report JSON. When supplied, the run fails on
-          regressed (was-pass → now-fail) cases.
+          each case that passed in the baseline and fails in this run.
       accuracy_tolerant:
         type: boolean
         default: false

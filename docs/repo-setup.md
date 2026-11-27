@@ -415,7 +415,7 @@ If your repo currently uses `codecov/codecov-action` in `unit_tests.yml`, migrat
     token: ${{ secrets.CODECOV_TOKEN }}
 ```
 
-**Step 2:** Add a new `coverage.yml` workflow (see [Optional Files → coverage.yml](#coverageyml--test-coverage-with-pr-diff-comments)):
+**Step 2:** Add a new `coverage.yml` workflow (see [coverage.yml](#coverageyml-test-coverage-with-pr-diff-comments)):
 
 ```yaml
 name: Coverage

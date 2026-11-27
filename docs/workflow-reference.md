@@ -1603,6 +1603,7 @@ Checks that the required docs files exist at the repo root, and optionally runs 
 
 ### Inputs
 
+<!-- inputs:docs-check.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
@@ -1612,6 +1613,7 @@ Checks that the required docs files exist at the repo root, and optionally runs 
 | `markdownlint_config` | string | `""` | Path to a markdownlint config file (e.g. '.markdownlint.json'). If empty, markdownlint-cli2 uses its built-in defaults. |
 | `fail_on_missing` | boolean | `false` | When true, the job fails if any required file is absent. Default is false — docs check is informational. |
 | `pr_comment` | boolean | `true` | Post a 📚 Docs section in the shared OVOS PR Checks comment. Only runs when the workflow is triggered by a pull_request event. |
+<!-- /inputs -->
 
 ## `intent-case-tests.yml`
 
@@ -1619,6 +1621,7 @@ Measures intent-routing accuracy with the ovoscope intent-case files (`cases/<la
 
 ### Inputs
 
+<!-- inputs:intent-case-tests.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
@@ -1636,9 +1639,34 @@ Measures intent-routing accuracy with the ovoscope intent-case files (`cases/<la
 | `pre_release` | boolean | `false` | Install ovoscope and every required pipeline plugin from its GitHub `dev` branch instead of PyPI. |
 | `pr_comment` | boolean | `true` | Post a '🎯 Intent-Case Accuracy' section per shard in the OVOS PR Checks comment (only on pull_request). |
 | `langs` | string | `["all"]` | JSON array of language tags. One matrix job per lang. Each shard passes `-k '<slug>'` to pytest (slug = lang.replace('-', '_')) so only tests whose nodeid contains that slug run there. Pass the skill's locale list verbatim, e.g. '["en-US", "de-DE", "pt-PT"]'. The default `["all"]` runs the entire suite in a single job. |
-| `accuracy_baseline` | string | `""` | Path, relative to the skill repo root, of a saved intent-accuracy report JSON. When set, the run fails on each case that passed in that report and fails in this run. |
+| `accuracy_baseline` | string | `""` | Path (relative to the skill repo root) of a previously-saved intent-accuracy report JSON. When supplied, the run fails on each case that passed in the baseline and fails in this run. |
 | `accuracy_tolerant` | boolean | `false` | Downgrade individual case failures to xfail. Only the aggregate gate (accuracy_min / regression list) can block the session. |
 | `accuracy_min` | string | `""` | Minimum overall pass rate (0.0-1.0). Fails the shard when the observed rate is below this value. |
+<!-- /inputs -->
+
+## `lint.yml`
+
+Runs ruff, pre-commit and actionlint, and writes the results in the shared PR comment. `ruff` and `actionlint` are on by default; `pre_commit` is off. With `actionlint_fail: true` (the default), an actionlint finding fails the job.
+
+### Inputs
+
+<!-- inputs:lint.yml -->
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
+| `uv_prerelease` | string | `allow` | uv prerelease resolution mode (allow \| if-necessary \| explicit \| disallow). Defaults to "allow": the OVOS ecosystem ships pre-1.0 alphas and relies on prerelease floor-pins resolving the way pip did. |
+| `runner` | string | `ubuntu-latest` |  |
+| `python_version` | string | `3.11` |  |
+| `ruff` | boolean | `true` | Run ruff check |
+| `ruff_args` | string | `. --exclude _gh_automations` | Arguments passed to ruff check (e.g. '. --select E,F'). Default excludes _gh_automations/, which is where other reusable workflows in this repo check themselves out as a sibling for PR comment scripts. Without this exclude, consumers see ruff errors from this repo's own scripts in their skill PRs. |
+| `pre_commit` | boolean | `false` | Run pre-commit run --all-files (requires .pre-commit-config.yaml) |
+| `actionlint` | boolean | `true` | Run actionlint over .github/workflows: expression syntax, action inputs, runner labels, job and step shapes. External linters (shellcheck, pyflakes) are off, so a run block's shell style is not judged. A workflow GitHub refuses at parse time fails every push to every branch with no job created and no filter applied (hivemind-test-harness docs-mirror.yml, 60 runs); this catches it on the pull request. |
+| `actionlint_fail` | boolean | `true` | A finding from actionlint fails the job. ruff and pre-commit stay informational; a workflow file GitHub cannot parse is a different class of defect. Set false to report only. |
+| `pr_comment` | boolean | `true` | Post a section in the OVOS PR Checks comment on pull_request events |
+| `section_key` | string | `""` | Key of the PR comment section. The comment keeps one section per id, so a caller that runs this workflow more than once on one pull request (one ruff_args per package, say) gives each call its own key, or the last call overwrites the section of the others. Empty keeps the historical id "lint"; a value gives "lint-<key>" and the title "Lint (<key>)". |
+<!-- /inputs -->
+
+---
 
 ## `locale-lint.yml`
 
@@ -1646,6 +1674,7 @@ Runs two jobs. The `spec` job runs ovos-spec-lint on the locale directories. The
 
 ### Inputs
 
+<!-- inputs:locale-lint.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take scripts/locale_gate.py from. A caller testing a gh-automations branch passes that branch here. |
@@ -1653,6 +1682,7 @@ Runs two jobs. The `spec` job runs ovos-spec-lint on the locale directories. The
 | `python_version` | string | `3.12` |  |
 | `locale_paths` | string | `""` | Space-separated locale directories to lint. Empty auto-detects every directory named locale/ or res/ that holds .intent, .dialog, .voc, .entity or .rx files. The policy job reads locale/ directories only; a res/ directory is linted by the spec job and not by the policy job. |
 | `spec_scope` | string | `changed` | "changed" fails the spec job only on findings in files this pull request adds or modifies; "all" fails on any finding in scope. |
+<!-- /inputs -->
 
 ## `redistribution-guard.yml`
 
@@ -1660,6 +1690,7 @@ Fails when a built artifact contains a library that the license whitelist accept
 
 ### Inputs
 
+<!-- inputs:redistribution-guard.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `runner` | string | `ubuntu-latest` |  |
@@ -1667,6 +1698,7 @@ Fails when a built artifact contains a library that the license whitelist accept
 | `artifact_name` | string | `""` | Optional workflow artifact to download and scan, for a build whose output does not survive into this job. |
 | `guarded_libraries` | string | `libsoxr` | Space-separated library stems whose licence exception depends on our not redistributing them. Each has a row in docs/license-whitelist.md explaining the condition. |
 | `guarded_packages` | string | `soxr` | Space-separated Python distributions that link a guarded library statically. The soxr wheel builds libsoxr into soxr/soxr_ext*.so, so no libsoxr file appears. Each name matches its package directory, its dist-info and its <name>_ext* extension. |
+<!-- /inputs -->
 
 ## `tts-intelligibility.yml`
 
@@ -1674,6 +1706,7 @@ Synthesizes speech with the TTS plugin, transcribes it with a reference STT, and
 
 ### Inputs
 
+<!-- inputs:tts-intelligibility.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
@@ -1689,6 +1722,7 @@ Synthesizes speech with the TTS plugin, transcribes it with a reference STT, and
 | `pre_release` | boolean | `false` | Install ovoscope[tts] from its GitHub `dev` branch instead of PyPI. Use to validate against unreleased ovoscope changes. |
 | `pr_comment` | boolean | `true` | Post a '🗣️ TTS Intelligibility' section in the OVOS PR Checks comment. Only runs on pull_request events. |
 | `warn_only` | boolean | `false` | When false (default), the check GATES: an unintelligible round-trip (mean WER > max_wer) or a test-process error fails the PR. Set true to downgrade to report-only — the score is still posted to the PR comment but the check never fails — for engines/langs still being tuned. |
+<!-- /inputs -->
 
 ## `type-check.yml`
 
@@ -1696,6 +1730,7 @@ Runs mypy and writes a Type Check section in the shared PR comment. It does not 
 
 ### Inputs
 
+<!-- inputs:type-check.yml -->
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `gh_automations_ref` | string | `dev` | Branch or sha of OpenVoiceOS/gh-automations to take the helper scripts from. A caller testing a gh-automations branch passes that branch here so the scripts match the workflow it calls. |
@@ -1709,6 +1744,7 @@ Runs mypy and writes a Type Check section in the shared PR comment. It does not 
 | `system_deps` | string | `""` | Extra apt packages to install before type-checking (space-separated) |
 | `fail_on_errors` | boolean | `false` | When true, the job fails if mypy reports any errors. Default is false — type check is informational. |
 | `pr_comment` | boolean | `true` | Post a 🔎 Type Check section in the shared OVOS PR Checks comment. Only runs when the workflow is triggered by a pull_request event. |
+<!-- /inputs -->
 
 ---
 [← Release Flow](release-flow.md) · [Home](index.md) · [License Whitelist →](license-whitelist.md)

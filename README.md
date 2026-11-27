@@ -20,7 +20,7 @@ jobs:
     secrets: inherit
 ```
 
-Each reusable workflow checks out this repo at run time to get the scripts in `scripts/`. The `gh_automations_ref` input sets that ref; the default is `dev`.
+Most reusable workflows check out this repo at run time to get the scripts in `scripts/`, at the ref that the `gh_automations_ref` input sets (default `dev`). `publish-alpha.yml`, `publish-stable.yml` and `downstream-check.yml` always check out `dev`. `coverage-pages.yml`, `golden-utterances.yml`, `markdown-check.yml`, `notify-matrix.yml` and `redistribution-guard.yml` do not check out the scripts.
 
 ## Documentation
 

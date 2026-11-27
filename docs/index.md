@@ -28,7 +28,12 @@ jobs:
     secrets: inherit
 ```
 
-Each reusable workflow checks out this repo at run time to get `scripts/`. The ref of that checkout comes from the `gh_automations_ref` input, with the default `dev`. A caller that tests a branch of this repo sets both the `@<ref>` in `uses:` and `gh_automations_ref` to that branch.
+Most reusable workflows check out this repo at run time to get `scripts/`. The ref of that checkout comes from the `gh_automations_ref` input, with the default `dev`. Eight workflows have no such input:
+
+- `publish-alpha.yml`, `publish-stable.yml` and `downstream-check.yml` always check out `dev`.
+- `coverage-pages.yml`, `golden-utterances.yml`, `markdown-check.yml`, `notify-matrix.yml` and `redistribution-guard.yml` do not check out the scripts.
+
+A caller that tests a branch of this repo sets both the `@<ref>` in `uses:` and `gh_automations_ref` to that branch.
 
 ## Pages
 
@@ -86,7 +91,7 @@ Pick the workflow by the task:
 
 The inputs that matter most:
 
-- `gh_automations_ref` (default `dev`): the ref of the scripts checkout. It must match the ref in `uses:`.
+- `gh_automations_ref` (default `dev`): the ref of the scripts checkout, in the workflows that have it. It must match the ref in `uses:`.
 - `uv_prerelease` (default `allow`): OVOS packages depend on alphas, so keep the default.
 - `install_extras`, `system_deps`, `pre_install_pip`: what the test environment installs.
 - `pr_comment` (default `true`): each check writes its own section of one shared PR comment.
@@ -99,6 +104,6 @@ Safety rules for a change to a workflow in this repo:
 2. Never put an input or an event field directly in `run:` text. Pass it through `env:` and use the shell variable, so that a value cannot inject shell commands.
 3. `self-check-actionlint.yml` runs actionlint on each pull request and each push to `dev` that changes `.github/workflows/`. Run actionlint locally before you push.
 4. Run `pytest test/`. The test suite parses each workflow and checks the scripts.
-5. Update [workflow-reference.md](workflow-reference.md) when an input, a default or an output changes.
+5. Update [workflow-reference.md](workflow-reference.md) when an input, a default or an output changes. Run `python docs/gen_inputs.py` to rewrite its generated inputs tables; `test/test_docs_inputs_tables.py` fails when one of them differs from its workflow.
 
 Agent-hint `verify` lines in these pages give a command that exits 0 when the page is still true.
