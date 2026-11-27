@@ -64,8 +64,8 @@ jobs:
       - name: Scan for redistributed libraries
         shell: bash
         env:
-          SCAN_PATHS: ${SCAN_PATHS}
-          GUARDED_LIBRARIES: ${GUARDED_LIBRARIES}
+          SCAN_PATHS: ${{ inputs.scan_paths }}
+          GUARDED_LIBRARIES: ${{ inputs.guarded_libraries }}
           GUARDED_PACKAGES: ${{ inputs.guarded_packages }}
         run: |
           set -uo pipefail

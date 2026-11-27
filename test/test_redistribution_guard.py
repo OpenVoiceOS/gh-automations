@@ -7,6 +7,7 @@ fixture trees and wheels.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import zipfile
 from pathlib import Path
@@ -35,12 +36,14 @@ def scan(tmp_path: Path, files: list[str], wheel: bool = False) -> subprocess.Co
             target = dist / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"")
-    env = dict(
-        os.environ,
-        SCAN_PATHS="dist",
-        GUARDED_LIBRARIES=inputs["guarded_libraries"]["default"],
-        GUARDED_PACKAGES=inputs["guarded_packages"]["default"],
-    )
+    # build the env from the step's own env block, as Actions does
+    values = {name: spec.get("default", "") for name, spec in inputs.items()}
+    values["scan_paths"] = "dist"
+    env = dict(os.environ)
+    for key, expr in step["env"].items():
+        m = re.fullmatch(r"\$\{\{ inputs\.(\w+) \}\}", expr)
+        assert m, f"env {key} is not an inputs expression, Actions passes it literally: {expr!r}"
+        env[key] = values[m.group(1)]
     return subprocess.run(["bash", "-c", step["run"]], env=env, cwd=tmp_path,
                           capture_output=True, text=True)
 
