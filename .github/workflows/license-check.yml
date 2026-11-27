@@ -726,7 +726,12 @@ jobs:
           elif len(parts) == 1:
               merged = parts[0]
           else:
-              merged = "|".join(f"({p})" for p in parts)
+              # Python rejects a global flag such as `(?i)` after the start, so
+              # a part's leading flags become a scoped group, same in Java regex.
+              def scoped(p):
+                  m = re.match(r"\(\?([imsx]+)\)", p)
+                  return f"(?{m[1]}:{p[m.end():]})" if m else p
+              merged = "|".join(f"({scoped(p)})" for p in parts)
           print(f"regex={merged}")
           PYEOF
 
