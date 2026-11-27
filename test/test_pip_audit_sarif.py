@@ -2,8 +2,10 @@
 Tests for scripts/pip_audit_sarif.py — the pip-audit JSON to SARIF converter.
 
 Covers: load_dependencies (both report shapes, and the refusal to treat a
-corrupt or missing file as a clean audit), find_manifest, and build_sarif
-(rule dedup, one alert per vulnerability, location, and the empty case).
+corrupt or missing file as a clean audit), skipped_packages and the refusal
+to upload an analysis that leaves a package out, find_manifest, and
+build_sarif (rule dedup, one alert per vulnerability, location, and the
+empty case).
 
 Runs without any external dependencies beyond the Python standard library.
 """
@@ -23,8 +25,20 @@ from pip_audit_sarif import (  # noqa: E402
     build_sarif,
     find_manifest,
     load_dependencies,
+    local_projects,
     main,
+    skipped_packages,
 )
+
+# pip-audit 2.10.1 writes this entry for a package whose version string is
+# not PEP 440. The audit exits 0 and says nothing else about the package.
+SKIPPED_ENTRY = {
+    "name": "weirdpkg",
+    "skip_reason": (
+        "Package has invalid version and could not be audited: "
+        "weirdpkg (1.0.0.dev-weird)"
+    ),
+}
 
 VULN_REPORT = {
     "dependencies": [
@@ -125,7 +139,7 @@ def test_load_dependencies_clean_report_is_not_an_error(tmp_path):
 # --- main -------------------------------------------------------------------
 
 
-def run_main(monkeypatch, in_path, out_path, root):
+def run_main(monkeypatch, in_path, out_path, root, audit_outcome="success"):
     monkeypatch.setattr(
         sys,
         "argv",
@@ -137,6 +151,8 @@ def run_main(monkeypatch, in_path, out_path, root):
             str(out_path),
             "--root",
             str(root),
+            "--audit-outcome",
+            audit_outcome,
         ],
     )
     main()
@@ -175,6 +191,83 @@ def test_main_writes_the_report_for_a_good_audit(tmp_path, monkeypatch):
     out = tmp_path / "out.sarif"
     run_main(monkeypatch, good, out, tmp_path)
     assert len(json.loads(out.read_text())["runs"][0]["results"]) == 3
+
+
+# --- an audit that left a package out --------------------------------------
+
+
+def test_skipped_packages_reads_the_name_and_the_reason():
+    gaps = skipped_packages([{"name": "a", "version": "1", "vulns": []}, SKIPPED_ENTRY])
+    assert gaps == [("weirdpkg", SKIPPED_ENTRY["skip_reason"])]
+
+
+def test_skipped_packages_is_empty_for_a_complete_audit():
+    assert skipped_packages(VULN_REPORT["dependencies"]) == []
+
+
+def test_main_writes_no_file_when_a_package_was_not_audited(tmp_path, monkeypatch):
+    # The report parses and lists no vulnerability, so it reads as clean.
+    # Code scanning keeps one analysis per (ref, category): uploading this
+    # closes every alert the last complete audit raised.
+    report = write(
+        tmp_path,
+        "r.json",
+        {"dependencies": [{"name": "a", "version": "1", "vulns": []}, SKIPPED_ENTRY]},
+    )
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, report, out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_writes_no_file_when_a_finding_sits_beside_a_skip(tmp_path, monkeypatch):
+    # The findings are real, but the analysis does not cover weirdpkg, and an
+    # uploaded analysis replaces the whole previous one.
+    incomplete = dict(VULN_REPORT)
+    incomplete["dependencies"] = VULN_REPORT["dependencies"] + [SKIPPED_ENTRY]
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, write(tmp_path, "r.json", incomplete), out, tmp_path)
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_names_the_skipped_package_on_stderr(tmp_path, monkeypatch, capsys):
+    report = write(tmp_path, "r.json", {"dependencies": [SKIPPED_ENTRY]})
+    with pytest.raises(SystemExit):
+        run_main(monkeypatch, report, tmp_path / "out.sarif", tmp_path)
+    err = capsys.readouterr().err
+    assert "1 package(s) unaudited" in err
+    assert "weirdpkg (Package has invalid version" in err
+
+
+def test_main_writes_no_file_when_a_failed_audit_reports_nothing(tmp_path, monkeypatch):
+    # pip-audit exits non-zero only when it found something, and exits before
+    # it writes the report when it fails. A failed step with a clean report
+    # describes some other run.
+    clean = write(tmp_path, "r.json", {"dependencies": [{"name": "a", "version": "1", "vulns": []}]})
+    out = tmp_path / "out.sarif"
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(monkeypatch, clean, out, tmp_path, audit_outcome="failure")
+    assert exit_info.value.code == 2
+    assert not out.exists()
+
+
+def test_main_writes_the_report_when_a_failed_audit_found_something(tmp_path, monkeypatch):
+    # The normal vulnerable run: pip-audit exits 1 and the findings upload.
+    good = write(tmp_path, "r.json", VULN_REPORT)
+    out = tmp_path / "out.sarif"
+    run_main(monkeypatch, good, out, tmp_path, audit_outcome="failure")
+    assert len(json.loads(out.read_text())["runs"][0]["results"]) == 3
+
+
+def test_main_writes_the_report_when_the_outcome_is_unknown(tmp_path, monkeypatch):
+    # A caller that passes no outcome keeps the report it would have had.
+    clean = write(tmp_path, "r.json", {"dependencies": [{"name": "a", "version": "1", "vulns": []}]})
+    out = tmp_path / "out.sarif"
+    run_main(monkeypatch, clean, out, tmp_path, audit_outcome="")
+    assert json.loads(out.read_text())["runs"][0]["results"] == []
 
 
 # --- find_manifest ----------------------------------------------------------
@@ -284,3 +377,69 @@ def test_build_sarif_keeps_the_same_id_in_two_packages():
     run = build_sarif(deps, "pyproject.toml")["runs"][0]
     prints = [r["partialFingerprints"]["pipAuditVuln"] for r in run["results"]]
     assert sorted(prints) == ["a:1:PYSEC-1", "b:2:PYSEC-1"]
+
+
+# pip-audit writes this entry for the project under audit when its local
+# version is not on PyPI, for example an unreleased alpha.
+OWN_NOT_ON_PYPI = {
+    "name": "ovos-hardware-helpers",
+    "skip_reason": (
+        "Dependency not found on PyPI and could not be audited: "
+        "ovos-hardware-helpers (1.0.2a2)"
+    ),
+}
+
+
+def test_the_projects_own_not_on_pypi_skip_is_not_a_gap():
+    deps = [{"name": "a", "version": "1", "vulns": []}, OWN_NOT_ON_PYPI]
+    assert skipped_packages(deps, {"ovos-hardware-helpers"}) == []
+
+
+def test_a_not_on_pypi_skip_of_another_package_is_a_gap():
+    deps = [OWN_NOT_ON_PYPI]
+    assert skipped_packages(deps, {"ovos-other"}) == [
+        ("ovos-hardware-helpers", OWN_NOT_ON_PYPI["skip_reason"])
+    ]
+
+
+def test_an_invalid_version_skip_of_the_project_is_still_a_gap():
+    entry = dict(SKIPPED_ENTRY)
+    assert skipped_packages([entry], {"weirdpkg"}) == [("weirdpkg", entry["skip_reason"])]
+
+
+def test_main_writes_the_sarif_when_only_the_project_itself_is_unpublished(
+    tmp_path, monkeypatch
+):
+    report = write(
+        tmp_path,
+        "r.json",
+        {"dependencies": [{"name": "a", "version": "1", "vulns": []}, OWN_NOT_ON_PYPI]},
+    )
+    out = tmp_path / "out.sarif"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pip_audit_sarif.py", "--input", str(report), "--output", str(out),
+            "--root", str(tmp_path), "--audit-outcome", "success",
+            "--project", "ovos_hardware.helpers",
+        ],
+    )
+    main()
+    assert json.loads(out.read_text())["runs"][0]["results"] == []
+
+
+def test_local_projects_finds_the_distribution_installed_from_root(tmp_path):
+    site = tmp_path / "site"
+    project = tmp_path / "project"
+    project.mkdir()
+    for name, url in (
+        ("Ovos_Hardware.Helpers", project.as_uri()),
+        ("elsewhere", (tmp_path / "other").as_uri()),
+        ("requests", "https://files.example/requests.whl"),
+    ):
+        info = site / f"{name}-1.0.dist-info"
+        info.mkdir(parents=True)
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n")
+        (info / "direct_url.json").write_text(json.dumps({"url": url}))
+    assert local_projects(project, path=[str(site)]) == {"ovos-hardware-helpers"}

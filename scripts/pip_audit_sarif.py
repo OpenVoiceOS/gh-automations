@@ -11,20 +11,27 @@ Usage:
     pip_audit_sarif.py --input <pip-audit.json> --output <report.sarif>
 """
 import argparse
+import importlib.metadata
 import json
 import pathlib
+import re
 import sys
+import urllib.parse
+import urllib.request
 
 MANIFESTS = ("pyproject.toml", "requirements.txt", "setup.py", "setup.cfg")
 
 
 class ReportError(Exception):
-    """The pip-audit report is absent, unreadable, or not a pip-audit report.
+    """The pip-audit report does not describe a complete audit.
 
-    This is not the same as a report that lists no vulnerability. An audit
-    that did not run must never write a report that says the code is clean:
-    code scanning keeps one analysis per (ref, category), so a clean report
-    closes every alert the last good run raised.
+    It is absent, unreadable, not a pip-audit report, it leaves a package
+    unaudited, or it lists no vulnerability although pip-audit exited
+    non-zero. None of these is the same as a report that lists no
+    vulnerability. An audit that did not run must never write a report that
+    says the code is clean: code scanning keeps one analysis per (ref,
+    category), so a clean report closes every alert the last good run
+    raised.
     """
 
 
@@ -64,6 +71,57 @@ def load_dependencies(path: pathlib.Path) -> list:
         f"{path} is not a pip-audit report: expected a list or an object "
         f"with a 'dependencies' key, found {type(data).__name__}"
     )
+
+
+NOT_ON_PYPI = "Dependency not found on PyPI"
+
+
+def canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def local_projects(root: pathlib.Path, path: list = sys.path) -> set:
+    """Canonical names of the installed distributions built from `root`.
+
+    pip records a local install in direct_url.json (PEP 610) as a file:// URL.
+    """
+    root = root.resolve()
+    names = set()
+    for dist in importlib.metadata.distributions(path=path):
+        text = dist.read_text("direct_url.json")
+        if not text:
+            continue
+        url = json.loads(text).get("url", "")
+        if not url.startswith("file://"):
+            continue
+        location = pathlib.Path(urllib.request.url2pathname(urllib.parse.urlparse(url).path))
+        if location.resolve() == root:
+            names.add(canonical(dist.metadata["Name"]))
+    return names
+
+
+def skipped_packages(dependencies: list, own: set = frozenset()) -> list:
+    """[(name, reason)] for every package pip-audit did not audit.
+
+    pip-audit writes `{"name": ..., "skip_reason": ...}` for a dependency it
+    cannot resolve, for example one whose version string is not PEP 440. The
+    entry carries no version and no "vulns" key, the exit code stays 0, and
+    nothing outside the report says that a package was left out. Such a
+    report reads as a clean audit of the whole environment.
+
+    The project under audit is absent from PyPI whenever its local version is
+    unpublished. That skip leaves no dependency out, so a name in `own` with
+    that reason is not a gap.
+    """
+    gaps = []
+    for dep in dependencies:
+        reason = dep.get("skip_reason")
+        if reason and not (
+            canonical(dep.get("name", "")) in own
+            and str(reason).startswith(NOT_ON_PYPI)
+        ):
+            gaps.append((dep.get("name", "unknown"), " ".join(str(reason).split())))
+    return gaps
 
 
 def build_sarif(dependencies: list, manifest: str) -> dict:
@@ -140,16 +198,45 @@ def main() -> None:
     parser.add_argument(
         "--root", default=".", help="Repository root, to find the dependency file"
     )
+    parser.add_argument(
+        "--audit-outcome",
+        default="",
+        help="Outcome of the audit step: success, failure, or empty when unknown",
+    )
+    parser.add_argument(
+        "--project",
+        action="append",
+        help="Name of the project under audit; default: the distributions installed from --root",
+    )
     args = parser.parse_args()
 
     try:
         dependencies = load_dependencies(pathlib.Path(args.input))
+        if args.project:
+            own = {canonical(name) for name in args.project}
+        else:
+            own = local_projects(pathlib.Path(args.root))
+        gaps = skipped_packages(dependencies, own)
+        if gaps:
+            raise ReportError(
+                "pip-audit left "
+                + f"{len(gaps)} package(s) unaudited: "
+                + "; ".join(f"{name} ({reason})" for name, reason in gaps)
+            )
+        manifest = find_manifest(pathlib.Path(args.root))
+        sarif = build_sarif(dependencies, manifest)
+        # pip-audit exits non-zero when it reports a vulnerability, and exits
+        # before it writes the report when it fails. A failed step and a
+        # report with no finding therefore contradict each other, and the
+        # report does not describe the run that wrote it.
+        if args.audit_outcome == "failure" and not sarif["runs"][0]["results"]:
+            raise ReportError(
+                "the audit step failed and the report lists no vulnerability"
+            )
     except ReportError as err:
         # Write nothing. An empty report reads as "no vulnerability found".
         sys.stderr.write(f"pip-audit report unusable, no SARIF written: {err}\n")
         raise SystemExit(2)
-    manifest = find_manifest(pathlib.Path(args.root))
-    sarif = build_sarif(dependencies, manifest)
     with open(args.output, "w") as handle:
         json.dump(sarif, handle, indent=2)
 
