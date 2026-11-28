@@ -56,3 +56,8 @@ def test_non_utf8_page_is_a_finding(tmp_path):
     write(tmp_path, {"docs/index.md": f"# i\n{HINT}"})
     (tmp_path / "docs/b.md").write_bytes(b"# b\n\xff\xfe")
     assert check(tmp_path) == ([("DS-12", "docs/b.md", "not UTF-8, not checked")], 2)
+
+
+def test_docs_readme_is_a_folder_index(tmp_path):
+    write(tmp_path, {"docs/README.md": f"# d\n{HINT}no footer\n", "docs/index.md": f"# i\n{HINT}"})
+    assert check(tmp_path) == ([], 2)

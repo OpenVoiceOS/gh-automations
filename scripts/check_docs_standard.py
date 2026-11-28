@@ -6,7 +6,7 @@
 Rule IDs are those of the docs standard:
   DS-6   README of at most README_MAX lines
   DS-6a  README links its Hugging Face Space (only with --hf-space)
-  DS-8   each docs page except the index ends with `---` and a footer that links the index
+  DS-8   each docs page except the index (index.md, or the README.md GitHub shows for its folder) ends with `---` and a footer that links the index
   DS-9   README and each docs page have an agent-hint comment right after the H1,
          with the keys covers, source, generated, verify and see
   DS-11  no agent scratch files at the root
@@ -89,7 +89,7 @@ def check(root, hf_space=None):
             continue
         rel = page.relative_to(root)
         findings += hint_findings(rel, text)
-        if page.name != "index.md":
+        if page.name not in ("index.md", "README.md"):
             findings += footer_findings(rel, text)
         findings += link_findings(root, page, text)
     findings += [("DS-11", name, "agent scratch file") for name in NOISE if (root / name).exists()]
