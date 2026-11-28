@@ -42,7 +42,11 @@ def test_the_workflow_does_not_invoke_pytest_through_dash_m():
         for line in run.splitlines()
         if line.strip().startswith(("pytest ", "python -m pytest"))
     ]
-    assert command == ["pytest ${{ inputs.test_path }} -v ${{ inputs.pytest_args }} | tee pytest.log"], command
+    assert command == [
+        "pytest ${{ inputs.test_path }} -v "
+        "--import-mode=${{ inputs.import_mode }} ${{ inputs.pytest_args }} "
+        "| tee pytest.log"
+    ], command
 
 
 def test_the_working_directory_is_not_changed_away_from_the_repository_root():
