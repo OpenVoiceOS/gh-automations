@@ -43,6 +43,25 @@ on:
         description: >
           When true, the job fails if any required file is absent.
           Default is false — docs check is informational.
+      docs_standard:
+        type: boolean
+        default: false
+        description: >
+          Check README.md and docs/ against the OVOS docs standard with
+          scripts/check_docs_standard.py: README length, agent hints, page
+          footers, agent scratch files and relative links. Informational
+          unless fail_on_standard is true.
+      hf_space:
+        type: string
+        default: ""
+        description: >
+          The owner/name of the Hugging Face Space that demonstrates the
+          repository. With docs_standard, the README must link it.
+      fail_on_standard:
+        type: boolean
+        default: false
+        description: >
+          When true, the job fails if the docs standard check has a finding.
       pr_comment:
         type: boolean
         default: true
@@ -142,6 +161,17 @@ jobs:
           fi
           exit $RC
 
+      - name: Check the docs standard
+        id: docs_standard
+        if: ${{ inputs.docs_standard }}
+        # continue-on-error so the PR comment step always runs.
+        continue-on-error: true
+        run: |
+          python3 _gh_automations/scripts/check_docs_standard.py --root . \
+            --hf-space "$HF_SPACE" --json /tmp/docs-standard.json
+        env:
+          HF_SPACE: ${{ inputs.hf_space }}
+
       - name: Format docs check section for PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
         run: |
@@ -194,6 +224,22 @@ jobs:
               else:
                   lines.append(f"⚠️ **markdownlint**: {kv.get('issues', 'some')} issue(s) in {files} file(s) — check the job log")
 
+          if os.environ.get("RUN_DOCS_STANDARD", "false").lower() == "true":
+              lines.append("")
+              try:
+                  report = json.load(open("/tmp/docs-standard.json"))
+              except (FileNotFoundError, json.JSONDecodeError):
+                  report = None
+              if report is None:
+                  lines.append("⚠️ **docs standard**: did not run — see the job log")
+              elif not report["findings"]:
+                  lines.append(f"✅ **docs standard**: no finding in {report['files']} file(s)")
+              else:
+                  lines.append(f"⚠️ **docs standard**: {len(report['findings'])} finding(s) in {report['files']} file(s)")
+                  lines.append("")
+                  for rule, where, what in report["findings"][:30]:
+                      lines.append(f"- {rule} `{where}`: {what}")
+
           with open("/tmp/docs-check-section.md", "w") as f:
               f.write("\n".join(lines))
           PYEOF
@@ -201,6 +247,7 @@ jobs:
           FILE_CHECK_OUTCOME: ${{ steps.file_check.outcome }}
           MARKDOWNLINT_OUTCOME: ${{ steps.markdownlint.outcome }}
           RUN_MARKDOWNLINT: ${{ inputs.markdownlint }}
+          RUN_DOCS_STANDARD: ${{ inputs.docs_standard }}
 
       - name: Post docs check section to PR comment
         if: ${{ inputs.pr_comment && github.event_name == 'pull_request' }}
@@ -220,4 +267,10 @@ jobs:
         if: ${{ steps.file_check.outcome == 'failure' && inputs.fail_on_missing }}
         run: |
           echo "Required documentation files are missing — see report above."
+          exit 1
+
+      - name: Fail job if the docs standard check has a finding
+        if: ${{ steps.docs_standard.outcome == 'failure' && inputs.fail_on_standard }}
+        run: |
+          echo "The docs standard check has findings — see the report above."
           exit 1
