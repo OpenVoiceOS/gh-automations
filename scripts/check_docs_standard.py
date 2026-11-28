@@ -26,7 +26,7 @@ NOISE = ("AUDIT.md", "HANDOFF.md", "FINDINGS.md", "NOTES.md", "STATUS.md", "TODO
          "CLAUDE.md", "llms.txt")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
-CODE = re.compile(r"`[^`\n]*`")
+CODE = re.compile(r"(`+)[^\n]*?\1")
 SCHEME = re.compile(r"[a-z][a-z0-9+.-]*:", re.I)
 
 

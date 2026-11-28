@@ -48,7 +48,7 @@ def test_nested_page_footer_links_parent_index(tmp_path):
 
 def test_link_forms_that_resolve(tmp_path):
     write(tmp_path, {"docs/index.md": f"# i\n{HINT}", "docs/a.md":
-        f"# a\n{HINT}`[ic](gone.md)` [r](/docs/index.md) [q](index.md?plain=1) [u](HTTPS://x.org){FOOT}"})
+        f"# a\n{HINT}`[ic](gone.md)` ``a [dc](gone.md) `` [r](/docs/index.md) [q](index.md?plain=1) [u](HTTPS://x.org){FOOT}"})
     assert check(tmp_path) == ([], 2)
 
 
