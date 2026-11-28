@@ -44,3 +44,15 @@ def test_exit_code(tmp_path):
 def test_nested_page_footer_links_parent_index(tmp_path):
     write(tmp_path, {"docs/lang/pt.md": f"# pt\n{HINT}text\n---\n[Home](../index.md)\n", "docs/index.md": f"# i\n{HINT}"})
     assert check(tmp_path) == ([], 2)
+
+
+def test_link_forms_that_resolve(tmp_path):
+    write(tmp_path, {"docs/index.md": f"# i\n{HINT}", "docs/a.md":
+        f"# a\n{HINT}`[ic](gone.md)` [r](/docs/index.md) [q](index.md?plain=1) [u](HTTPS://x.org){FOOT}"})
+    assert check(tmp_path) == ([], 2)
+
+
+def test_non_utf8_page_is_a_finding(tmp_path):
+    write(tmp_path, {"docs/index.md": f"# i\n{HINT}"})
+    (tmp_path / "docs/b.md").write_bytes(b"# b\n\xff\xfe")
+    assert check(tmp_path) == ([("DS-12", "docs/b.md", "not UTF-8, not checked")], 2)

@@ -26,6 +26,8 @@ NOISE = ("AUDIT.md", "HANDOFF.md", "FINDINGS.md", "NOTES.md", "STATUS.md", "TODO
          "CLAUDE.md", "llms.txt")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
+CODE = re.compile(r"`[^`\n]*`")
+SCHEME = re.compile(r"[a-z][a-z0-9+.-]*:", re.I)
 
 
 def hint_findings(path, text):
@@ -37,7 +39,7 @@ def hint_findings(path, text):
     if not rest or not rest[0].startswith("<!-- agent-hint"):
         return [("DS-9", path, "no agent-hint comment right after the H1")]
     block = text[text.index("<!-- agent-hint"):]
-    block = block[:block.find("-->")]
+    block = block.split("-->")[0]
     missing = [k for k in HINT_KEYS if not re.search(rf"^{k}:", block, re.M)]
     return [("DS-9", path, f"agent-hint misses {', '.join(missing)}")] if missing else []
 
@@ -51,21 +53,29 @@ def footer_findings(path, text):
 
 def link_findings(root, path, text):
     out = []
-    for target in LINK.findall(FENCE.sub("", text)):
-        if re.match(r"[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
+    for target in LINK.findall(CODE.sub("", FENCE.sub("", text))):
+        if SCHEME.match(target) or target.startswith("#"):
             continue
-        file = target.split("#")[0]
-        if file and not (path.parent / file).resolve().exists():
+        file = re.split(r"[#?]", target)[0]
+        base = root if file.startswith("/") else path.parent
+        if file and not (base / file.lstrip("/")).resolve().exists():
             out.append(("DS-12", path.relative_to(root), f"broken link {target}"))
     return out
+
+
+def read(root, path, findings):
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        findings.append(("DS-12", path.relative_to(root), "not UTF-8, not checked"))
 
 
 def check(root, hf_space=None):
     findings = []
     readme = root / "README.md"
     pages = sorted((root / "docs").rglob("*.md")) if (root / "docs").is_dir() else []
-    if readme.is_file():
-        text = readme.read_text(encoding="utf-8")
+    text = read(root, readme, findings) if readme.is_file() else None
+    if text is not None:
         n = len(text.splitlines())
         if n > README_MAX:
             findings.append(("DS-6", "README.md", f"{n} lines, more than {README_MAX}"))
@@ -74,7 +84,9 @@ def check(root, hf_space=None):
         findings += hint_findings("README.md", text)
         findings += link_findings(root, readme, text)
     for page in pages:
-        text = page.read_text(encoding="utf-8")
+        text = read(root, page, findings)
+        if text is None:
+            continue
         rel = page.relative_to(root)
         findings += hint_findings(rel, text)
         if page.name != "index.md":
