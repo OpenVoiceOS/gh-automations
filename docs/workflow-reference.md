@@ -1612,6 +1612,9 @@ Checks that the required docs files exist at the repo root, and optionally runs 
 | `markdownlint` | boolean | `false` | Run markdownlint-cli2 on *.md files. Requires Node.js (available on ubuntu-latest runners). Results are reported in the PR comment but never block merges regardless of fail_on_missing. |
 | `markdownlint_config` | string | `""` | Path to a markdownlint config file (e.g. '.markdownlint.json'). If empty, markdownlint-cli2 uses its built-in defaults. |
 | `fail_on_missing` | boolean | `false` | When true, the job fails if any required file is absent. Default is false — docs check is informational. |
+| `docs_standard` | boolean | `false` | Check README.md and docs/ against the OVOS docs standard with scripts/check_docs_standard.py: README length, agent hints, page footers, agent scratch files and relative links. Informational unless fail_on_standard is true. |
+| `hf_space` | string | `""` | The owner/name of the Hugging Face Space that demonstrates the repository. With docs_standard, the README must link it. |
+| `fail_on_standard` | boolean | `false` | When true, the job fails if the docs standard check has a finding. |
 | `pr_comment` | boolean | `true` | Post a 📚 Docs section in the shared OVOS PR Checks comment. Only runs when the workflow is triggered by a pull_request event. |
 <!-- /inputs -->
 
